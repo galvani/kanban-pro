@@ -121,7 +121,9 @@ expose its own unified **webhooks/events** (and/or MCP notifications) to clients
 one?
 **Why it matters:** the unified event surface is powerful but non-trivial; polling-only is
 a simpler v1.
-**A:** _..._
+**A:** ✅ (b) Full unified push in v1: MCP notifications + kanban-pro webhooks + pull
+change-feed, all fed by one core append-only cursored change-log. Internal reconciliation
+polling stays mandatory (backend push is weak). → SPEC decision 9.
 
 ---
 

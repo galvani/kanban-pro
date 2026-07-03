@@ -241,6 +241,25 @@ failure mode, not an edge case. Design:
   identical creates. **Opt-outable**, because it false-positives on two *genuinely*
   identical entities (e.g. two real "Buy milk" cards); not forced.
 
+### 9. Events: unified push surface + mandatory reconciliation
+
+kanban-pro is the **single live event source** over all backends. Two halves:
+
+- **Internal reconciliation (mandatory).** Backend webhook delivery is weak (drops, no
+  ordering — see research), so the core **polls to reconcile** its view with the backend
+  and treats inbound backend webhooks (where they exist) as *hints* that trigger a
+  re-fetch. This keeps the canonical view correct regardless of backend push quality.
+- **Client-facing unified push (v1).** kanban-pro exposes its **own** event surface,
+  hiding the per-backend zoo:
+  - **MCP notifications** — harness-native push (a subscribed harness gets change events).
+  - **kanban-pro webhooks** — HTTP push for non-MCP clients and the UI (live board).
+  - **Pull change-feed** — `changes since <cursor>` for clients that prefer polling.
+
+  All three are fed by one **core change-log (append-only, cursored)** covering
+  card/column/board create·update·move·archive·delete. The change-log is the single
+  source; MCP/webhook/feed are thin projections of it (same no-drift principle as the
+  interface layers).
+
 ## Tech Stack
 
 - **Python 3.12+**
