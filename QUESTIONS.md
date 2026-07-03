@@ -34,7 +34,7 @@ referenced by Card.assignees[] and Comment.author. → SPEC "Canonical domain mo
 **Question:** Add `due_date` (and maybe `start_date`) to Card, or leave it in `ext`?
 **Why it matters:** nearly every surveyed tool has due dates; it's a strong candidate for
 the core rather than passthrough. Cost: another field every adapter must map.
-**A:** _..._
+**A:** ✅ (b) both `start_date?` + `due_date?` in core Card (nullable). → SPEC Card model.
 
 ## 🟢 Q4 — Checklists / subtasks: first-class, or via relations/ext?
 
