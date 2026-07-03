@@ -42,7 +42,9 @@ the core rather than passthrough. Cost: another field every adapter must map.
 (b) model subtasks as `parent`/`child` **relations** between cards; (c) leave in `ext`.
 **Why it matters:** backends split hard here (Trello checklists vs Jira subtasks vs
 Kanboard's two systems). (b) reuses the relation model; (a) is richer but heavier.
-**A:** _..._
+**A:** ✅ Both, split: subtasks = child cards via PARENT/CHILD relations (reuse);
+checklists = first-class minimal `Card.checklists[]` + `CHECKLISTS` capability
+(polyfill via write-through). → SPEC Card/Checklist + ports Capability.
 
 ## 🟢 Q5 — Attachments as a first-class entity?
 

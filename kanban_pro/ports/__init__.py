@@ -30,7 +30,8 @@ class Capability(Enum):
     REORDER_COLUMNS = auto()
     REORDER_CARDS = auto()
     RELATIONS = auto()  # typed card<->card links (see RelationKind)
-    SUBTASKS = auto()  # parent/child hierarchy (sometimes a field, not a link)
+    SUBTASKS = auto()  # child CARDS via PARENT/CHILD relations (sometimes a field)
+    CHECKLISTS = auto()  # lightweight {text, done} items nested on a card (not cards)
     WIP_LIMITS = auto()  # server-enforced only in Vikunja (+ kanban-pro native)
     WORKFLOW = auto()  # allowed column->column transitions; only Jira enforces it
     MULTI_BOARD_MEMBERSHIP = auto()  # a card in several boards/lists at once
