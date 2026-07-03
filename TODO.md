@@ -57,6 +57,25 @@ Durable backlog. Newest ideas at top; move items into JOURNAL when decided/done.
 - [ ] FastAPI routes + `GET /capabilities` in `kanban_pro/api/`; `app.py` entrypoint.
 - [ ] Contract test suite (the shared suite every adapter must pass).
 
+## Flow management (workflow engine) — design area
+
+- [ ] **Flow management: transitions + hooks.** Grow `WORKFLOW` from "allowed moves" into
+  a small per-board/profile automation engine (kanban-pro Tier-1 polyfill — works over any
+  backend since it wraps `move_card`).
+  - **Transition graph:** allowed `column→column` edges (a state machine) per board/profile;
+    `move_card` validated against it; expose the graph so a harness can ask "what moves are
+    legal from here" (like Jira `GET /transitions`).
+  - **Hooks:**
+    - *pre-transition validators* — can block/deny a move (e.g. "can't reach Done with an
+      open checklist" / required field missing). Return allow/deny + reason.
+    - *post-transition actions* — fire after a move (set a field, add a comment, create a
+      follow-up card, notify, emit a custom event).
+  - **Design questions to settle:** where hooks are defined (config vs code/plugins);
+    sync (blocking, for validators) vs async (post-actions); how hooks integrate with the
+    change-log/event surface (decision 9) and idempotency (decision 8); failure semantics
+    (does a failing post-action roll back the move?).
+  - Relates to SPEC decision 2 (WORKFLOW polyfill, Tier 1) + decision 9 (events).
+
 ## UI (to explore)
 
 - [ ] **Check the Hermes board plugin we built** — see whether its board UI can be reused
