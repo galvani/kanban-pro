@@ -70,10 +70,33 @@ Durable backlog. Newest ideas at top; move items into JOURNAL when decided/done.
       open checklist" / required field missing). Return allow/deny + reason.
     - *post-transition actions* — fire after a move (set a field, add a comment, create a
       follow-up card, notify, emit a custom event).
-  - **Design questions to settle:** where hooks are defined (config vs code/plugins);
-    sync (blocking, for validators) vs async (post-actions); how hooks integrate with the
-    change-log/event surface (decision 9) and idempotency (decision 8); failure semantics
-    (does a failing post-action roll back the move?).
+  - **START: a single declarative YAML per profile** (states, transitions, WIP limits,
+    hooks), loaded at startup. Version-controlled, diffable, no UI needed; fits decision 3
+    (config file for definitions) — lives in the profile config or a referenced `flow.yaml`.
+    Sketch:
+    ```yaml
+    flows:
+      default:
+        states: [backlog, todo, doing, review, done]
+        wip_limits: { doing: 3, review: 2 }
+        transitions:
+          - { from: todo,   to: doing }
+          - { from: doing,  to: [review, todo] }
+          - { from: review, to: [done, doing] }
+        hooks:
+          - { on: enter, state: done, require: checklists_complete, else: deny }  # validator
+          - { on: exit,  state: doing, do: set_field, field: started_at, value: now }  # action
+    ```
+  - **Hooks split into two kinds** (reserve both in the syntax from day one):
+    - *declarative built-ins* — fixed vocabulary (`require: …`, `do: set_field|add_comment|
+      notify`); covers most cases, zero code.
+    - *named code hooks* — escape hatch `do: hook:<name>` → registered Python handler for
+      logic YAML can't express. Build the handlers later; reserve the syntax now.
+  - **Static-first:** YAML reloads on change/restart. Runtime-editable (store-backed via
+    the API) is deferred — the YAML is the seed that loads into the flow engine.
+  - **Design questions still to settle:** sync (blocking, validators) vs async (post-actions);
+    how hooks integrate with the change-log/event surface (decision 9) and idempotency
+    (decision 8); failure semantics (does a failing post-action roll back the move?).
   - Relates to SPEC decision 2 (WORKFLOW polyfill, Tier 1) + decision 9 (events).
 
 ## UI (to explore)
