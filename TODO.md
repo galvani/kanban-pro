@@ -113,3 +113,9 @@ Durable backlog. Newest ideas at top; move items into JOURNAL when decided/done.
 - [ ] Workflow control: allowed column→column transitions (state machine), `WORKFLOW`
   capability, `move_card` validated against the transition graph.
 - [ ] Additional profiles: Jira, Trello, …
+- [ ] **Real-Jira connector / webhook — copy cards between boards** (2026-07-04). A `jira`
+  adapter + inbound Jira webhook ingest so cards can be **copied across boards** (Jira ↔
+  native/Hermes) through the canonical model. Note: cross-board *copy* leans on the
+  `placements[]` model + the change-log (decision 9); a true two-way *sync* between two
+  live backends is explicitly out of v1 scope (SPEC "What This Project Is NOT") — decide
+  copy-once vs. keep-in-sync when we get here.
