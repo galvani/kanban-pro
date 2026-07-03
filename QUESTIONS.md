@@ -134,7 +134,9 @@ exactly **one active profile** per run, or multiple mounted at once (e.g. `/herm
 `/jira/...`)?
 **Why it matters:** "one active `--profile`" is simplest and matches the original concept;
 multi-mount is more flexible but changes routing and the API shape.
-**A:** _..._
+**A:** ✅ (a) One active profile per run for v1; multi-mount deferred (addable later without
+core rework). Config: profile defs in a file, secrets via env/secret store, env selects
+active profile. → SPEC decision 3.
 
 ---
 

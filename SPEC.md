@@ -169,6 +169,17 @@ startup via `--profile <name>` (CLI) or `KANBAN_PRO_PROFILE` (env): e.g.
 module in `kanban_pro/adapters/` implementing the port + a profile entry in
 `config.py`. No core change; callers pick a profile, not a code path.
 
+**One active profile per run (v1).** Exactly one backend is locked in per instance —
+clean single API + one capability set; switching backend = restart with a different
+profile. **Multi-mount** (several profiles live at once, namespaced `/hermes/…`,
+`/jira/…`, capabilities per mount) is deferred: profiles are already named/registered, so
+a mount-prefix layer can be added later without reworking the core.
+
+**Config location.** Profile *definitions* (adapter + non-secret settings) live in a
+**config file**; **secrets** (backend tokens) come from **env / secret store**, never a
+committed file (matches the credential-holder pattern — keys out of committed configs);
+env also selects the active profile.
+
 ### 4. Card placement is a set, not a single column
 
 A card carries `placements[]` (`{board_id, column_id, position}`), not one `column_id`.
