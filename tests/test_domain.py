@@ -66,8 +66,8 @@ def test_board_with_columns_and_labels() -> None:
 
 def test_enums_are_str_and_json_friendly() -> None:
     # str-enums serialize to their value — important for MCP/JSON surfaces.
-    assert ColumnCategory.DONE == "done"
-    assert RelationKind.BLOCKED_BY == "blocked_by"
+    assert ColumnCategory.DONE.value == "done"
+    assert RelationKind.BLOCKED_BY.value == "blocked_by"
     rel = Relation(kind=RelationKind.BLOCKS, from_card="c1", to_card="c2")
     assert rel.model_dump()["kind"] == "blocks"
 
