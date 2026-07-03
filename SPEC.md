@@ -154,6 +154,13 @@ kanban-pro config, applied at move time.
 - **Tier 3 — hard, needs backend cooperation:** faithful ordering when the backend owns
   position; multi-board membership over a single-board backend. Attempt last.
 
+**v1 polyfill commitments (Q8):** kanban-pro guarantees **`WORKFLOW` + `WIP_LIMITS`**
+(Tier 1) + **`ARCHIVE`** (flag) + **`RELATIONS`** (write-through) regardless of backend.
+Other Tier-2 caps (`CHECKLISTS`, `ATTACHMENTS`, `COMMENTS`, `MULTI_ASSIGNEE`) are
+**delegate-if-native, else best-effort/unavailable — decided per backend** once Hermes's
+native surface is confirmed. `CUSTOM_FIELDS` is always available (it's `ext`). Tier 3 is
+`unavailable` in v1.
+
 ### 3. Provider selection via `--profile`
 
 A **profile** bundles an adapter with its settings. The active profile is chosen at

@@ -86,7 +86,10 @@ MULTI_ASSIGNEE — which MUST work (via polyfill) in v1 even if the backend lack
 which can be `unavailable` at first?
 **Why it matters:** scopes the first augmentation build. My default: v1 polyfills Tier-1
 (WORKFLOW + WIP enforcement) + RELATIONS; defers the rest.
-**A:** _..._
+**A:** ✅ v1 guarantees WORKFLOW + WIP_LIMITS + ARCHIVE + RELATIONS regardless of backend.
+Other Tier-2 (CHECKLISTS/ATTACHMENTS/COMMENTS/MULTI_ASSIGNEE) = delegate-if-native else
+best-effort/unavailable, decided per backend after confirming Hermes. Tier 3 unavailable
+in v1. → SPEC decision 2 "v1 polyfill commitments".
 
 ## 🟠 Q9 — Write-through encoding: confirm the approach
 
@@ -94,7 +97,9 @@ which can be `unavailable` at first?
 (hidden-marker comment / custom field), overlay store only as fallback (SPEC decision 2).
 **Why it matters:** it's the call that keeps the backend authoritative (your correction);
 just want it explicitly ratified.
-**A:** _..._
+**A:** ✅ Ratified (this was your own correction): prefer write-through into backend
+containers (hidden-marker comment / field / description), overlay store only as fallback.
+→ SPEC decision 2.
 
 ---
 
