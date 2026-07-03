@@ -73,7 +73,9 @@ no permanent delete at all.)*
 only for v1?
 **Why it matters:** batching helps clients and cuts rate-limit pressure, but complicates
 adapters (some backends have no batch endpoint → the proxy loops).
-**A:** _..._
+**A:** ✅ (b) Bulk in v1 (create/move/update/archive) at the API/MCP surface, implemented
+as a `core/` loop over single-item port methods with **partial-success per-item results**.
+Port stays single-item; adapters MAY add native batch later. → SPEC "Canonical operations".
 
 ---
 

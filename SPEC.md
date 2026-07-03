@@ -66,9 +66,17 @@ CRUD + movement, expressed backend-neutrally:
 - Cards: list, get, create, update, **archive/unarchive**, delete (guarded — see
   decision 7), **move** (column + position)
 - Labels / assignees / comments: attach, detach, list
+- **Bulk** (API/MCP surface): batch `create` / `move` / `update` / `archive` — e.g.
+  move many cards at once (agents reorganizing a board).
 
 The authoritative interface lives in code as a `Protocol` in
 `kanban_pro/ports/` — that Protocol IS the contract every adapter implements.
+
+**Bulk is a core convenience, not part of the port.** The port stays single-item; the
+`core/` service implements bulk by looping over single-item port methods and returning
+**per-item results with partial-success** (some succeed, some fail — each reported).
+Adapters MAY later override a bulk op with a native batch endpoint for efficiency, but
+none is required to. This keeps the adapter contract simple while giving clients batching.
 
 ## Key Design Decisions
 
