@@ -18,16 +18,40 @@ class Capability(Enum):
     """Operations a backend may or may not support.
 
     Adapters declare their supported set; the core checks before dispatch and returns
-    a canonical `not_supported` instead of leaking an opaque backend error.
+    a canonical `not_supported` instead of leaking an opaque backend error. Set grounded
+    in docs/research/kanban-backends.md (15-product survey).
     """
 
-    WIP_LIMITS = auto()
     COMMENTS = auto()
     LABELS = auto()
     ASSIGNEES = auto()
+    MULTI_ASSIGNEE = auto()  # Wekan/Asana/ClickUp yes; Kanboard single-owner
+    CUSTOM_FIELDS = auto()  # pervasive & tenant-specific -> surfaced via entity `ext`
     REORDER_COLUMNS = auto()
     REORDER_CARDS = auto()
-    WORKFLOW = auto()  # roadmap: allowed column->column transitions (state machine)
+    RELATIONS = auto()  # typed card<->card links (see RelationKind)
+    SUBTASKS = auto()  # parent/child hierarchy (sometimes a field, not a link)
+    WIP_LIMITS = auto()  # server-enforced only in Vikunja (+ kanban-pro native)
+    WORKFLOW = auto()  # allowed column->column transitions; only Jira enforces it
+    MULTI_BOARD_MEMBERSHIP = auto()  # a card in several boards/lists at once
+    WEBHOOKS = auto()  # backend can push events (else kanban-pro polls on clients' behalf)
+
+
+class RelationKind(Enum):
+    """Canonical typed-relation vocabulary (modeled on Vikunja's `relation_kind`).
+
+    Inverse-paired: BLOCKS<->BLOCKED_BY, PARENT<->CHILD, PRECEDES<->FOLLOWS. Adapters map
+    to/from the backend's link types and gate on Capability.RELATIONS.
+    """
+
+    RELATES = auto()
+    BLOCKS = auto()
+    BLOCKED_BY = auto()
+    DUPLICATES = auto()
+    PARENT = auto()
+    CHILD = auto()
+    PRECEDES = auto()
+    FOLLOWS = auto()
 
 
 class KanbanError(Exception):
@@ -79,4 +103,8 @@ class KanbanBackend(Protocol):
     async def create_card(self, column_id: str, card: Any) -> Any: ...
     async def update_card(self, card_id: str, patch: Any) -> Any: ...
     async def delete_card(self, card_id: str) -> None: ...
-    async def move_card(self, card_id: str, to_column_id: str, position: int) -> Any: ...
+    # move targets a (board, column, position) placement; board_id disambiguates when a
+    # card has multiple placements (Capability.MULTI_BOARD_MEMBERSHIP).
+    async def move_card(
+        self, card_id: str, to_board_id: str, to_column_id: str, position: int
+    ) -> Any: ...

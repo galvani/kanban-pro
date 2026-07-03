@@ -3,5 +3,10 @@
 The ONLY types that cross the port boundary. Keep the core minimal — backend-specific
 fields belong in each entity's `ext` mapping, not here (see SPEC.md, decision 1).
 
-TODO: define Board, Column, Card, Label, Comment.
+Card placement is a set of {board_id, column_id, position} entries (`placements[]`),
+not a single column_id — a card may live on several boards at once (SPEC decision 4).
+Single-board backends + the native store use one placement.
+
+TODO: define Board, Column (with a category enum), Card (with placements[]), Label,
+Comment, and a Relation edge (RelationKind lives in ports/).
 """

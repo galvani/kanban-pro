@@ -34,8 +34,11 @@ The minimum a kanban needs, kept deliberately small and backend-neutral:
 
 - **Board** — a container. `id`, `name`, `description`, `columns[]`.
 - **Column** (a.k.a. list/lane/status) — `id`, `name`, `order`, optional `wip_limit`.
-- **Card** — `id`, `column_id`, `title`, `description`, `order`, `labels[]`,
-  `assignees[]`, `created_at`, `updated_at`, and `ext` (see passthrough below).
+- **Card** — `id`, `title`, `description`, `labels[]`, `assignees[]`, `created_at`,
+  `updated_at`, `ext` (see passthrough), and **`placements[]`** — a set of
+  `{board_id, column_id, position}` entries locating the card. A card lives on ≥1
+  board, each with its own column + ordering; single-board backends and the native
+  store use exactly one placement (see decision below).
 - **Label** — `id`, `name`, `color`.
 - **Comment** — `id`, `card_id`, `author`, `body`, `created_at`.
 
@@ -94,7 +97,17 @@ startup via `--profile <name>` (CLI) or `KANBAN_PRO_PROFILE` (env): e.g.
 module in `kanban_pro/adapters/` implementing the port + a profile entry in
 `config.py`. No core change; callers pick a profile, not a code path.
 
-### 4. Errors are canonical too
+### 4. Card placement is a set, not a single column
+
+A card carries `placements[]` (`{board_id, column_id, position}`), not one `column_id`.
+Research showed one-card-one-column is violated by Asana, ClickUp, monday, GitLab, and
+Jira — a card can sit on several boards at once. The set models this faithfully;
+single-board backends and the native store use the **degenerate one-entry** case so the
+common path stays trivial. `move_card` targets a `(board_id, column_id, position)` and
+updates the matching placement. `MULTI_BOARD_MEMBERSHIP` capability advertises whether a
+backend supports >1 placement.
+
+### 5. Errors are canonical too
 
 Adapters translate backend errors into a canonical error taxonomy (not_found,
 conflict, unauthorized, not_supported, backend_unavailable) so callers get stable
@@ -131,6 +144,32 @@ tests/
 - **Self-hosted / personal tool.** No multi-tenant auth story required yet; keep it
   runnable locally against Hermes.
 
+## Grounding: backend research
+
+The canonical model, capability set, and the retry/heartbeat concerns below are grounded
+in a 15-product API survey — see [docs/research/kanban-backends.md](docs/research/kanban-backends.md).
+Load-bearing findings:
+
+- **Only Jira enforces a workflow state machine** server-side; everyone else is free-form
+  status assignment. → kanban-pro's own transition/WIP enforcement is a *differentiator*.
+- **"Column" is modeled ~9 ways** → canonical `Column` carries a **category enum**
+  (triage/backlog/unstarted/started/done/canceled, from Linear) so "which column is done?"
+  survives translation.
+- **One-card-one-column is violated** by Asana/ClickUp/monday/GitLab/Jira → placement may
+  be a `(board → column)` **membership set**, not a single pointer. **Open fork** (below).
+- **Typed dependencies** exist in most tools but not all → `RELATIONS` capability +
+  a `RelationKind` enum modeled on Vikunja.
+- **No backend offers idempotency keys**, and retry/rate-limit signaling differs per
+  product (Linear even returns HTTP 400, not 429) → the proxy owns a normalized retry
+  layer + create-dedupe.
+- **Webhook delivery is weak and true heartbeats are rare** → inbound events are hints;
+  reconciliation polling + a per-adapter `keepalive/refresh` hook are core concerns, and
+  kanban-pro exposes ONE unified event/heartbeat surface to its clients.
+
+These are cross-cutting layers the **proxy core** owns, not any single adapter: normalized
+retry/backoff, idempotency/dedupe, reconciliation polling + unified events, and per-adapter
+keepalive/refresh (Jira webhooks expire at 30 days; Asana monitors an 8h heartbeat).
+
 ## Roadmap
 
 - **v1 — Hermes parity.** Canonical model + port + `hermes` adapter covering Hermes's
@@ -154,8 +193,9 @@ tests/
 
 ## Open Questions
 
+- **Ordering:** use rebalanced integer / lexo-rank ordering, not naive floats (Planka &
+  Trello float positions need periodic rebalancing — a known pain).
 - First adapter: confirm Hermes kanban's actual API surface (endpoints, auth, data
   shape) before finalizing the `hermes` adapter and the canonical↔Hermes mapping.
-- Is a local/in-memory (or SQLite) reference adapter worth building first as the
-  contract's proving ground and test fixture? (Recommended: yes — it validates the
-  port without a live backend.)
+- Native store is DECIDED as the next build (see TODO.md) — reference Planka's schema +
+  Vikunja's relations/WIP; it doubles as the port's proving ground and test fixture.

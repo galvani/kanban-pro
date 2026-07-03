@@ -45,6 +45,31 @@
 
 ---
 
+## 2026-07-03 — Backend API research (15 products) + native store decided next
+
+- **Did:** surveyed 15 kanban/tracker APIs (Jira, Linear, Asana, monday, ClickUp,
+  Trello, GitHub Projects, GitLab, Notion, Kanboard, Wekan, Focalboard, Planka,
+  Vikunja, Taiga) across auth, methods, workflow, relations, retry, webhooks/heartbeat,
+  custom fields. Full writeup: `docs/research/kanban-backends.md`.
+- **Decision:** **Native store is the next build**, sequenced after this research
+  (before the Hermes adapter). References: Planka (schema + realtime), Vikunja
+  (relations + WIP). It doubles as the port's reference/proving-ground.
+- **Finding → design:** only Jira enforces workflow transitions server-side →
+  kanban-pro's own transition/WIP enforcement is a differentiator, not LCD.
+- **Finding → design:** `Column` gains a **category enum** (Linear's
+  triage/backlog/unstarted/started/done/canceled) for portable "done-ness."
+- **Decision:** card placement is a **`placements[]` set** of `{board_id, column_id,
+  position}`, not a single `column_id` — one-card-one-column is violated by Asana/
+  ClickUp/monday/GitLab/Jira. Single-board backends + native store use the degenerate
+  one-entry case; `move_card` now takes `(board_id, column_id, position)`;
+  `MULTI_BOARD_MEMBERSHIP` capability advertises >1 placement. (SPEC decision 4.)
+- **Finding → design:** typed relations behind `RELATIONS` cap + `RelationKind` enum
+  (modeled on Vikunja, inverse-paired). Expanded the `Capability` enum in `ports/`.
+- **Finding → design:** no backend has idempotency keys and retry signals differ
+  (Linear returns HTTP 400 not 429) → the proxy core owns normalized retry + create-
+  dedupe + reconciliation polling + per-adapter keepalive/refresh (Jira 30-day webhook
+  expiry, Asana 8h heartbeat) + a unified event surface for clients.
+
 ## Template for future entries
 
 ## YYYY-MM-DD — {title}
