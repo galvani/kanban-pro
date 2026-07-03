@@ -109,7 +109,10 @@ containers (hidden-marker comment / field / description), overlay store only as 
 don't duplicate cards (no backend offers this natively)?
 **Why it matters:** the research showed zero backends have idempotency keys; if we want
 safe retries, the proxy must own dedupe. Small now, painful to retrofit.
-**A:** _..._
+**A:** ✅ (b) REQUIRE a client key on create/add ops (create card, add comment/checklist-
+item/relation/attachment); naturally-idempotent ops (update/move/archive) need none. NO
+server-generated random key (defeats dedupe). PLUS a content-hash fallback for no-key
+creates over a short TTL, opt-outable. → SPEC decision 8.
 
 ## 🔴 Q11 — Reconciliation / event surface for v1?
 

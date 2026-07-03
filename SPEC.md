@@ -221,6 +221,26 @@ misfiring agent could irrecoverably destroy a card. So removal is **archive-firs
 *(Open: if strict archive-only — no permanent delete ever — is preferred, drop the
 guarded `delete`. Current stance keeps the guarded purge.)*
 
+### 8. Idempotency & dedupe (no backend provides it)
+
+The research found **zero backends offer idempotency keys**, so the proxy owns dedupe.
+Clients are harnesses that retry on timeout/error, so duplicate-on-retry is a frequent
+failure mode, not an edge case. Design:
+
+- **Naturally-idempotent ops need no key** — `update`, `move`, `archive`, set-field.
+  Repeating them converges to the same state (move-to-C twice = still in C).
+- **Create/add ops REQUIRE a client-supplied idempotency key** — create card, add
+  comment / checklist item / relation / attachment. `core/` keeps a short-TTL
+  key→result cache; a retry with the same key returns the original result instead of
+  appending a duplicate. A harness generates one key per logical action and reuses it on
+  retry — the only thing that actually dedupes.
+- **No server-generated random key as a dedupe substitute.** A key generated when absent
+  differs on each retry → no dedupe (a false comfort); it's only useful for tracing.
+- **No-key create fallback:** derive a **content-hash** key (endpoint + normalized
+  payload + target) over a short TTL window — best-effort dedupe of double-fired
+  identical creates. **Opt-outable**, because it false-positives on two *genuinely*
+  identical entities (e.g. two real "Buy milk" cards); not forced.
+
 ## Tech Stack
 
 - **Python 3.12+**
