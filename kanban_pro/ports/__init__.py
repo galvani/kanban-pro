@@ -33,6 +33,7 @@ class Capability(Enum):
     SUBTASKS = auto()  # child CARDS via PARENT/CHILD relations (sometimes a field)
     CHECKLISTS = auto()  # lightweight {text, done} items nested on a card (not cards)
     ATTACHMENTS = auto()  # link-only {url, title} for v1; file uploads deferred
+    ARCHIVE = auto()  # soft archive/unarchive; polyfilled as a flag where absent
     WIP_LIMITS = auto()  # server-enforced only in Vikunja (+ kanban-pro native)
     WORKFLOW = auto()  # allowed column->column transitions; only Jira enforces it
     MULTI_BOARD_MEMBERSHIP = auto()  # a card in several boards/lists at once
@@ -117,6 +118,9 @@ class KanbanBackend(Protocol):
     async def get_card(self, card_id: str) -> Any: ...
     async def create_card(self, column_id: str, card: Any) -> Any: ...
     async def update_card(self, card_id: str, patch: Any) -> Any: ...
+    async def archive_card(self, card_id: str) -> Any: ...  # soft, recoverable (default)
+    async def unarchive_card(self, card_id: str) -> Any: ...
+    # permanent purge; the core guards this to archived cards only (SPEC decision 7).
     async def delete_card(self, card_id: str) -> None: ...
     # move targets a (board, column, position) placement; board_id disambiguates when a
     # card has multiple placements (Capability.MULTI_BOARD_MEMBERSHIP).

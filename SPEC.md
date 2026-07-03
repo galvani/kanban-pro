@@ -63,7 +63,8 @@ CRUD + movement, expressed backend-neutrally:
 
 - Boards: list, get, create, update, delete
 - Columns: list, create, update, delete, reorder
-- Cards: list, get, create, update, delete, **move** (column + position)
+- Cards: list, get, create, update, **archive/unarchive**, delete (guarded — see
+  decision 7), **move** (column + position)
 - Labels / assignees / comments: attach, detach, list
 
 The authoritative interface lives in code as a `Protocol` in
@@ -186,6 +187,24 @@ logic lives in an interface layer, so MCP/CLI/HTTP cannot drift.
 Adapters translate backend errors into a canonical error taxonomy (not_found,
 conflict, unauthorized, not_supported, backend_unavailable) so callers get stable
 error semantics regardless of backend.
+
+### 7. Deletion is archive-first (safety for agent-driven ops)
+
+Because harnesses call these operations, an unguarded `delete` is dangerous — a
+misfiring agent could irrecoverably destroy a card. So removal is **archive-first**:
+
+- `archive(card)` / `unarchive(card)` — soft, recoverable; the default "remove from
+  board." Archived cards are hidden from normal listings.
+- `delete(card)` — permanent purge, but **guarded: only permitted on an
+  already-archived card** (archive → then delete). A live card cannot be one-shot
+  destroyed. This keeps the safety of archive-only while still allowing a deliberate
+  purge.
+- `ARCHIVE` capability advertises native support; where a backend only hard-deletes,
+  archive is **polyfilled via write-through** (an archived flag), so the recoverable
+  behavior is universal.
+
+*(Open: if strict archive-only — no permanent delete ever — is preferred, drop the
+guarded `delete`. Current stance keeps the guarded purge.)*
 
 ## Tech Stack
 

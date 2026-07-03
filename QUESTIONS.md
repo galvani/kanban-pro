@@ -62,7 +62,10 @@ storage in v1). → SPEC Attachment + ports Capability.
 **Question:** Should destructive ops be **hard delete**, **soft archive** (recoverable),
 or both? Several backends default to archive/undelete (Focalboard, Trello).
 **Why it matters:** shapes the port's delete methods and the native store's schema.
-**A:** _..._
+**A:** ✅ Archive-first: `archive`/`unarchive` default (recoverable); `delete` = permanent
+purge but **guarded to already-archived cards** (agent-safety). `ARCHIVE` capability,
+polyfilled as a flag. → SPEC decision 7. *(Confirm if you meant strict archive-only —
+no permanent delete at all.)*
 
 ## 🟡 Q7 — Bulk operations in the API?
 
