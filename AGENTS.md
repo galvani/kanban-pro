@@ -43,6 +43,10 @@ kanban_pro/
 
 ## Authoring a new adapter
 
+See [docs/adapter-structure.md](docs/adapter-structure.md) for the full plan (store vs
+remote adapters, `BaseAdapter`, the augmenting layer, remote-adapter layout, registration,
+and the shared contract suite). In brief:
+
 1. Create `kanban_pro/adapters/<name>.py` implementing the `KanbanBackend` Protocol.
 2. Declare its `Capabilities` — be honest about what the backend can't do.
 3. Map canonical ⇄ backend in that module only; surface backend-specific extras via
