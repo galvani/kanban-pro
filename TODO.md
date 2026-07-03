@@ -57,6 +57,15 @@ Durable backlog. Newest ideas at top; move items into JOURNAL when decided/done.
 - [ ] FastAPI routes + `GET /capabilities` in `kanban_pro/api/`; `app.py` entrypoint.
 - [ ] Contract test suite (the shared suite every adapter must pass).
 
+## UI (to explore)
+
+- [ ] **Check the Hermes board plugin we built** — see whether its board UI can be reused
+  / easily wired into kanban-pro's own UI (as a front-end consumer of the canonical API).
+  - Locate the plugin in the Hermes workspace; assess coupling to Hermes vs. reusability.
+  - NOTE: current SPEC says "not a kanban UI." If we adopt a UI, update *What This Project
+    Is NOT* + add a UI interface note (it'd be another consumer of the MCP/HTTP surface,
+    not core logic).
+
 ## Later (roadmap)
 
 - [ ] Workflow control: allowed column→column transitions (state machine), `WORKFLOW`
