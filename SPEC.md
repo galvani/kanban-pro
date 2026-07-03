@@ -32,11 +32,14 @@ translated back into the canonical model.
 
 The minimum a kanban needs, kept deliberately small and backend-neutral:
 
-- **Board** — a container. `id`, `name`, `description`, `columns[]`.
+- **Board** — a container. `id`, `name`, `description`, `columns[]`, `labels[]` (the
+  board-scoped Label registry — labels are owned here and referenced by `Card.labels`
+  via id), `ext`.
 - **Column** (a.k.a. list/lane/status) — `id`, `name`, `order`, optional `wip_limit`.
 - **Card** — `id`, `title`, `description`, `labels[]`, `assignees[]` (User ids),
   `start_date?`, `due_date?` (both nullable), `checklists[]`, `attachments[]`,
-  `created_at`, `updated_at`, `ext` (see passthrough), and **`placements[]`** — a set of
+  `archived` (bool — archive-first, decision 7), `created_at`, `updated_at`, `ext` (see
+  passthrough), and **`placements[]`** — a set of
   `{board_id, column_id, position}` entries locating the card. A card lives on ≥1
   board, each with its own column + ordering; single-board backends and the native
   store use exactly one placement (see decision below).

@@ -53,21 +53,8 @@ class Fulfilment(Enum):
     UNAVAILABLE = auto()  # neither possible -> canonical not_supported
 
 
-class RelationKind(Enum):
-    """Canonical typed-relation vocabulary (modeled on Vikunja's `relation_kind`).
-
-    Inverse-paired: BLOCKS<->BLOCKED_BY, PARENT<->CHILD, PRECEDES<->FOLLOWS. Adapters map
-    to/from the backend's link types and gate on Capability.RELATIONS.
-    """
-
-    RELATES = auto()
-    BLOCKS = auto()
-    BLOCKED_BY = auto()
-    DUPLICATES = auto()
-    PARENT = auto()
-    CHILD = auto()
-    PRECEDES = auto()
-    FOLLOWS = auto()
+# RelationKind (the typed-relation vocabulary) is a DATA type — it lives in
+# kanban_pro.domain. Capability.RELATIONS gates its use.
 
 
 class KanbanError(Exception):
