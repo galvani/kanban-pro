@@ -22,6 +22,28 @@ Durable backlog. Newest ideas at top; move items into JOURNAL when decided/done.
     pain).
   - Because it's OUR store, kanban-pro can natively enforce what no backend does:
     server-side **allowed transitions** and **WIP limits** (a genuine differentiator).
+  - **Double duty:** the native store is ALSO the **overlay** that polyfills gaps in
+    other backends (SPEC decision 2) — design its schema so overlay rows can key to an
+    external backend entity ID, not just native IDs.
+
+- [ ] **Augmentation layer** (`AugmentingBackend` decorator = adapter + overlay). Wraps
+  any adapter, delegates NATIVE capabilities, polyfills the rest from the overlay, merges
+  on read. Report per-capability `Fulfilment` via `GET /capabilities`.
+  - Tier 1 first (workflow-transition + WIP enforcement — pure logic, no data split).
+  - Then Tier 2 (relations/custom-fields/comments in the overlay, keyed to backend IDs).
+  - Reconciliation: GC overlay rows orphaned by out-of-band backend deletes.
+
+## Harness-native interfaces (must-have) — MCP-first, shell-first
+
+- [ ] **MCP server** (`kanban_pro/mcp/`) — PRIMARY interface. Every canonical op = an MCP
+  tool ("skill"); active provider `Capability`/`Fulfilment` = an MCP resource. Any harness
+  (Hermes, Claude Code, Codex, OpenCode, GPT agents, …) introspects skills + calls them
+  natively — no per-harness code. (SPEC decision 5, resolves Q1.)
+- [ ] **CLI** (`kanban_pro/cli/`) — PRIMARY interface. Same ops as subcommands for
+  shell-first harnesses (Codex/Claude Code shelling out) + humans.
+- [ ] **HTTP/REST** (`kanban_pro/api/`) — secondary, for programmatic clients.
+- [ ] Keep all three thin over `core/` — no drift.
+- [ ] Hermes: also a **backend adapter** (the first), not just a consumer.
 
 ## Planned (from SPEC)
 

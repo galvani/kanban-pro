@@ -68,26 +68,67 @@ backend-specific fields. Canonical callers ignore `ext`; backend-aware callers c
 read/write it. Adapters populate `ext` on the way out and honor it on the way in.
 This keeps the common path clean without discarding backend richness.
 
-### 2. The exposed API surface is gated to the locked-in provider
+### 2. Capability fulfilment: delegate → polyfill → unavailable
 
-kanban-pro exposes **only the operations the currently-active provider supports** —
-not a fixed superset. Each adapter **declares its capabilities** (a `Capability`
-set); the active profile's capability set determines which endpoints are advertised.
-`GET /capabilities` reports the active surface; calling an op the provider can't do
-returns a canonical `not_supported`.
+kanban-pro exposes the **full canonical surface** and fulfils each operation the best
+way available for the active provider:
 
-**Tradeoff (flagged for the record):** this is a *normalizing* proxy, not a
-*lowest-common-denominator* one — you get full fidelity to whatever backend is
-locked in, but the surface **changes per profile**. That is in mild tension with
-"callers never change when you switch backend": a caller written against Hermes's
-richer set may hit gaps under a thinner provider (e.g. Jira profile without
-reordering). The mitigation is the capability check + `GET /capabilities` so callers
-can degrade gracefully rather than break blindly. Accepted deliberately: fidelity per
-provider is worth more here than a frozen universal surface.
+1. **Delegate** — the backend supports it natively → the adapter forwards to the
+   backend (use everything Hermes can do).
+2. **Polyfill** — the backend lacks it, but kanban-pro provides it itself from its
+   **overlay store** (its own persistence — the native store reused as a decorator over
+   the adapter). Missing comments, typed relations, custom fields, WIP limits, and
+   allowed-transition **workflow enforcement** are supplied by kanban-pro on top of
+   whatever the backend stores.
+3. **Unavailable** — can't be delegated *or* polyfilled → canonical `not_supported`
+   (rare — a genuinely un-emulatable primitive).
 
-**Initial agreed method set = Hermes's full kanban method set.** v1 supports every
-kanban operation Hermes exposes; other providers implement the subset they can and
-declare the rest unsupported.
+Each adapter declares which capabilities it fulfils **natively**; kanban-pro knows
+which of the rest it can **polyfill**; `GET /capabilities` reports each capability plus
+its `Fulfilment` (native / polyfilled / unavailable) so clients know the guarantees.
+
+This makes kanban-pro an **augmenting** proxy, not merely a normalizing one:
+`--profile hermes` still picks Hermes, but callers see the rich canonical set
+regardless of Hermes's gaps. **v1 = Hermes's full method set (delegated) + kanban-pro
+polyfilling the rest.** *(Supersedes the earlier "surface gated to the provider"
+stance — we augment rather than gate.)*
+
+**Architecture:** `AugmentingBackend = adapter + overlay`, a decorator over the port.
+Reads merge (backend fields + overlay data); writes route to adapter-if-capable else
+the overlay. The overlay is the native store (see decision on the native backend) — so
+that build serves double duty: standalone backend AND augmentation layer.
+
+**Where polyfilled data lives — prefer write-through, overlay is the fallback.** The
+naive worry is that polyfilled data lives only in kanban-pro (a hidden system of record).
+We avoid that by writing polyfill data **back into the backend's own containers** wherever
+one exists, so the backend stays authoritative and can surface it (eventually via an MCP
+that reads these containers). Three persistence strategies, best first:
+
+1. **Native-typed** — backend has the real feature → delegate (no polyfill).
+2. **Native-encoded (write-through)** — backend lacks the typed feature but has a
+   free-form container (a **comment**, the **description**, a **custom/extra field**, or a
+   label convention). kanban-pro **serializes** the data there behind a marker
+   (e.g. a `<!-- kanban-pro:relations {…} -->` comment or a namespaced field), so Hermes
+   both stores and can look it up. Backend remains the source of truth.
+3. **Overlay (fallback)** — backend has NO usable container → kanban-pro's own overlay
+   store holds it. Only *this* case is a partial system of record.
+
+The persistence strategy is **per-adapter, per-capability** (Hermes may have comments but
+no custom fields, etc.). Costs to keep in mind for write-through: it can clutter the
+backend's native UI (mitigate with hidden markers), needs reliable round-trip parsing,
+and querying serialized data may require scanning until an MCP/index exists. For
+out-of-band deletes, reconciliation still GCs any overlay-fallback rows. Enforcement-only
+polyfills (Tier 1: workflow/WIP) persist **nothing** in the backend — the rules are
+kanban-pro config, applied at move time.
+
+**Polyfill tiers (safest first):**
+- **Tier 1 — pure enforcement, no stored data:** allowed-transition workflow + WIP
+  limits. kanban-pro validates `move_card` then delegates; only the *rules* live in
+  kanban-pro (config), so there is **no source-of-truth split**. Works over any backend.
+- **Tier 2 — overlay data keyed to backend IDs:** typed relations, custom fields, extra
+  comments/labels. The system-of-record split above applies here.
+- **Tier 3 — hard, needs backend cooperation:** faithful ordering when the backend owns
+  position; multi-board membership over a single-board backend. Attempt last.
 
 ### 3. Provider selection via `--profile`
 
@@ -107,7 +148,25 @@ common path stays trivial. `move_card` targets a `(board_id, column_id, position
 updates the matching placement. `MULTI_BOARD_MEMBERSHIP` capability advertises whether a
 backend supports >1 placement.
 
-### 5. Errors are canonical too
+### 5. Interfaces: MCP-first and shell-first (harness-native)
+
+kanban-pro's primary consumers are **agent harnesses** — Hermes, Claude Code, Codex,
+OpenCode, GPT-based agents, and any future one. So the canonical API is exposed
+**MCP-first and shell-first**, not HTTP-first:
+
+- **MCP server (primary).** Every canonical operation is an MCP **tool** ("skill"); the
+  active provider's `Capability` + `Fulfilment` set is exposed as an MCP **resource**. A
+  harness thus *introspects what this kanban can do* and calls the right tools natively —
+  this is how a harness "natively understands the kanban" with zero bespoke integration.
+- **CLI / shell (primary).** The same operations as subcommands, so shell-first harnesses
+  (Codex, Claude Code) drive it by shelling out, and humans get a real CLI.
+- **HTTP/REST (secondary).** The same operations for programmatic/non-agent clients.
+
+**Every known harness works with no new code:** if it speaks MCP or a shell, it's already
+a client. All three surfaces are **thin layers over one core service + the port** — no
+logic lives in an interface layer, so MCP/CLI/HTTP cannot drift.
+
+### 6. Errors are canonical too
 
 Adapters translate backend errors into a canonical error taxonomy (not_found,
 conflict, unauthorized, not_supported, backend_unavailable) so callers get stable
@@ -116,7 +175,9 @@ error semantics regardless of backend.
 ## Tech Stack
 
 - **Python 3.12+**
-- **FastAPI** — HTTP API layer (`kanban_pro/api/`)
+- **MCP server** (Python MCP SDK) — the primary, harness-native interface (`kanban_pro/mcp/`)
+- **CLI** (typer/click) — the primary shell interface (`kanban_pro/cli/`)
+- **FastAPI** — secondary HTTP API layer (`kanban_pro/api/`)
 - **Pydantic v2** — canonical model + validation (`kanban_pro/domain/`)
 - **httpx** — async HTTP client for adapters that call remote backends
 - **uv** — dependency & environment management
@@ -126,14 +187,20 @@ error semantics regardless of backend.
 
 ```
 kanban_pro/
-  domain/      # canonical Pydantic models: Board, Column, Card, Label, Comment
-  ports/       # KanbanBackend Protocol (the contract) + Capabilities + errors
-  adapters/    # one module per backend; hermes.py is the first
-  api/         # FastAPI routes mapping canonical ops -> active adapter
-  config.py    # adapter selection + per-adapter settings
-  app.py       # FastAPI app factory / entrypoint
+  domain/      # canonical Pydantic models: Board, Column, Card, Label, Comment, Relation
+  ports/       # KanbanBackend Protocol (the contract) + Capabilities + Fulfilment + errors
+  adapters/    # one module per backend (native.py = own store + overlay; hermes.py first)
+  core/        # the one service: augmenting dispatch, retry/dedupe, reconciliation
+  mcp/         # MCP server — ops as tools, capabilities as a resource (PRIMARY interface)
+  cli/         # shell CLI — ops as subcommands (PRIMARY interface)
+  api/         # FastAPI routes (secondary interface)
+  config.py    # profile selection + per-profile settings
+  app.py       # entrypoint wiring core -> interfaces
 tests/
 ```
+
+The three interface layers (`mcp/`, `cli/`, `api/`) are thin and stateless — all behavior
+lives in `core/` over the `ports/` contract.
 
 ## Constraints
 

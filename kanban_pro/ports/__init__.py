@@ -37,6 +37,19 @@ class Capability(Enum):
     WEBHOOKS = auto()  # backend can push events (else kanban-pro polls on clients' behalf)
 
 
+class Fulfilment(Enum):
+    """How a Capability is satisfied for the active provider (SPEC decision 2).
+
+    Reported per-capability by `GET /capabilities` so clients know the guarantees:
+    NATIVE data is authoritative in the backend; POLYFILLED data lives only in
+    kanban-pro's overlay store (a partial system of record).
+    """
+
+    NATIVE = auto()  # adapter delegates to the backend
+    POLYFILLED = auto()  # kanban-pro provides it from the overlay store
+    UNAVAILABLE = auto()  # neither possible -> canonical not_supported
+
+
 class RelationKind(Enum):
     """Canonical typed-relation vocabulary (modeled on Vikunja's `relation_kind`).
 
