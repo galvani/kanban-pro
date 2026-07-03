@@ -32,6 +32,7 @@ class Capability(Enum):
     RELATIONS = auto()  # typed card<->card links (see RelationKind)
     SUBTASKS = auto()  # child CARDS via PARENT/CHILD relations (sometimes a field)
     CHECKLISTS = auto()  # lightweight {text, done} items nested on a card (not cards)
+    ATTACHMENTS = auto()  # link-only {url, title} for v1; file uploads deferred
     WIP_LIMITS = auto()  # server-enforced only in Vikunja (+ kanban-pro native)
     WORKFLOW = auto()  # allowed column->column transitions; only Jira enforces it
     MULTI_BOARD_MEMBERSHIP = auto()  # a card in several boards/lists at once

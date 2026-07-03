@@ -51,7 +51,9 @@ checklists = first-class minimal `Card.checklists[]` + `CHECKLISTS` capability
 **Question:** Add an `Attachment` entity (file/url on a Card), or `ext` for now?
 **Why it matters:** attachments imply file storage/proxying — a real scope bump. Fine to
 defer to `ext`/later if you won't use it soon.
-**A:** _..._
+**A:** ✅ (b) link-only first-class `Attachment {id, url, title}` + `ATTACHMENTS`
+capability; file uploads deferred behind a future `ATTACHMENTS_FILES` cap (no blob
+storage in v1). → SPEC Attachment + ports Capability.
 
 ---
 

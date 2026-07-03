@@ -8,8 +8,9 @@ not a single column_id — a card may live on several boards at once (SPEC decis
 Single-board backends + the native store use one placement.
 
 TODO: define Board, Column (with a category enum), Card (with placements[], start_date?,
-due_date?, checklists[]), Checklist (nested on Card: {id, title, items:[{id,text,done,
-order}]}), Label, Comment, User (minimal: id + display_name + ext), and a Relation edge
-(RelationKind lives in ports/). Card.assignees[] and Comment.author reference User ids.
-Subtasks = child cards via PARENT/CHILD relations (not checklists).
+due_date?, checklists[], attachments[]), Checklist (nested on Card: {id, title,
+items:[{id,text,done,order}]}), Attachment (nested on Card: {id, url, title} — link-only
+for v1, no file storage), Label, Comment, User (minimal: id + display_name + ext), and a
+Relation edge (RelationKind lives in ports/). Card.assignees[] and Comment.author
+reference User ids. Subtasks = child cards via PARENT/CHILD relations (not checklists).
 """
