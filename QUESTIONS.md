@@ -26,7 +26,8 @@ module, or both — different work in different places.
 Label, Comment, Relation. Good as the core, or missing something you'll actually use?
 **Why it matters:** the core model is the contract every adapter implements; adding later
 is more expensive than getting it right now. Deliberately minimal to avoid a Jira clone.
-**A:** 
+**A:** ✅ Core approved + added a minimal **User** entity (id, display_name, ext),
+referenced by Card.assignees[] and Comment.author. → SPEC "Canonical domain model".
 
 ## 🟢 Q3 — Due dates as a first-class Card field?
 

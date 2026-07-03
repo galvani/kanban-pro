@@ -8,5 +8,6 @@ not a single column_id — a card may live on several boards at once (SPEC decis
 Single-board backends + the native store use one placement.
 
 TODO: define Board, Column (with a category enum), Card (with placements[]), Label,
-Comment, and a Relation edge (RelationKind lives in ports/).
+Comment, User (minimal: id + display_name + ext), and a Relation edge (RelationKind
+lives in ports/). Card.assignees[] and Comment.author reference User ids.
 """

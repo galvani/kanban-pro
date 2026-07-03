@@ -34,13 +34,17 @@ The minimum a kanban needs, kept deliberately small and backend-neutral:
 
 - **Board** — a container. `id`, `name`, `description`, `columns[]`.
 - **Column** (a.k.a. list/lane/status) — `id`, `name`, `order`, optional `wip_limit`.
-- **Card** — `id`, `title`, `description`, `labels[]`, `assignees[]`, `created_at`,
-  `updated_at`, `ext` (see passthrough), and **`placements[]`** — a set of
+- **Card** — `id`, `title`, `description`, `labels[]`, `assignees[]` (User ids),
+  `created_at`, `updated_at`, `ext` (see passthrough), and **`placements[]`** — a set of
   `{board_id, column_id, position}` entries locating the card. A card lives on ≥1
   board, each with its own column + ordering; single-board backends and the native
   store use exactly one placement (see decision below).
 - **Label** — `id`, `name`, `color`.
-- **Comment** — `id`, `card_id`, `author`, `body`, `created_at`.
+- **Comment** — `id`, `card_id`, `author` (User id), `body`, `created_at`.
+- **User** — `id`, `display_name`, `ext`. Deliberately minimal; referenced by
+  `Card.assignees[]` and `Comment.author`. `ext` holds backend-specific user keys
+  (Jira accountId, Trello member id, GitHub login, …) since backends key users
+  differently.
 
 ### Canonical operations (the port)
 
