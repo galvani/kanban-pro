@@ -288,6 +288,35 @@ kanban-pro is the **single live event source** over all backends. Two halves:
 - **Change-feed — no registration.** Pure pull: the client holds a cursor and asks for
   `changes since <cursor>`.
 
+## Consuming kanban-pro (consumption model)
+
+A consumer never integrates per-backend — it talks to the canonical surface and
+**discovers everything at runtime**. Three entry points, one `core/` underneath.
+
+**MCP (primary — agent harnesses: Claude Code, Codex, Hermes, OpenCode, GPT agents):**
+
+1. kanban-pro runs as an **MCP server** — `stdio` for local harnesses, HTTP/SSE for remote.
+2. The harness adds it to its MCP config and connects.
+3. **Discovery:** the harness lists **tools** (one per canonical op — `create_card`,
+   `move_card`, `list_boards`… — each JSON-schema'd from the domain models) and
+   **resources** (`capabilities` = the active provider's `Capability` + `Fulfilment`;
+   board/card data; the change-feed).
+4. It reads `capabilities` to learn what's available (native / polyfilled / unavailable)
+   — that is how it "understands this kanban."
+5. It calls tools; `core/` dispatches to the active adapter (delegate or polyfill) and
+   returns a canonical result.
+6. Live updates: the harness subscribes to **MCP notifications** (decision 9).
+
+**Shell / CLI (primary — shell harnesses + humans):**
+`kanban-pro card create --board B --title "…"`; discovery via `kanban-pro --help` and
+`kanban-pro capabilities --json` (machine-readable).
+
+**HTTP (secondary):** REST + OpenAPI for programmatic clients.
+
+All three project the same `core/` operations. The MCP tool schemas are generated **from
+the domain models** — which is why the port and interfaces are thin over `domain` +
+`core`: one definition of an operation, three ways to call it, zero per-harness code.
+
 ## Tech Stack
 
 - **Python 3.12+**

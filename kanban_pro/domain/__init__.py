@@ -170,6 +170,36 @@ class Relation(BaseModel):
     to_card: str  # Card id
 
 
+# --- patch models (partial updates) ---
+# Only fields explicitly set are applied — adapters use
+# `patch.model_dump(exclude_unset=True)`, so an unset field is "leave untouched",
+# distinct from an explicit `None` (which clears a nullable field).
+
+
+class BoardPatch(BaseModel):
+    name: str | None = None
+    description: str | None = None
+    ext: dict[str, Any] | None = None
+
+
+class ColumnPatch(BaseModel):
+    name: str | None = None
+    order: int | None = None
+    category: ColumnCategory | None = None
+    wip_limit: int | None = None
+    ext: dict[str, Any] | None = None
+
+
+class CardPatch(BaseModel):
+    title: str | None = None
+    description: str | None = None
+    labels: list[str] | None = None
+    assignees: list[str] | None = None
+    start_date: datetime | None = None
+    due_date: datetime | None = None
+    ext: dict[str, Any] | None = None
+
+
 __all__ = [
     "ColumnCategory",
     "RelationKind",
@@ -184,4 +214,7 @@ __all__ = [
     "Board",
     "Comment",
     "Relation",
+    "BoardPatch",
+    "ColumnPatch",
+    "CardPatch",
 ]
