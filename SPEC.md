@@ -260,6 +260,20 @@ kanban-pro is the **single live event source** over all backends. Two halves:
   source; MCP/webhook/feed are thin projections of it (same no-drift principle as the
   interface layers).
 
+**Listener registry.** Push delivery is driven by registered listeners:
+
+- **Webhook listeners — persistent & filtered.** A client registers
+  `{callback_url, secret, filter}` (filter = boards / event types). The registry
+  survives restarts; the core fans a change-log entry out to matching listeners,
+  HMAC-signs each payload, and **retries with backoff**. Each listener stores its
+  **last-delivered cursor**, so one that was down **resumes from its cursor** rather than
+  dropping events — deliberately better than the surveyed backends, whose webhooks drop
+  silently with no catch-up.
+- **MCP subscriptions — session-scoped.** An MCP client subscribes within its session; the
+  listener is live for the session and removed when it ends (no persistence).
+- **Change-feed — no registration.** Pure pull: the client holds a cursor and asks for
+  `changes since <cursor>`.
+
 ## Tech Stack
 
 - **Python 3.12+**
