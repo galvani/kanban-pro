@@ -7,7 +7,8 @@ change.
 ## What It Does
 
 kanban-pro exposes a canonical kanban model (boards, columns, cards, labels,
-comments) over a REST API and routes every operation to a pluggable **adapter**. Each
+comments) over **MCP, a CLI, and REST**, and routes every operation to a pluggable
+**adapter**. Each
 adapter translates the canonical model to and from a specific backend (Hermes,
 Trello, a local store, …). Switching backend is a config change, not a rewrite —
 the proxy is an anti-corruption layer between your tools and whatever kanban is
@@ -16,30 +17,56 @@ underneath.
 ## Quick Start
 
 ```bash
-uv sync                       # install deps (incl. dev tools)
-uv run uvicorn kanban_pro.app:app --reload   # run the proxy (once app.py exists)
+uv sync                                  # install deps (incl. dev tools)
+uv run kanban-pro-mcp                    # MCP server (stdio) over the native SQLite store
+uv run kanban-pro-mcp --profile memory   # ... over an ephemeral in-memory board
 ```
+
+The store lives at `~/.local/share/kanban-pro/kanban.db` (override: `KANBAN_PRO_DB`).
+
+## Install into your harness
+
+The server is stdio-spawned by the harness — no daemon, no port. Get the exact
+registration snippet for your harness:
+
+```bash
+uv run kanban-pro-mcp --print-config claude     # or: codex | opencode | hermes
+```
+
+e.g. Claude Code: `claude mcp add kanban-pro -s user -- uv run --directory
+/path/to/kanban-pro kanban-pro-mcp`. Multiple harnesses can register the same server —
+each spawns its own process; they share the SQLite store safely.
+
+**Any OS (mac/Windows/Linux), no clone needed** once the repo has a remote: install
+[uv](https://docs.astral.sh/uv/), then `uvx --from git+<repo-url> kanban-pro-mcp`, or
+`uv tool install` to put `kanban-pro-mcp` on PATH.
 
 Pick the backend with a **profile** — `--profile hermes` / `--profile jira` /
 `--profile default` (or `KANBAN_PRO_PROFILE`). A profile bundles an adapter with its
-settings. kanban-pro then exposes **only the operations that provider supports**;
-query `GET /capabilities` to see the active surface. See
+settings. kanban-pro always exposes the **full canonical surface**: each capability is
+**delegated** to the backend, **polyfilled** by kanban-pro itself, or reported
+**unavailable** — query `capabilities` to see which. See
 [SPEC.md](SPEC.md#key-design-decisions).
 
 ## Architecture
 
-Ports & adapters (hexagonal):
+Ports & adapters (hexagonal), consumed **MCP-first / shell-first** (agent harnesses are
+the primary clients; HTTP is secondary):
 
 ```
-clients ──▶ canonical API (FastAPI) ──▶ KanbanBackend port ──▶ adapter ──▶ backend
-                                             ▲
-                          canonical domain model (Pydantic)
+harnesses / clients
+   │   MCP (primary) · CLI (primary) · HTTP (secondary) — thin, stateless
+   ▼
+core/  — augmenting service: adapter + overlay, dedupe, events
+   ▼
+KanbanBackend port ──▶ adapter ──▶ backend
+          ▲
+canonical domain model (Pydantic)
 ```
 
-- `kanban_pro/domain/` — canonical models
-- `kanban_pro/ports/` — the `KanbanBackend` Protocol (the contract) + capabilities
-- `kanban_pro/adapters/` — one module per backend
-- `kanban_pro/api/` — FastAPI routes
+Interfaces never talk to an adapter directly — everything goes through `core/`.
+Directory layout: see [AGENTS.md](AGENTS.md#architecture-ports--adapters); design:
+[SPEC.md](SPEC.md).
 
 ## Documentation
 
@@ -51,8 +78,10 @@ clients ──▶ canonical API (FastAPI) ──▶ KanbanBackend port ──▶
 
 ## Status
 
-Scaffolded 2026-07-03. No runtime yet — the canonical model, port, and first adapter
-(Hermes) are the next work. See [SPEC.md](SPEC.md#open-questions).
+**v0 is usable:** domain model, port, two store adapters (`memory`, `native` SQLite),
+and the MCP server (`kanban-pro-mcp` — 23 tools + capability/board resources) are built
+and tested. Next: augmenting layer + CLI + Hermes adapter (v1). See the roadmap in
+[SPEC.md](SPEC.md#roadmap).
 
 ## License
 

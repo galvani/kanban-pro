@@ -13,6 +13,10 @@ consistent job. Grounded in the two existing adapters (`memory`, `native`).
 The port (`KanbanBackend`) is identical for both — the difference is how much they implement
 natively vs. lean on polyfill.
 
+Bulk ops stay out of the port (SPEC: core loops over single-item methods). If an adapter
+later gains a native batch endpoint, it exposes it via a separate optional protocol (e.g.
+`BulkCapable`) that the core probes — bulk never joins `KanbanBackend` itself.
+
 ## The contract
 
 Every adapter satisfies `kanban_pro.ports.KanbanBackend` **structurally** (no required

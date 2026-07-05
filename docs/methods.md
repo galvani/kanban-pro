@@ -8,7 +8,9 @@ three surfaces (SPEC decision 5 + "Consuming kanban-pro"):
 - **HTTP/REST** (secondary) — one route per operation.
 
 This doc lists the canonical operations, then their MCP projection. Status: reflects the
-wired port (`kanban_pro/ports`). Ops marked _(planned)_ aren't implemented yet.
+wired port (`kanban_pro/ports`); the MCP projection is **implemented** (`kanban_pro/mcp`,
+v0 — idempotency keys and notifications follow core in v1/v2). Ops marked _(planned)_
+aren't implemented yet.
 
 Conventions: `Card`/`Board`/… are the [domain models](../SPEC.md#canonical-domain-model).
 `*Patch` = partial update (only set fields apply). **†** = requires an idempotency key
@@ -72,11 +74,17 @@ Subtasks = child cards via `PARENT`/`CHILD` relations (`SUBTASKS`).
 
 ### Not yet in the port _(planned expansion)_
 
-Label-registry ops, assignee attach/detach, checklist item add/toggle, attachment
-add/remove — currently carried inside `Card`/`Board` on create/update; dedicated ops land
-in the next port expansion.
+- Label-registry ops, assignee attach/detach, checklist item add/toggle, attachment
+  add/remove — currently these ride on `Card`/`Board` at **create time only**
+  (`CardPatch` doesn't cover them); dedicated ops land in the next port expansion.
+- **User lookup** — `list_users()` / `get_user(user_id)`. Without it a caller can't
+  discover valid ids for `assignees[]` / `Comment.author`.
+- **Archived listing** — `list_cards(board_id, include_archived=False)`; today archived
+  cards are reachable only by id, so unarchive/purge targets aren't discoverable.
+- Placement add/remove (pending QUESTIONS Q15) and `move_card` source disambiguation
+  (pending Q16).
 
-### Bulk (API/MCP convenience, SPEC decision 7-bulk)
+### Bulk (API/MCP convenience — SPEC "Canonical operations")
 
 `bulk_create` · `bulk_move` · `bulk_update` · `bulk_archive` — accept a list, run a
 `core/` loop over the single-item ops, and return **per-item results with partial success**

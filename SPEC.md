@@ -35,7 +35,10 @@ The minimum a kanban needs, kept deliberately small and backend-neutral:
 - **Board** — a container. `id`, `name`, `description`, `columns[]`, `labels[]` (the
   board-scoped Label registry — labels are owned here and referenced by `Card.labels`
   via id), `ext`.
-- **Column** (a.k.a. list/lane/status) — `id`, `name`, `order`, optional `wip_limit`.
+- **Column** (a.k.a. list/lane/status) — `id`, `name`, `order`, **`category`** (fixed
+  semantic enum: triage/backlog/unstarted/started/done/canceled, from Linear — names are
+  free-form per backend, the category is what "done-ness" queries and workflow rules key
+  off), optional `wip_limit`.
 - **Card** — `id`, `title`, `description`, `labels[]`, `assignees[]` (User ids),
   `start_date?`, `due_date?` (both nullable), `checklists[]`, `attachments[]`,
   `archived` (bool — archive-first, decision 7), `created_at`, `updated_at`, `ext` (see
@@ -67,7 +70,8 @@ CRUD + movement, expressed backend-neutrally:
 - Boards: list, get, create, update, delete
 - Columns: list, create, update, delete, reorder
 - Cards: list, get, create, update, **archive/unarchive**, delete (guarded — see
-  decision 7), **move** (column + position)
+  decision 7), **move** (within-board: column + position),
+  **add_placement / remove_placement** (put a card on / take it off a board — Q15)
 - Labels / assignees / comments: attach, detach, list
 - **Bulk** (API/MCP surface): batch `create` / `move` / `update` / `archive` — e.g.
   move many cards at once (agents reorganizing a board).
@@ -94,6 +98,11 @@ support, PLUS an `ext: dict[str, Any]` escape hatch on each entity for
 backend-specific fields. Canonical callers ignore `ext`; backend-aware callers can
 read/write it. Adapters populate `ext` on the way out and honor it on the way in.
 This keeps the common path clean without discarding backend richness.
+
+**Patching `ext` is a shallow merge (Q17, decided 2026-07-05):** a patch's `ext` merges
+at key level; a key set to `null` is removed. Concurrent writers (agents, kanban-pro's
+own `kanban_pro.*` metadata like copy provenance) each touch their keys without wiping
+the others'. Full replace = send every key explicitly.
 
 ### 2. Capability fulfilment: delegate → polyfill → unavailable
 
@@ -178,6 +187,13 @@ profile. **Multi-mount** (several profiles live at once, namespaced `/hermes/…
 `/jira/…`, capabilities per mount) is deferred: profiles are already named/registered, so
 a mount-prefix layer can be added later without reworking the core.
 
+**Mount-qualified addressing (decided 2026-07-05).** When multi-mount lands, public
+identifiers are mount-qualified — `jira/TASK-001`, `local-default/board-x` — the prefix
+picks the adapter. Ids **never encode lineage**: the local twin of a Jira card is its own
+card whose provenance lives in the cross-mount link + `ext["kanban_pro.copied_from"]`,
+not in a compound id (lineage-encoded ids break on unlink/relink; identity stays stable,
+lineage is metadata).
+
 **Config location.** Profile *definitions* (adapter + non-secret settings) live in a
 **config file**; **secrets** (backend tokens) come from **env / secret store**, never a
 committed file (matches the credential-holder pattern — keys out of committed configs);
@@ -189,9 +205,14 @@ A card carries `placements[]` (`{board_id, column_id, position}`), not one `colu
 Research showed one-card-one-column is violated by Asana, ClickUp, monday, GitLab, and
 Jira — a card can sit on several boards at once. The set models this faithfully;
 single-board backends and the native store use the **degenerate one-entry** case so the
-common path stays trivial. `move_card` targets a `(board_id, column_id, position)` and
-updates the matching placement. `MULTI_BOARD_MEMBERSHIP` capability advertises whether a
+common path stays trivial. `MULTI_BOARD_MEMBERSHIP` capability advertises whether a
 backend supports >1 placement.
+
+**Move vs. membership (Q15/Q16, decided 2026-07-05):** each op does one thing.
+`move_card` is **strict within-board** — it re-columns/re-positions the placement on
+`to_board_id` and errors (`not_found`) if the card isn't on that board; it never creates
+a placement. The placement *set* changes only via the explicit `add_placement` /
+`remove_placement` ops.
 
 ### 5. Interfaces: MCP-first and shell-first (harness-native)
 
@@ -232,8 +253,10 @@ misfiring agent could irrecoverably destroy a card. So removal is **archive-firs
   archive is **polyfilled via write-through** (an archived flag), so the recoverable
   behavior is universal.
 
-*(Open: if strict archive-only — no permanent delete ever — is preferred, drop the
-guarded `delete`. Current stance keeps the guarded purge.)*
+**Boards & columns get the same two-step spirit (Q14, decided 2026-07-05):**
+`delete_board` / `delete_column` are guarded **empty-only** — they refuse while *live*
+(non-archived) cards remain; move or archive the cards first. Archived leftovers cascade
+away on board delete. Guarded card delete confirmed over strict archive-only (Q13).
 
 ### 8. Idempotency & dedupe (no backend provides it)
 
@@ -243,8 +266,8 @@ failure mode, not an edge case. Design:
 
 - **Naturally-idempotent ops need no key** — `update`, `move`, `archive`, set-field.
   Repeating them converges to the same state (move-to-C twice = still in C).
-- **Create/add ops REQUIRE a client-supplied idempotency key** — create card, add
-  comment / checklist item / relation / attachment. `core/` keeps a short-TTL
+- **Create/add ops REQUIRE a client-supplied idempotency key** — every create/add
+  (board, column, card, comment, checklist item, relation, attachment). `core/` keeps a short-TTL
   key→result cache; a retry with the same key returns the original result instead of
   appending a duplicate. A harness generates one key per logical action and reuses it on
   retry — the only thing that actually dedupes.
@@ -272,7 +295,8 @@ kanban-pro is the **single live event source** over all backends. Two halves:
   All three are fed by one **core change-log (append-only, cursored)** covering
   card/column/board create·update·move·archive·delete. The change-log is the single
   source; MCP/webhook/feed are thin projections of it (same no-drift principle as the
-  interface layers).
+  interface layers). *Delivery is phased (see Roadmap): change-log + pull feed + MCP
+  notifications land in v2; the persistent webhook registry comes later.*
 
 **Listener registry.** Push delivery is driven by registered listeners:
 
@@ -367,8 +391,8 @@ Load-bearing findings:
 - **"Column" is modeled ~9 ways** → canonical `Column` carries a **category enum**
   (triage/backlog/unstarted/started/done/canceled, from Linear) so "which column is done?"
   survives translation.
-- **One-card-one-column is violated** by Asana/ClickUp/monday/GitLab/Jira → placement may
-  be a `(board → column)` **membership set**, not a single pointer. **Open fork** (below).
+- **One-card-one-column is violated** by Asana/ClickUp/monday/GitLab/Jira → placement is
+  a `(board → column)` **membership set**, not a single pointer (decided — decision 4).
 - **Typed dependencies** exist in most tools but not all → `RELATIONS` capability +
   a `RelationKind` enum modeled on Vikunja.
 - **No backend offers idempotency keys**, and retry/rate-limit signaling differs per
@@ -384,15 +408,22 @@ keepalive/refresh (Jira webhooks expire at 30 days; Asana monitors an 8h heartbe
 
 ## Roadmap
 
-- **v1 — Hermes parity.** Canonical model + port + `hermes` adapter covering Hermes's
-  full kanban method set. `--profile` selection. `memory` reference adapter for tests.
-- **Later — workflow control (allowed transitions).** Beyond free-form card moves,
-  model **permitted column→column transitions** as a state machine per board/profile.
-  Providers that expose a workflow (e.g. Jira statuses/transitions) declare it via a
-  `WORKFLOW`/`TRANSITIONS` capability; `move_card` is then validated against the
-  allowed transitions and callers can query the transition graph. Backends without a
-  workflow keep today's free-move behavior.
-- **Later — additional profiles** (Jira, Trello, …), each a capability subset.
+Milestones, deliberately thin-first — every decision above stands, but the expensive
+halves are phased so a usable tool exists before the plumbing:
+
+- **v0 — usable skeleton** *(next)*. MCP server (tools + `capabilities` resource)
+  directly over the **native store**. No events, no dedupe, no augmenting layer —
+  the native store is full-capability, so nothing needs polyfilling yet. Result:
+  any MCP harness can drive a real kanban.
+- **v1 — Hermes parity.** `core/` augmenting layer (Tier 1: workflow + WIP
+  enforcement) + `BaseAdapter` + shared contract suite + `hermes` adapter +
+  `--profile` selection + idempotency keys (decision 8, key-required part) + CLI.
+- **v2 — events.** Core append-only change-log + pull change-feed + MCP
+  notifications + reconciliation polling (decision 9, minus the webhook registry).
+- **Later.** Persistent webhook listener registry (HMAC, retries, per-listener
+  cursors); content-hash dedupe fallback; Tier-2 write-through polyfills; workflow
+  engine hooks (flow YAML — see TODO); additional profiles (Jira, Trello, …);
+  multi-mount.
 
 ## What This Project Is NOT
 
@@ -405,9 +436,12 @@ keepalive/refresh (Jira webhooks expire at 30 days; Asana monitors an 8h heartbe
 
 ## Open Questions
 
-- **Ordering:** use rebalanced integer / lexo-rank ordering, not naive floats (Planka &
-  Trello float positions need periodic rebalancing — a known pain).
-- First adapter: confirm Hermes kanban's actual API surface (endpoints, auth, data
-  shape) before finalizing the `hermes` adapter and the canonical↔Hermes mapping.
-- Native store is DECIDED as the next build (see TODO.md) — reference Planka's schema +
-  Vikunja's relations/WIP; it doubles as the port's proving ground and test fixture.
+Live Q&A (with options and recommendations) is in [QUESTIONS.md](QUESTIONS.md) —
+currently Q13–Q17: delete guards, placement add/remove ops, `move_card` source
+disambiguation, `ext` patch semantics. Besides those:
+
+- Confirm Hermes kanban's actual API surface (endpoints, auth, data shape) before
+  writing the `hermes` adapter and the canonical↔Hermes mapping.
+
+*(Resolved: ordering = integer positions + periodic rebalancing, not naive floats —
+`Placement.position` is an int. Native store: built — `adapters/native.py`.)*

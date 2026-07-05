@@ -21,12 +21,20 @@ Python 3.12+ · FastAPI · Pydantic v2 · httpx · uv · ruff · mypy (strict) �
 ```
 kanban_pro/
   domain/    # canonical Pydantic models (the ONLY types that cross the port)
-  ports/     # KanbanBackend Protocol + Capabilities + canonical error taxonomy
+  ports/     # KanbanBackend Protocol + Capability/Fulfilment + canonical error taxonomy
   adapters/  # one module per backend, each implements the port
-  api/       # FastAPI routes: canonical op -> active adapter
-  config.py  # adapter selection + per-adapter settings
+  core/      # the one service: augmenting dispatch (adapter + overlay), dedupe, events
+  mcp/       # MCP server (PRIMARY interface)
+  cli/       # shell CLI (PRIMARY interface)
+  api/       # FastAPI routes (secondary interface)
+  config.py  # profile selection + per-profile settings
   app.py     # app factory / entrypoint
 ```
+
+The three interface layers are thin and stateless; all behavior lives in `core/`,
+which wraps the active adapter (`AugmentingBackend`). Interfaces call `core/`,
+**never an adapter directly**. Details in [SPEC.md](SPEC.md) (authoritative) and
+[docs/adapter-structure.md](docs/adapter-structure.md).
 
 ## Conventions
 
@@ -59,7 +67,8 @@ and the shared contract suite). In brief:
 - Don't grow the canonical model into a Jira clone — keep the core minimal, use `ext`.
 - Don't let an adapter fail with an opaque backend error for an unsupported op —
   declare the missing capability and return canonical `not_supported`.
-- Don't couple `api/` to any specific adapter — it talks to the port only.
+- Don't couple an interface layer (`mcp/`, `cli/`, `api/`) to any specific adapter —
+  interfaces call `core/`, which dispatches over the port.
 - Don't add speculative abstraction: extract only on real, substantial reuse
   (≥2 call sites); a thin wrapper around a one-liner is noise.
 

@@ -174,6 +174,9 @@ class Relation(BaseModel):
 # Only fields explicitly set are applied — adapters use
 # `patch.model_dump(exclude_unset=True)`, so an unset field is "leave untouched",
 # distinct from an explicit `None` (which clears a nullable field).
+# EXCEPTION — `ext` is a SHALLOW MERGE, not a replace (SPEC decision 1, Q17): patch keys
+# merge into the stored dict; a key set to None is removed. Protects concurrent writers
+# and kanban-pro's own `kanban_pro.*` metadata from being clobbered.
 
 
 class BoardPatch(BaseModel):

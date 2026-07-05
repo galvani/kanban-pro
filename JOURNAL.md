@@ -1,5 +1,90 @@
 # kanban-pro — Journal
 
+## 2026-07-05 — Q13–Q17 ruled (delete guards, placements, move, identifiers, ext)
+
+- **Q13:** guarded delete confirmed (archive → then delete); strict archive-only
+  rejected — agent boards accumulate garbage, a deliberate two-step purge stays.
+- **Q14:** `delete_board`/`delete_column` get **empty-only guards** (refuse while live
+  cards remain; archived leftovers cascade on board delete). No board-archive ops —
+  one core guard, no new port surface.
+- **Q15:** `add_placement`/`remove_placement` join the port **now** (Jan's call over
+  deferring) — multi-board membership becomes explicitly editable.
+- **Q16 (+ identifier brainstorm):** `move_card` is **strict within-board** — never
+  creates a placement (the silent-add quirk goes); cross-board = add/remove_placement.
+  **Mount-qualified addressing** decided for multi-mount (`jira/TASK-001`); **no
+  lineage-encoded ids** (provenance in link/ext, identity stable). **Human-readable
+  card keys** (per-board `PRO-12` style) queued as own TODO item.
+- **Q17:** patching `ext` = **shallow merge**, `null` removes a key (replace rejected —
+  it would let any lazy client clobber other writers' keys and kanban-pro's own
+  `kanban_pro.*` provenance metadata). Pinned in SPEC decision 1 + domain patch-model
+  comment; adapters currently replace — fix queued.
+- Implementation of Q14–Q17 queued in TODO ("Port expansion"); QUESTIONS.md is empty —
+  all Q1–Q17 resolved.
+
+## 2026-07-05 — v0 MVP: MCP server over the store adapters
+
+- **Did:** built the v0 milestone — `kanban_pro/mcp/` (FastMCP, stdio): 23 tools (one
+  per port op, schemas generated from the domain models) + resources
+  (`kanban://capabilities` with per-capability fulfilment, `boards`, `board/{id}`,
+  `card/{id}`). Entry: `kanban-pro-mcp [--profile]` / `python -m kanban_pro.mcp`.
+  Verified end-to-end over a real stdio client session.
+- **Decision:** seeded `core/` with `delete_card_guarded` (decision 7) — adapters purge
+  unconditionally, the guard lives in core so no interface can bypass archive-first.
+  MCP dispatches destructive ops through core from day one.
+- **Decision:** canonical error classes carry a stable `code` (`not_found`, `conflict`,
+  …); the MCP layer surfaces `"{code}: {message}"` tool errors. Tools carry MCP
+  annotations (readOnly/destructive/idempotent hints) for harness UX.
+- **Decision:** `config.py` registry implemented: profiles `default`→native (SQLite at
+  `$KANBAN_PRO_DB` / XDG data dir), `native`, `memory`; `$KANBAN_PRO_PROFILE` selects.
+  Profile files + secrets handling deferred to the first remote adapter.
+- **Scope note:** idempotency keys (decision 8) intentionally NOT on the v0 tools — a
+  required key without the core dedupe cache would be a false promise; both land in v1.
+- **Queued (Jan, this session):** flow-YAML **force-transition** override (logged, never
+  silent), **good logging** story, **smart Jira caching** (local cache + delta fetch by
+  updated-since/hash), **monitoring HTTP server** flag — all in TODO.md.
+- **Decision (Jan):** the `jira` adapter will be **MCP-backed** — kanban-pro connects as
+  an MCP client to the Atlassian MCP when available, else errors with an install
+  suggestion; raw REST only as targeted fallback. Details + caveats in TODO.
+- **Research (background agent):** web survey suggests the concept combo (self-hosted
+  backend-agnostic kanban proxy + capability polyfill/fulfilment + MCP-first +
+  agent-safety semantics) has no direct prior art; nearest neighbors: Unified.to-style
+  task APIs (SaaS, normalize-only), MCP mega-aggregators (Composio Rube), agent-native
+  boards (Agent Kanban, Flux — worth a look for tool-design ideas), per-backend MCP
+  servers (Atlassian/Linear). Differentiators confirmed: augmentation + fulfilment
+  reporting, write-through polyfill, archive-first deletion, proxy-owned idempotency.
+
+## 2026-07-05 — Docs unification & milestone rescope (review pass)
+
+- **Did:** full doc↔doc / doc↔code consistency pass (Claude review, applied on Jan's OK).
+- **Fixed drift:** README + AGENTS.md still described the superseded gated-surface,
+  HTTP-first design → now match SPEC (augmenting proxy, MCP/CLI primary, interfaces call
+  `core/`, never adapters). `Fulfilment` docstring in `ports/` corrected to
+  write-through-first (was "overlay only"). SPEC's Column model now lists `category`
+  (was only in code + research notes). methods.md "decision 7-bulk" mislabel fixed.
+- **Decision — milestone rescope (Jan OK'd "basic but usable first"):** Roadmap split
+  into v0 (MCP server over the native store — usable, no events/dedupe/augmenting) →
+  v1 (Hermes + augmenting Tier 1 + idempotency keys + CLI) → v2 (change-log + pull feed
+  + MCP notifications) → later (persistent webhook listener registry, content-hash
+  dedupe, Tier 2). **Rationale:** decision 9's full push surface in v1 was
+  product-sized plumbing before any real backend worked.
+- **Decision:** idempotency keys required on ALL create/add ops (boards/columns
+  included) — SPEC decision 8 aligned with methods.md, which already marked them.
+- **Decision:** ordering = integer positions + periodic rebalancing (closed the stale
+  "open question"; `Placement.position` was already an int).
+- **Done earlier, now recorded:** domain models, wired port, `memory` adapter, `native`
+  SQLite store (commits 8a0d340, 6ef1013, b9c1a4e) — removed from TODO.
+- **Decision — Jira + local cross-board scope:** Jan wants a `jira` adapter alongside
+  the local `native` board with cross-board copy/link/transition (pulls multi-mount
+  forward). Ruled: **copy-once + provenance link first**, boards transition
+  independently; mirrored transitions deferred until the v2 change-log exists; full
+  two-way sync stays out of scope. Cross-mount links live in the overlay, keyed
+  `(mount, card_id)`. → TODO "Jira adapter + local board".
+- **Open → QUESTIONS.md Q13–Q17** (model gaps found in review): strict archive-only vs
+  guarded delete; `delete_board`/`delete_column` guards; placement add/remove ops;
+  `move_card` source disambiguation with >1 placement; `ext` patch replace-vs-merge.
+  Also noted as port gaps: user lookup ops, archived-cards listing (methods.md
+  "planned expansion").
+
 ## 2026-07-03 — Project Initialized
 
 - **Decision:** Name `kanban-pro` — a backend-agnostic kanban proxy.
