@@ -29,6 +29,10 @@ with no bespoke integration. Concretely, you can:
   `force=true` override is always allowed — and always flagged in the log, never silent.
 - **Watch it live.** An optional web UI streams the board over SSE — drag a card in
   the browser, or watch an agent's move slide across the screen. Zero polling.
+- **Keep your own board *next to* the team's (🔜 multi-mount).** Your private native
+  board beside Jira and Trello, one API over all of them (`local/PRO-12`,
+  `jira/TASK-14`), cards copied across with provenance links and synced only after
+  your confirmation.
 
 ## Quick Start
 
@@ -157,6 +161,15 @@ dance, so kanban-pro never holds Jira credentials.
 Pick the backend with a **profile** — `--profile default` / `--profile memory` (or
 `KANBAN_PRO_PROFILE`). A profile bundles an adapter with its settings; kanban-pro
 always exposes the **full canonical surface** regardless of the backend's gaps.
+
+**And you're not limited to one world (🔜 multi-mount).** The destination is several
+backends mounted **at the same time**: your own private board (the native store)
+living right next to your team's Jira and a Trello, all behind the one API, addressed
+by mount — `local/PRO-12`, `jira/TASK-14`, `trello/…`. An agent picks work from your
+board, copies a card into Jira with a provenance link when it becomes team-visible,
+and the boards stay related through **confirmation-gated sync** — proposed change-sets
+you approve, never silent replication. Copy + link ships first; the mount-prefix
+addressing is already ruled into the design.
 
 Boards move, too: a generic **migration tool** (`kanban-pro-migrate`) copies any
 profile into any other — idempotent, dry-run first, provenance-stamped, the import
