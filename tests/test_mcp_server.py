@@ -15,14 +15,17 @@ from mcp.server.fastmcp.exceptions import ToolError
 
 import kanban_pro.mcp as kmcp
 from kanban_pro.adapters.memory import MemoryBackend
-from kanban_pro.core import AugmentingBackend
+from kanban_pro.core import AugmentingBackend, ChangeLog, RecordingBackend
 from kanban_pro.domain import Board, Card, Column, Placement
 
 
 @pytest.fixture(autouse=True)
 def fresh_backend() -> None:
-    """Each test gets its own augmented in-memory backend (the real stack shape)."""
-    kmcp.configure(AugmentingBackend(MemoryBackend()), "memory")
+    """Each test gets its own full core stack (recording > augmenting > memory)."""
+    kmcp.configure(
+        RecordingBackend(AugmentingBackend(MemoryBackend()), ChangeLog(), "agent:test"),
+        "memory",
+    )
 
 
 async def _make_board_with_card() -> tuple[Board, Card]:
@@ -46,6 +49,7 @@ def test_tools_registered_match_methods_doc() -> None:
         "archive_card", "unarchive_card", "delete_card",
         "list_comments", "add_comment", "delete_comment",
         "list_relations", "add_relation", "delete_relation",
+        "list_changes",
     }  # fmt: skip
     assert tools == expected
 
@@ -93,6 +97,20 @@ async def _delete_board_guarded_empty_only() -> None:
 
 def test_delete_board_guarded_empty_only() -> None:
     asyncio.run(_delete_board_guarded_empty_only())
+
+
+async def _change_feed_records_actor() -> None:
+    board, card = await _make_board_with_card()
+    await kmcp.move_card(card.id, board.id, board.columns[0].id, 3)
+    events = await kmcp.list_changes(since=0)
+    assert [e.kind for e in events] == ["board.created", "card.created", "card.moved"]
+    assert all(e.actor == "agent:test" for e in events)
+    # cursoring: resume from the last seen seq
+    assert await kmcp.list_changes(since=events[-1].seq) == []
+
+
+def test_change_feed_records_actor() -> None:
+    asyncio.run(_change_feed_records_actor())
 
 
 async def _capabilities_resource_reports_fulfilment() -> None:

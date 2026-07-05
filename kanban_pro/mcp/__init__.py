@@ -26,7 +26,7 @@ from mcp.server.fastmcp.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
 from kanban_pro import core
-from kanban_pro.config import PROFILE_ENV, build_backend
+from kanban_pro.config import ACTOR_ENV, PROFILE_ENV, build_backend
 from kanban_pro.domain import (
     Board,
     BoardPatch,
@@ -52,19 +52,24 @@ _DESTRUCTIVE = ToolAnnotations(readOnlyHint=False, destructiveHint=True)
 
 _backend: KanbanBackend | None = None
 _profile: str | None = None
+_actor: str | None = None
 
 
-def configure(backend: KanbanBackend | None, profile: str | None = None) -> None:
+def configure(
+    backend: KanbanBackend | None, profile: str | None = None, actor: str | None = None
+) -> None:
     """Bind the backend tools dispatch to (startup wiring + tests)."""
-    global _backend, _profile
-    _backend, _profile = backend, profile
+    global _backend, _profile, _actor
+    _backend, _profile, _actor = backend, profile, actor
 
 
 async def _get_backend() -> KanbanBackend:
     global _backend
     if _backend is None:
-        _backend = await build_backend(_profile)
-        logger.info("backend built: profile=%s", _profile or "default")
+        _backend = await build_backend(_profile, _actor)
+        logger.info(
+            "backend built: profile=%s actor=%s", _profile or "default", _actor or "unknown"
+        )
     return _backend
 
 
@@ -253,6 +258,22 @@ async def delete_relation(relation_id: str) -> str:
     return f"relation {relation_id} deleted"
 
 
+# --- change feed (decision 9 pull surface; WS/MCP push land with the UI) ---
+
+
+@mcp.tool(annotations=_RO)
+async def list_changes(since: int = 0, limit: int = 100) -> list[core.ChangeEvent]:
+    """Change feed: every recorded write after cursor `since` (audit trail + sync).
+
+    Each event carries seq (the cursor — pass the last seq back as `since`), ts,
+    actor (who did it), entity/op (e.g. card.moved), and a slim data payload.
+    """
+    backend = await _get_backend()
+    if not isinstance(backend, core.RecordingBackend):
+        raise ToolError("not_supported: change-log is not wired for this backend")
+    return await backend.changelog.since(since, min(max(limit, 1), 500))
+
+
 # --- resources ---
 
 
@@ -334,6 +355,14 @@ def main() -> None:
         help=f"backend profile (default: ${PROFILE_ENV} or 'default' = native SQLite store)",
     )
     parser.add_argument(
+        "--actor",
+        default=None,
+        help=(
+            f"identity stamped on every write this connection makes (default: ${ACTOR_ENV}"
+            " or 'unknown'); convention kind:name, e.g. agent:hermes-engineer, human:jan"
+        ),
+    )
+    parser.add_argument(
         "--print-config",
         choices=["claude", "codex", "opencode", "hermes"],
         default=None,
@@ -351,8 +380,12 @@ def main() -> None:
         level=logging.DEBUG if args.verbose else logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
-    configure(None, args.profile)
-    logger.info("kanban-pro MCP server starting (profile=%s)", args.profile or "default")
+    configure(None, args.profile, args.actor)
+    logger.info(
+        "kanban-pro MCP server starting (profile=%s, actor=%s)",
+        args.profile or "default",
+        args.actor or "unknown",
+    )
     mcp.run()
 
 

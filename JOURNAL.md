@@ -1,5 +1,26 @@
 # kanban-pro — Journal
 
+## 2026-07-05 — Actor identity + change-log core (decisions 9 & 10 live)
+
+- **Did:** `core/changelog.py` (ChangeEvent + ChangeLog: append-only, seq-cursored;
+  SQLite per profile at `changelog-<profile>.db`, in-memory for the memory profile) and
+  `core/recording.py` (`RecordingBackend` — outermost core decorator; stamps every
+  SUCCESSFUL write with the connection's actor; reads + failed writes never recorded;
+  slim payloads). Stack is now `Recording(Augmenting(adapter))` from
+  `config.build_backend(profile, actor)`. MCP: `--actor kind:name` /
+  `$KANBAN_PRO_ACTOR` + `list_changes(since, limit)` pull-feed tool (26 tools).
+  52 tests green.
+- **Decision (SPEC 10):** actor = per-connection plain string (`agent:…`/`human:…`),
+  not a User reference; per-call override deferred.
+- **Design note:** comment events keep both identities — the change-log `actor` (who
+  called) and the comment's `author` field — they can legitimately differ.
+- **Next projections of the same log:** WS/SSE + MCP notifications (with the UI),
+  hermes `task_events` ingestion, card activity timeline.
+- **Queued (Jan, this session):** `list_transitions(card_id)` MCP tool (valid moves
+  per card) + **per-card workflow schemes** (a docs task skips coder steps — Jira
+  issue-type-scheme style, named flows in the YAML, card carries `scheme`). → TODO
+  flow-management block.
+
 ## 2026-07-05 — HermesAdapter: first remote adapter live
 
 - **Did:** `adapters/hermes/` package (mapping / reader / writer / adapter), profile

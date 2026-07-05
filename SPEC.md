@@ -302,8 +302,10 @@ kanban-pro is the **single live event source** over all backends. Two halves:
   All three are fed by one **core change-log (append-only, cursored)** covering
   card/column/board create·update·move·archive·delete. The change-log is the single
   source; MCP/webhook/feed are thin projections of it (same no-drift principle as the
-  interface layers). *Delivery is phased (see Roadmap): change-log + pull feed + MCP
-  notifications land in v2; the persistent webhook registry comes later.*
+  interface layers). *Delivery is phased (see Roadmap): the change-log core + pull
+  feed (`list_changes` tool, actor-stamped — decision 10) are IMPLEMENTED
+  (2026-07-05); WS/SSE + MCP notifications land with the UI; the persistent webhook
+  registry comes later.*
 
 **Listener registry.** Push delivery is driven by registered listeners:
 
@@ -318,6 +320,19 @@ kanban-pro is the **single live event source** over all backends. Two halves:
   listener is live for the session and removed when it ends (no persistence).
 - **Change-feed — no registration.** Pure pull: the client holds a cursor and asks for
   `changes since <cursor>`.
+
+### 10. Actor identity on operations (2026-07-05)
+
+Every write knows **who did it** — kanban-pro's consumers are agents, so attribution
+is a first-class concern (audit, the change-log, the work-queue's "me"). Identity is
+**per-connection**: the MCP server (and later CLI/HTTP) is started with
+`--actor <kind:name>` (`agent:hermes-engineer`, `human:jan`; env `KANBAN_PRO_ACTOR`);
+everything that connection does is stamped with it. Actors are plain strings by
+convention, not User references — a User row is not required to act. A per-call
+override is deferred until a concrete need appears. Implemented by
+`core.RecordingBackend`, the outermost decorator of the core stack: it records every
+*successful* write into the change-log (decision 9); reads and failed writes are never
+recorded.
 
 ## Consuming kanban-pro (consumption model)
 

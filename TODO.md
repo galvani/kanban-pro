@@ -58,6 +58,17 @@ move, empty-only delete guards, ext shallow-merge) — see JOURNAL 2026-07-05.)*
   - **Transition graph:** allowed `column→column` edges (a state machine) per board/profile;
     `move_card` validated against it; expose the graph so a harness can ask "what moves are
     legal from here" (like Jira `GET /transitions`).
+  - **`list_transitions(card_id)` MCP tool (Jan, 2026-07-05):** any card must be able to
+    report its valid next moves easily over MCP — from the flow graph where one is
+    configured, else from the backend's native workflow (hermes: the lane-verb map),
+    else "all columns" (free-move). Ship WITH the flow engine; the hermes-native case
+    could even ship before it.
+  - **Per-card workflow schemes (Jan, 2026-07-05):** a card can be assigned a
+    transition profile/scheme — e.g. a documentation task skips the coder/review
+    steps a code task needs. Like Jira's issue-type schemes: `flows:` in the YAML
+    becomes a named-scheme map, a card carries `scheme` (default from board/profile),
+    validation + `list_transitions` resolve through the card's scheme. Assignment
+    must be easy: settable at create and via update_card.
   - **Hooks:**
     - *pre-transition validators* — can block/deny a move (e.g. "can't reach Done with an
       open checklist" / required field missing). Return allow/deny + reason.
@@ -103,13 +114,14 @@ move, empty-only delete guards, ext shallow-merge) — see JOURNAL 2026-07-05.)*
   - **Agent assignees:** an agent is a `User` with `ext.kind="agent"` (works today);
     promote a first-class `User.kind: human|agent` once proven. Prereq: the queued
     `list_users`/`get_user` port ops — assignment needs discoverable ids.
-  - **Actor identity on ops (design BEFORE the change-log):** every write should know
-    who did it. Proposal: per-connection identity (MCP registration declares
-    `--actor agent:hermes-engineer`), optional per-call override. The change-log then
-    records actor per transition — retrofitting later would be painful.
-  - **Transition log = the v2 change-log** (decision 9) — one build serves events,
-    audit trail, and the "good logging" item. Card timeline = change-log filtered by
-    card + its comments.
+  - [x] **Actor identity** — DONE 2026-07-05 (SPEC decision 10): per-connection
+    `--actor kind:name` / `$KANBAN_PRO_ACTOR` on the MCP server, stamped on every
+    recorded write. Per-call override deferred until a real need.
+  - [x] **Transition log / change-log core** — DONE 2026-07-05: `core/changelog.py`
+    (append-only, cursored, SQLite per profile) + `RecordingBackend` decorator +
+    `list_changes` MCP tool (pull feed). Still to come: WS/SSE + MCP notifications
+    (with the UI build), backend-watcher ingestion (hermes task_events → change-log),
+    card timeline projection.
   - **Card-scoped error events, NOT a log sink:** agent failures land as typed
     comments/events on the card ("error: …", actor, timestamp). Raw telemetry
     (stack traces, stdout, tokens) stays outside; the card carries a reference
@@ -167,6 +179,19 @@ move, empty-only delete guards, ext shallow-merge) — see JOURNAL 2026-07-05.)*
   Client-side 2s-polling is solved separately by v2 push (MCP notifications /
   webhooks / cursored feed) — clients subscribe to kanban-pro, kanban-pro watches
   the backend. Decide staleness policy (serve-stale + refresh vs block) when built.
+  **Config-controlled (Jan, 2026-07-05):** cache is per-profile in the YAML config
+  file (SPEC decision 3 — profile definitions live there), on/off + timing, e.g.:
+  ```yaml
+  profiles:
+    jira:
+      adapter: jira
+      cache:
+        enabled: true          # off = every read hits the backend
+        refresh_seconds: 30    # change-detection poll cadence (delta-poll / events tail)
+        ttl_seconds: 300       # hard staleness ceiling — full refetch past this
+  ```
+  Defaults: remote adapters on, store adapters off/absent; `enabled: false` must
+  fully bypass the decorator (not just shorten TTLs).
 - [ ] **Monitoring HTTP server via shell argument** — e.g. `--monitor [port]` on the
   server/CLI starts a small read-only HTTP dashboard (live board view; later fed by the
   v2 change-feed instead of polling). OPEN: exactly what to show (board view? op log?
@@ -177,6 +202,15 @@ move, empty-only delete guards, ext shallow-merge) — see JOURNAL 2026-07-05.)*
   and stops with the process. Applies to every UI surface this project grows.
 
 ## UI (to explore)
+
+- [ ] **UI is push-fed, never browser-refresh (Jan, 2026-07-05):** the backend pushes
+  changes to the browser (WebSocket/SSE off the core change-log — the UI is just
+  another decision-9 projection, like MCP notifications). No client polling loops.
+  The ported Hermes plugin already expects a WS events feed, so the port keeps that
+  shape. Consequence — build order for the UI: actor identity → core change-log +
+  WS endpoint → UI port. Initial page load = one REST snapshot; everything after =
+  pushed deltas keyed by change-log cursor (reconnect resumes from cursor, no
+  full reload).
 
 - [ ] **Check the Hermes board plugin we built** — see whether its board UI can be reused
   / easily wired into kanban-pro's own UI (as a front-end consumer of the canonical API).

@@ -16,6 +16,8 @@ reconciliation GC for out-of-band backend deletes.
 
 from __future__ import annotations
 
+from typing import Protocol, runtime_checkable
+
 from kanban_pro.domain import (
     Board,
     BoardPatch,
@@ -192,9 +194,16 @@ class AugmentingBackend:
         await self._route(Capability.RELATIONS).delete_relation(relation_id)
 
 
+@runtime_checkable
+class HasFulfilments(Protocol):
+    """Any core decorator that can report per-capability fulfilment."""
+
+    def fulfilments(self) -> dict[Capability, Fulfilment]: ...
+
+
 def fulfilments(backend: KanbanBackend) -> dict[Capability, Fulfilment]:
-    """Per-capability fulfilment for any backend (augmented or bare adapter)."""
-    if isinstance(backend, AugmentingBackend):
+    """Per-capability fulfilment for any backend (decorated stack or bare adapter)."""
+    if isinstance(backend, HasFulfilments):
         return backend.fulfilments()
     return {
         cap: Fulfilment.NATIVE if cap in backend.capabilities else Fulfilment.UNAVAILABLE

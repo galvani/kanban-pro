@@ -18,19 +18,33 @@ from pathlib import Path
 from kanban_pro.adapters.hermes import HermesAdapter
 from kanban_pro.adapters.memory import MemoryBackend
 from kanban_pro.adapters.native import NativeStore
-from kanban_pro.core import AugmentingBackend
+from kanban_pro.core import AugmentingBackend, ChangeLog, RecordingBackend
 from kanban_pro.ports import KanbanBackend
 
 PROFILE_ENV = "KANBAN_PRO_PROFILE"
 DB_ENV = "KANBAN_PRO_DB"
+ACTOR_ENV = "KANBAN_PRO_ACTOR"
+
+
+def _data_dir() -> Path:
+    data_home = Path(os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local" / "share")))
+    return data_home / "kanban-pro"
 
 
 def default_db_path() -> Path:
     """Native-store location: $KANBAN_PRO_DB, else XDG data dir."""
     if env := os.environ.get(DB_ENV):
         return Path(env)
-    data_home = Path(os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local" / "share")))
-    return data_home / "kanban-pro" / "kanban.db"
+    return _data_dir() / "kanban.db"
+
+
+def changelog_path(profile: str) -> Path | None:
+    """Per-profile change-log db; None = in-memory (ephemeral memory profile)."""
+    if profile == "memory":
+        return None
+    path = _data_dir() / f"changelog-{profile}.db"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return path
 
 
 async def _open_native() -> KanbanBackend:
@@ -56,12 +70,15 @@ REGISTRY: dict[str, Callable[[], Awaitable[KanbanBackend]]] = {
 }
 
 
-async def build_backend(profile: str | None = None) -> AugmentingBackend:
-    """Resolve the active profile (arg > env > 'default'), build its adapter, and wrap
-    it in the augmenting layer (what interfaces call — SPEC decision 2).
+async def build_backend(profile: str | None = None, actor: str | None = None) -> RecordingBackend:
+    """Resolve the active profile (arg > env > 'default') and build the core stack:
 
-    Store profiles need no overlay (they're full-capability); remote profiles will pass
-    a NativeStore overlay here when they land.
+        RecordingBackend(AugmentingBackend(adapter), changelog, actor)
+
+    — augmenting = delegate/polyfill/enforce (decision 2); recording = every write
+    stamped into the per-profile change-log with the actor (decisions 9 & 10).
+    Store profiles need no overlay (full-capability); remote profiles will pass a
+    NativeStore overlay when they need Tier-2 polyfills.
     """
     name = profile or os.environ.get(PROFILE_ENV) or "default"
     try:
@@ -69,4 +86,7 @@ async def build_backend(profile: str | None = None) -> AugmentingBackend:
     except KeyError:
         known = ", ".join(sorted(REGISTRY))
         raise ValueError(f"unknown profile {name!r} (known: {known})") from None
-    return AugmentingBackend(await factory())
+    resolved_actor = actor or os.environ.get(ACTOR_ENV) or "unknown"
+    return RecordingBackend(
+        AugmentingBackend(await factory()), ChangeLog(changelog_path(name)), resolved_actor
+    )

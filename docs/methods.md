@@ -108,8 +108,13 @@ list_cards, get_card, create_card, update_card, move_card,
 add_placement, remove_placement, archive_card, unarchive_card, delete_card,
 list_comments, add_comment, delete_comment,
 list_relations, add_relation, delete_relation,
+list_changes,
 bulk_create, bulk_move, bulk_update, bulk_archive
 ```
+
+`list_changes(since=0, limit=100)` — the decision-9 pull feed: every recorded write
+after cursor `since`, each event carrying `seq` (next cursor), `ts`, `actor`
+(decision 10), `entity.op` (e.g. `card.moved`), and a slim payload.
 
 - **Input schema** for each tool is generated from the domain / `*Patch` model (or the
   path params). Example — `create_card`:
