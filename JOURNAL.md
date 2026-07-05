@@ -1,5 +1,26 @@
 # kanban-pro — Journal
 
+## 2026-07-05 — Idempotency keys + attention flag (72 tests)
+
+- **Idempotency (decision 8, v1):** `core/dedupe.py` DedupeStore (kind+key →
+  serialized original result, 24h TTL, per-profile `dedupe-<profile>.db`,
+  opportunistic GC; kinds namespace keys so a card key can't collide with a comment
+  key). The five create/add ops take an OPTIONAL `idempotency_key`: a retry with the
+  same key returns the ORIGINAL entity — no duplicate on the board, no second
+  change-log event. Required-key enforcement flips on with the phase-C worker rollout
+  (the worker skill will always send one). No server-generated fallback keys, per the
+  decision (a per-attempt key dedupes nothing).
+- **Attention flag (as ruled):** `raise_attention(card_id, reason, for_actor?)` /
+  `clear_attention(card_id, resolution?)` — flag in `ext["kanban_pro.attention"]`
+  (shallow-merge; clearing sets the key to None per Q17), events
+  `attention.raised`/`attention.cleared` carry reason + target so notifier agents
+  route straight off the feed. 38 MCP tools now.
+- **The toolref drift guard earned its keep on its first real surface change:** the
+  suite failed until `tests.toolref --write` regenerated the example skills;
+  installed copies re-synced.
+- Phase C of the adaptation plan is now UNGATED (keys exist) — next: the Hermes
+  worker/orchestrator skill rewrite, then dispatcher v0.
+
 ## 2026-07-05 — Harness adaptation: phases A + B executed
 
 - **A1 — flows live:** `~/.config/kanban-pro/flows-default.yaml` (example committed

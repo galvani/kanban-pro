@@ -18,7 +18,14 @@ from pathlib import Path
 from kanban_pro.adapters.hermes import HermesAdapter
 from kanban_pro.adapters.memory import MemoryBackend
 from kanban_pro.adapters.native import NativeStore
-from kanban_pro.core import AugmentingBackend, ChangeLog, ClaimStore, RecordingBackend, load_flows
+from kanban_pro.core import (
+    AugmentingBackend,
+    ChangeLog,
+    ClaimStore,
+    DedupeStore,
+    RecordingBackend,
+    load_flows,
+)
 from kanban_pro.ports import KanbanBackend
 
 PROFILE_ENV = "KANBAN_PRO_PROFILE"
@@ -70,6 +77,15 @@ def claims_path(profile: str) -> Path | None:
     return path
 
 
+def dedupe_path(profile: str) -> Path | None:
+    """Per-profile idempotency cache db; None = in-memory (memory profile)."""
+    if profile == "memory":
+        return None
+    path = _data_dir() / f"dedupe-{profile}.db"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return path
+
+
 async def _open_native() -> KanbanBackend:
     path = default_db_path()
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -117,4 +133,5 @@ async def build_backend(profile: str | None = None, actor: str | None = None) ->
         ChangeLog(changelog_path(name)),
         resolved_actor,
         claims=ClaimStore(claims_path(name)),
+        dedupe=DedupeStore(dedupe_path(name)),
     )

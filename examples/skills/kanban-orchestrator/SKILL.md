@@ -52,14 +52,15 @@ yourself implementing, stop and create a card instead.
 
 <!-- generated:tool-reference — regenerate: uv run python -m tests.toolref --write -->
 
-- `add_comment(comment)` — Add a comment to a card (`card_id`, `author` = User id, `body`).
+- `add_comment(comment, idempotency_key?)` — Add a comment to a card (`card_id`, `author` = User id, `body`).
 - `add_placement(card_id, placement)` — Put a card on an additional board (one placement per board; errors if already on it).
-- `add_relation(relation)` — Link two cards with a typed relation. Subtask = kind 'child' from parent card.
+- `add_relation(relation, idempotency_key?)` — Link two cards with a typed relation. Subtask = kind 'child' from parent card.
 - `archive_card(card_id)` — Archive a card (soft, recoverable — the default way to remove one).
 - `claim_card(card_id, ttl_seconds?)` — Atomically lease a card so no other agent picks it up (visible in list_work).
-- `create_board(board)` — Create a board. Omit `id` to have one generated; columns/labels may be inlined.
-- `create_card(card)` — Create a card. `placements` must have >=1 entry (board_id, column_id, position).
-- `create_column(board_id, column)` — Add a column to a board. `category` gives it portable semantics (e.g. 'done').
+- `clear_attention(card_id, resolution?)` — Clear a card's attention flag (question answered / decision made). Put the
+- `create_board(board, idempotency_key?)` — Create a board. Omit `id` to have one generated; columns/labels may be inlined.
+- `create_card(card, idempotency_key?)` — Create a card. `placements` must have >=1 entry (board_id, column_id, position).
+- `create_column(board_id, column, idempotency_key?)` — Add a column to a board. `category` gives it portable semantics (e.g. 'done').
 - `delete_board(board_id)` — Delete a board permanently. Refused while live cards remain — move/archive first.
 - `delete_card(card_id)` — Permanently purge a card. Only allowed on an ARCHIVED card — archive_card first.
 - `delete_column(column_id)` — Delete a column permanently. Refused while live cards sit in it — move/archive first.
@@ -78,6 +79,7 @@ yourself implementing, stop and create a card instead.
 - `list_transitions(card_id, board_id?)` — What moves are legal for this card right now, and under which resolved scheme.
 - `list_work(assignee?, include_unassigned?)` — What should I work on? Workable cards for `assignee` (default: YOU, this
 - `move_card(card_id, to_board_id, to_column_id, position?, force?)` — Move a card within a board it's already on (re-column / re-position).
+- `raise_attention(card_id, reason, for_actor?)` — Flag a card as needing a decision or input (e.g. a question only a human or a
 - `release_claim(card_id)` — Release your lease (done or giving up). Idempotent.
 - `remove_placement(card_id, board_id)` — Take a card off one board (its other placements stay). The last placement can't
 - `unarchive_card(card_id)` — Restore an archived card.

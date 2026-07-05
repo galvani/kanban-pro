@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from kanban_pro.core.augment import AugmentingBackend, fulfilments
 from kanban_pro.core.changelog import ChangeEvent, ChangeLog
+from kanban_pro.core.dedupe import DedupeStore
 from kanban_pro.core.flow import (
     FREE_ROAM,
     SCHEME_EXT_KEY,
@@ -17,16 +18,18 @@ from kanban_pro.core.flow import (
     TransitionInfo,
     load_flows,
 )
-from kanban_pro.core.recording import RecordingBackend
+from kanban_pro.core.recording import ATTENTION_EXT_KEY, RecordingBackend
 from kanban_pro.core.work import Claim, ClaimStore, WorkItem, WorkQueue
 from kanban_pro.ports import Conflict, KanbanBackend, NotFound
 
 __all__ = [
+    "ATTENTION_EXT_KEY",
     "AugmentingBackend",
     "ChangeEvent",
     "ChangeLog",
     "Claim",
     "ClaimStore",
+    "DedupeStore",
     "FREE_ROAM",
     "SCHEME_EXT_KEY",
     "FlowConfig",

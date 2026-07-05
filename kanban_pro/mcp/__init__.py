@@ -98,9 +98,15 @@ async def get_board(board_id: str) -> Board:
 
 
 @mcp.tool(annotations=_WRITE)
-async def create_board(board: Board) -> Board:
-    """Create a board. Omit `id` to have one generated; columns/labels may be inlined."""
-    return await _call((await _get_backend()).create_board(board))
+async def create_board(board: Board, idempotency_key: str | None = None) -> Board:
+    """Create a board. Omit `id` to have one generated; columns/labels may be inlined.
+
+    Send an idempotency_key (any unique string, REUSED on retry) so a retried call
+    returns the original board instead of creating a duplicate."""
+    backend = await _get_backend()
+    if idempotency_key and isinstance(backend, core.RecordingBackend):
+        return await _call(backend.create_board(board, idempotency_key=idempotency_key))
+    return await _call(backend.create_board(board))
 
 
 @mcp.tool(annotations=_IDEMPOTENT)
@@ -126,9 +132,15 @@ async def list_columns(board_id: str) -> list[Column]:
 
 
 @mcp.tool(annotations=_WRITE)
-async def create_column(board_id: str, column: Column) -> Column:
-    """Add a column to a board. `category` gives it portable semantics (e.g. 'done')."""
-    return await _call((await _get_backend()).create_column(board_id, column))
+async def create_column(
+    board_id: str, column: Column, idempotency_key: str | None = None
+) -> Column:
+    """Add a column to a board. `category` gives it portable semantics (e.g. 'done').
+    idempotency_key (reused on retry) prevents duplicate creation."""
+    backend = await _get_backend()
+    if idempotency_key and isinstance(backend, core.RecordingBackend):
+        return await _call(backend.create_column(board_id, column, idempotency_key=idempotency_key))
+    return await _call(backend.create_column(board_id, column))
 
 
 @mcp.tool(annotations=_IDEMPOTENT)
@@ -161,9 +173,14 @@ async def get_card(card_id: str) -> Card:
 
 
 @mcp.tool(annotations=_WRITE)
-async def create_card(card: Card) -> Card:
-    """Create a card. `placements` must have >=1 entry (board_id, column_id, position)."""
-    return await _call((await _get_backend()).create_card(card))
+async def create_card(card: Card, idempotency_key: str | None = None) -> Card:
+    """Create a card. `placements` must have >=1 entry (board_id, column_id, position).
+    Send an idempotency_key (any unique string, REUSED on retry) so retries return the
+    original card instead of duplicating it."""
+    backend = await _get_backend()
+    if idempotency_key and isinstance(backend, core.RecordingBackend):
+        return await _call(backend.create_card(card, idempotency_key=idempotency_key))
+    return await _call(backend.create_card(card))
 
 
 @mcp.tool(annotations=_IDEMPOTENT)
@@ -275,9 +292,13 @@ async def list_comments(card_id: str) -> list[Comment]:
 
 
 @mcp.tool(annotations=_WRITE)
-async def add_comment(comment: Comment) -> Comment:
-    """Add a comment to a card (`card_id`, `author` = User id, `body`)."""
-    return await _call((await _get_backend()).add_comment(comment))
+async def add_comment(comment: Comment, idempotency_key: str | None = None) -> Comment:
+    """Add a comment to a card (`card_id`, `author` = User id, `body`).
+    idempotency_key (reused on retry) prevents duplicate comments."""
+    backend = await _get_backend()
+    if idempotency_key and isinstance(backend, core.RecordingBackend):
+        return await _call(backend.add_comment(comment, idempotency_key=idempotency_key))
+    return await _call(backend.add_comment(comment))
 
 
 @mcp.tool(annotations=_DESTRUCTIVE)
@@ -297,9 +318,13 @@ async def list_relations(card_id: str) -> list[Relation]:
 
 
 @mcp.tool(annotations=_WRITE)
-async def add_relation(relation: Relation) -> Relation:
-    """Link two cards with a typed relation. Subtask = kind 'child' from parent card."""
-    return await _call((await _get_backend()).add_relation(relation))
+async def add_relation(relation: Relation, idempotency_key: str | None = None) -> Relation:
+    """Link two cards with a typed relation. Subtask = kind 'child' from parent card.
+    idempotency_key (reused on retry) prevents duplicate relations."""
+    backend = await _get_backend()
+    if idempotency_key and isinstance(backend, core.RecordingBackend):
+        return await _call(backend.add_relation(relation, idempotency_key=idempotency_key))
+    return await _call(backend.add_relation(relation))
 
 
 @mcp.tool(annotations=_DESTRUCTIVE)
@@ -347,6 +372,27 @@ async def release_claim(card_id: str) -> str:
     """Release your lease (done or giving up). Idempotent."""
     await _call(_recording(await _get_backend()).release_claim(card_id))
     return f"claim on {card_id} released"
+
+
+# --- attention signal: "this card needs a decision/input" ---
+
+
+@mcp.tool(annotations=_WRITE)
+async def raise_attention(card_id: str, reason: str, for_actor: str | None = None) -> Card:
+    """Flag a card as needing a decision or input (e.g. a question only a human or a
+    specific agent can answer). Routable: the change-log event carries the reason and
+    the target actor, so notifier agents DM the right party. Put the actual question
+    in a comment; this flag is the signal, not the discussion."""
+    backend = await _get_backend()
+    return await _call(_recording(backend).raise_attention(card_id, reason, for_actor))
+
+
+@mcp.tool(annotations=_WRITE)
+async def clear_attention(card_id: str, resolution: str | None = None) -> Card:
+    """Clear a card's attention flag (question answered / decision made). Put the
+    answer in a comment; `resolution` is a one-liner for the event stream."""
+    backend = await _get_backend()
+    return await _call(_recording(backend).clear_attention(card_id, resolution))
 
 
 # --- change feed (decision 9 pull surface; WS/MCP push land with the UI) ---

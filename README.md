@@ -23,7 +23,10 @@ with no bespoke integration. Concretely, you can:
   Ask `list_changes` and see exactly which agent moved which card, and when.
 - **Sleep through agent mistakes.** A misfiring agent can't one-shot destroy data:
   deletes are archive-first (purge only what's already archived), board/column deletes
-  refuse while cards remain, WIP limits are enforced on every move.
+  refuse while cards remain, WIP limits are enforced on every move, and retried
+  creates with an idempotency key return the original instead of a duplicate. When an
+  agent hits a question only you can answer, it **raises an attention flag** routed
+  through the change-feed — instead of guessing or dying silently.
 - **Set the rules of the game.** A declarative `flow.yaml` defines which column moves
   are legal; agents ask `list_transitions` for their options, and a deliberate
   `force=true` override is always allowed — and always flagged in the log, never silent.
@@ -186,9 +189,10 @@ infrastructure an agent fleet would otherwise need:
   it left off. Kafka-style offsets, no broker to run. ✅
 - **Claim/lease** is the competing-consumers pattern: atomic claim with a TTL,
   heartbeats, crash-reclaim = redelivery. Two agents never grab the same card. ✅
+- The **attention flag** is routing: "this needs a decision" targeted at a specific
+  agent or human, carried in the event stream for notifiers to deliver. ✅
 - **Durable subscriptions** (🔜 webhook listeners with per-listener cursors + retry)
-  and the **attention flag** (🔜 — route "this needs a decision" to a specific agent
-  or human) round out fan-out and routing.
+  round out fan-out.
 
 The difference from a real broker: here every "message" is a **card** — durable,
 stateful, attributed, with history — and the queue is a **board a human can see**,
@@ -251,7 +255,7 @@ append-only change-log with the `list_changes` pull feed, the flow engine (named
 schemes, free-roam, audited force), the push-fed web UI, and the generic migration
 tool — all tested, and verified live against a real production board.
 
-**Next (🔜):** the CLI, idempotency keys + retry dedupe, flow hooks/validators, the
+**Next (🔜):** the CLI, flow hooks/validators, the
 MCP-backed `jira` adapter with cross-board copy/link, smart remote caching,
 confirmation-gated two-way sync, human-readable card keys (`PRO-12`), MCP push
 notifications, and a richer UI. Roadmap: [SPEC.md](SPEC.md#roadmap); the full queue:

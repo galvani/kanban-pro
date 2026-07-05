@@ -13,8 +13,11 @@ v0 — idempotency keys and notifications follow core in v1/v2). Ops marked _(pl
 aren't implemented yet.
 
 Conventions: `Card`/`Board`/… are the [domain models](../SPEC.md#canonical-domain-model).
-`*Patch` = partial update (only set fields apply). **†** = requires an idempotency key
-(create/add ops, SPEC decision 8). Each op notes the `Capability` that gates it.
+`*Patch` = partial update (only set fields apply). **†** = takes an idempotency key
+(create/add ops, SPEC decision 8 — IMPLEMENTED 2026-07-05 as an optional param: same
+key on retry returns the ORIGINAL result, no duplicate, no second change-log event;
+keys become required with the phase-C worker rollout). Each op notes the `Capability`
+that gates it.
 
 ---
 
@@ -90,6 +93,8 @@ Subtasks = child cards via `PARENT`/`CHILD` relations (`SUBTASKS`).
 | claim | `claim_card(card_id, ttl_seconds=900)` | atomic CAS lease (competing consumers); expired leases are silently reclaimable; recorded as `card.claimed` |
 | heartbeat | `heartbeat_claim(card_id, ttl_seconds=900)` | renew own live lease (not recorded) |
 | release | `release_claim(card_id)` | idempotent; recorded as `card.released` |
+| raise attention | `raise_attention(card_id, reason, for_actor?)` | sets `ext["kanban_pro.attention"]` + `attention.raised` event (routable: notifiers read reason/target from the feed) |
+| clear attention | `clear_attention(card_id, resolution?)` | removes the flag + `attention.cleared` event |
 
 Claiming does NOT move or assign — the convention "claim → assign yourself → move to
 a started column" stays visible in the change-log.

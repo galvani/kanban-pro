@@ -29,8 +29,12 @@ from kanban_pro.ports import Capability, Fulfilment, KanbanBackend, NotSupported
 
 from .augment import AugmentingBackend
 from .augment import fulfilments as _fulfilments
+from .dedupe import DedupeStore
 from .flow import FlowConfig, TransitionInfo
 from .work import Claim, ClaimStore, WorkItem, WorkQueue
+
+#: ext key for the attention signal (methods.md "Card ext conventions")
+ATTENTION_EXT_KEY = "kanban_pro.attention"
 
 #: categories that count as "workable" for the queue (done/canceled/triage are not)
 _READYISH = {ColumnCategory.BACKLOG, ColumnCategory.UNSTARTED, ColumnCategory.STARTED}
@@ -47,11 +51,13 @@ class RecordingBackend:
         changelog: ChangeLog,
         actor: str,
         claims: ClaimStore | None = None,
+        dedupe: DedupeStore | None = None,
     ) -> None:
         self._inner = inner
         self.changelog = changelog
         self.actor = actor
         self.claims = claims or ClaimStore()
+        self.dedupe = dedupe or DedupeStore()
         self.capabilities: frozenset[Capability] = inner.capabilities
 
     def fulfilments(self) -> dict[Capability, Fulfilment]:
@@ -85,6 +91,31 @@ class RecordingBackend:
         await self.claims.release(card_id, self.actor)
         if had is not None and not had.expired:
             await self._record("card", card_id, "released")
+
+    # --- attention signal (card-level "needs a decision", ruled 2026-07-05) ---
+
+    async def raise_attention(
+        self, card_id: str, reason: str, for_actor: str | None = None
+    ) -> Card:
+        """Flag a card as needing input/decision — the routable event consumers watch.
+
+        The flag lives in ext (shallow-merge, one key); the change-log event
+        `attention.raised` carries reason + target so notifiers route without
+        reading the card.
+        """
+        flag = {"reason": reason, "raised_by": self.actor, "for": for_actor}
+        card = await self._inner.update_card(card_id, CardPatch(ext={ATTENTION_EXT_KEY: flag}))
+        await self._record("attention", card_id, "raised", reason=reason, for_actor=for_actor)
+        return card
+
+    async def clear_attention(self, card_id: str, resolution: str | None = None) -> Card:
+        """Clear the flag (question answered / decision made)."""
+        card = await self._inner.update_card(
+            card_id,
+            CardPatch(ext={ATTENTION_EXT_KEY: None}),  # None removes the key (Q17)
+        )
+        await self._record("attention", card_id, "cleared", resolution=resolution)
+        return card
 
     def _matches_actor(self, assignees: list[str], wanted: str) -> bool:
         # actor is "kind:name"; backends often key assignees by bare name
@@ -162,8 +193,12 @@ class RecordingBackend:
     async def get_board(self, board_id: str) -> Board:
         return await self._inner.get_board(board_id)
 
-    async def create_board(self, board: Board) -> Board:
+    async def create_board(self, board: Board, *, idempotency_key: str | None = None) -> Board:
+        if idempotency_key and (hit := await self.dedupe.get("board", idempotency_key)):
+            return Board.model_validate_json(hit)  # retry: original result, no new event
         created = await self._inner.create_board(board)
+        if idempotency_key:
+            await self.dedupe.put("board", idempotency_key, created.model_dump_json())
         await self._record("board", created.id, "created", created.id, name=created.name)
         return created
 
@@ -182,8 +217,14 @@ class RecordingBackend:
     async def list_columns(self, board_id: str) -> list[Column]:
         return await self._inner.list_columns(board_id)
 
-    async def create_column(self, board_id: str, column: Column) -> Column:
+    async def create_column(
+        self, board_id: str, column: Column, *, idempotency_key: str | None = None
+    ) -> Column:
+        if idempotency_key and (hit := await self.dedupe.get("column", idempotency_key)):
+            return Column.model_validate_json(hit)
         created = await self._inner.create_column(board_id, column)
+        if idempotency_key:
+            await self.dedupe.put("column", idempotency_key, created.model_dump_json())
         await self._record("column", created.id, "created", board_id, name=created.name)
         return created
 
@@ -205,8 +246,12 @@ class RecordingBackend:
     async def get_card(self, card_id: str) -> Card:
         return await self._inner.get_card(card_id)
 
-    async def create_card(self, card: Card) -> Card:
+    async def create_card(self, card: Card, *, idempotency_key: str | None = None) -> Card:
+        if idempotency_key and (hit := await self.dedupe.get("card", idempotency_key)):
+            return Card.model_validate_json(hit)
         created = await self._inner.create_card(card)
+        if idempotency_key:
+            await self.dedupe.put("card", idempotency_key, created.model_dump_json())
         first = created.placements[0] if created.placements else None
         await self._record(
             "card",
@@ -278,8 +323,12 @@ class RecordingBackend:
     async def list_comments(self, card_id: str) -> list[Comment]:
         return await self._inner.list_comments(card_id)
 
-    async def add_comment(self, comment: Comment) -> Comment:
+    async def add_comment(self, comment: Comment, *, idempotency_key: str | None = None) -> Comment:
+        if idempotency_key and (hit := await self.dedupe.get("comment", idempotency_key)):
+            return Comment.model_validate_json(hit)
         added = await self._inner.add_comment(comment)
+        if idempotency_key:
+            await self.dedupe.put("comment", idempotency_key, added.model_dump_json())
         await self._record("comment", added.id, "added", card_id=added.card_id, author=added.author)
         return added
 
@@ -292,8 +341,14 @@ class RecordingBackend:
     async def list_relations(self, card_id: str) -> list[Relation]:
         return await self._inner.list_relations(card_id)
 
-    async def add_relation(self, relation: Relation) -> Relation:
+    async def add_relation(
+        self, relation: Relation, *, idempotency_key: str | None = None
+    ) -> Relation:
+        if idempotency_key and (hit := await self.dedupe.get("relation", idempotency_key)):
+            return Relation.model_validate_json(hit)
         added = await self._inner.add_relation(relation)
+        if idempotency_key:
+            await self.dedupe.put("relation", idempotency_key, added.model_dump_json())
         await self._record(
             "relation",
             added.id,

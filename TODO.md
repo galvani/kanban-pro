@@ -224,15 +224,12 @@ scheme badge + drag-highlighting, `scheme=` list filter.
     owner backends map via capability honesty (Hermes is single-assignee). Convention
     for agent collision-avoidance: claiming a card = assign yourself + move to a
     started column in one action, visible in the actor-stamped change-log.
-  - **Attention signal (Jan, 2026-07-05 — ruled: card-level flag + events, NOT a
-    column):** `ext["kanban_pro.attention"] = {reason, raised_by, for}` + change-log
-    events `attention.raised` / `attention.cleared`. Rationale: attention strikes in
-    any column; forcing a move to signal it loses real position and pollutes every
-    scheme's transition graph. Consumers: Slack-notifier agent = change-feed consumer
-    (zero special infra — decision-9 payoff), answering agents filter on `for=`,
-    "needs my attention" query joins list_work, UI badge. Q&A content lives in
-    comments (already attributed). Hermes mapping: `block_kind: needs_input` ⇄ the
-    flag.
+  - [x] **Attention signal — DONE 2026-07-05** (`raise_attention`/`clear_attention`
+    MCP tools, 38 total): `ext["kanban_pro.attention"] = {reason, raised_by, for}` +
+    `attention.raised`/`attention.cleared` change-log events (routable — notifiers
+    read reason/target from the feed, zero board scanning). Still to come: "needs my
+    attention" in list_work, UI badge, Slack-notifier agent (a change-feed consumer),
+    hermes `block_kind: needs_input` mapping.
   - **`ColumnCategory.BLOCKED` candidate** (separate, smaller): hermes `blocked` lane
     + monday "stuck" meet the ≥2-backends rule; today hermes blocked lossily maps to
     STARTED. Add when the enum is next touched (likely with migration). It answers
