@@ -15,6 +15,7 @@ import os
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 
+from kanban_pro.adapters.hermes import HermesAdapter
 from kanban_pro.adapters.memory import MemoryBackend
 from kanban_pro.adapters.native import NativeStore
 from kanban_pro.core import AugmentingBackend
@@ -42,11 +43,16 @@ async def _open_memory() -> KanbanBackend:
     return MemoryBackend()
 
 
+async def _open_hermes() -> KanbanBackend:
+    return HermesAdapter()  # ~/.hermes; SQLite reads + `hermes kanban` CLI writes
+
+
 #: name -> async factory (docs/adapter-structure.md "Registration & selection").
 REGISTRY: dict[str, Callable[[], Awaitable[KanbanBackend]]] = {
     "default": _open_native,  # the native store IS the default profile
     "native": _open_native,
     "memory": _open_memory,  # ephemeral — tests / scratch boards
+    "hermes": _open_hermes,  # the Hermes multi-agent board (thin remote adapter)
 }
 
 

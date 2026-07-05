@@ -1,5 +1,26 @@
 # kanban-pro — Journal
 
+## 2026-07-05 — HermesAdapter: first remote adapter live
+
+- **Did:** `adapters/hermes/` package (mapping / reader / writer / adapter), profile
+  `hermes` registered, 47 tests green, read-only smoke against the REAL board passed
+  (64 live cards, ad-hoc `staging` lane synthesized, comments + fulfilments correct).
+- **Shape:** reads = direct SQLite per board (default + `kanban/boards/<slug>/`);
+  writes = `hermes kanban` CLI (injectable runner for tests), board targeted via
+  `HERMES_KANBAN_BOARD` env. Lanes → synthesized Columns (`<board>:<lane>` ids,
+  categories per docs/hermes-kanban.md); `archived` lane ⇄ canonical archived flag;
+  task_links ⇄ PARENT relations (synthetic id `parent->child`); harness fields in
+  `ext["hermes"]`; `--idempotency-key`/`--created-by`/`--priority` pass through on
+  create.
+- **Honest CLI-bound limits (documented in the adapter docstring):** no unarchive
+  verb; update_card = assignee only (`reassign`); move_card enters only
+  ready/promote, blocked/block, done/complete — other lanes = not_supported
+  (Hermes's own WORKFLOW enforcement, declared native). Card delete maps to
+  `archive --rm`, which purges only archived tasks — same rule as our decision-7
+  guard, enforced on both sides.
+- **UI note (Jan):** any web UI stays OPTIONAL and on-demand (explicit flag, never
+  default) — recorded in TODO.
+
 ## 2026-07-05 — Goal shift: replace the Hermes kanban
 
 - **Decision (Jan):** kanban-pro now aims to **replace** the Hermes built-in kanban,

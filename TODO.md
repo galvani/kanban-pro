@@ -37,11 +37,10 @@ move, empty-only delete guards, ext shallow-merge) — see JOURNAL 2026-07-05.)*
 
 ## Planned (from SPEC)
 
-- [ ] Write the `hermes` adapter — API surface CONFIRMED 2026-07-05, full mapping in
-  **docs/hermes-kanban.md** (SQLite-per-board storage, status-lanes→columns,
-  parent/child DAG→relations, single assignee, native idempotency keys + workflow
-  enforcement). Access path: SQLite reads + `hermes kanban --json` CLI writes.
-  Purpose: discovery + migration vehicle for replacing the Hermes kanban.
+- [x] `hermes` adapter — DONE 2026-07-05 (`adapters/hermes/`: SQLite reads + CLI
+  writes per docs/hermes-kanban.md; `--profile hermes`; smoke-tested read-only against
+  the live board). Known limits (CLI-bound): no unarchive, update = assignee only,
+  move enters only ready/blocked/done. Next feeds the migration item below.
 - [ ] **Hermes → native migration + cutover** (goal: kanban-pro replaces the Hermes
   kanban). Import boards/cards/comments from Hermes into the native store via the
   canonical model (hermes adapter reads, native store writes); then point the Hermes
@@ -154,16 +153,28 @@ move, empty-only delete guards, ext shallow-merge) — see JOURNAL 2026-07-05.)*
   transitions and destructive ops always logged. Seeded in `mcp/` (stderr logger,
   taxonomy-coded warnings); design the real story with core (log file/rotation? JSON
   lines? correlate with the change-log of decision 9 — one event, two sinks?).
-- [ ] **Smart Jira caching** — the `jira` adapter holds a **local cache** (overlay/native
-  store rows keyed to Jira ids) and downloads **only what changed**, detected via
-  `updated`-since JQL / entity version-hash comparison, instead of full refetches.
-  Fits the reconciliation-polling design (decision 9): the poll becomes a cheap delta
-  sync. Also the answer to Jira rate limits. Decide staleness policy (serve-stale +
-  refresh vs block) when built.
+- [ ] **Remote-adapter read cache + change detection** (generalized from "smart Jira
+  caching", 2026-07-05). A core-level read-cache decorator (same wrapper pattern as
+  `AugmentingBackend`) for **remote adapters only** — local SQLite reads (native,
+  hermes) are ~ms and stay uncached (Jan's earlier ruling: cache only remote).
+  Per-adapter **change-detection descriptor** keeps the cache fresh cheaply instead
+  of full refetches:
+  - `jira`: no push through the Atlassian MCP → delta-poll (`updated >= <cursor>`
+    JQL / version compare); native Jira webhooks (30-day expiry) optional later.
+  - `hermes`: `task_events` is an append-only id-cursored table → tail
+    `WHERE id > cursor` = near-push change feed for free (also feeds decision-9
+    reconciliation + our change-log import).
+  Client-side 2s-polling is solved separately by v2 push (MCP notifications /
+  webhooks / cursored feed) — clients subscribe to kanban-pro, kanban-pro watches
+  the backend. Decide staleness policy (serve-stale + refresh vs block) when built.
 - [ ] **Monitoring HTTP server via shell argument** — e.g. `--monitor [port]` on the
   server/CLI starts a small read-only HTTP dashboard (live board view; later fed by the
   v2 change-feed instead of polling). OPEN: exactly what to show (board view? op log?
   health/metrics?) — clarify before building.
+  **UI is OPTIONAL and on-demand (Jan, 2026-07-05):** never started by default — the
+  MCP server stays UI-free; the web UI (incl. the ported Hermes board plugin) runs
+  only when explicitly asked for via a flag/subcommand (`--serve-ui` / `--monitor`),
+  and stops with the process. Applies to every UI surface this project grows.
 
 ## UI (to explore)
 
