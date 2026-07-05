@@ -142,6 +142,29 @@ scheme badge + drag-highlighting, `scheme=` list filter.
 
 ## Cross-cutting (queued 2026-07-05, Jan)
 
+- [ ] **SUBPROJECT: `kanban-dispatcher` — the harness agent (Jan, 2026-07-05; ruled
+  GOOD idea, separate repo/subproject).** A thin daemon that turns the board into a
+  running agent fleet: `list_work` → route card → `claim_card` (TTL) → spawn an
+  agentic platform for it → `heartbeat_claim` while it runs → report (comment +
+  move / attention flag on failure) → `release_claim`. Crash = lease expiry =
+  automatic redelivery.
+  - **It provides NO skills/MCP/agents itself** — the spawned platforms do
+    (headless Claude Code `claude -p` brings its own skills/MCP/subagents; OpenCode
+    and Hermes profiles bring theirs). The dispatcher stays a dumb loop: no queueing
+    logic (the board IS the queue), no capability logic. Each spawn gets
+    `--actor agent:<name>` so its writes are attributed.
+  - **Why not self-management:** Hermes CAN self-manage (its dispatcher just switches
+    to consuming kanban-pro at cutover — fine transitionally); Claude Code/OpenCode
+    CANNOT (not daemons — nobody invokes them when a card turns ready). One generic
+    dispatcher > N per-harness polling hacks; same one-canonical-thing philosophy.
+  - **Real design work:** routing table (card → platform/profile via assignee /
+    ext skills / labels / scheme), concurrency caps, workspace/worktree management,
+    spawn-failure handling. The Hermes dispatcher runbook answers most of it
+    (claim TTL ~15 min, env injection, failure counters) — see docs/hermes-kanban.md.
+  - **Boundary (already ruled):** work execution ≠ kanban data. kanban-pro stays the
+    board + bus; the dispatcher is just another MCP client. Separate subproject,
+    NOT a kanban_pro module.
+
 - [ ] **Subcard ergonomics** (subcards themselves work today: child cards via
   PARENT/CHILD relations, Q4): (a) atomic one-call spawn — `parent_id` on
   create_card (two-call create+relate can orphan on a crash between them; Hermes has
