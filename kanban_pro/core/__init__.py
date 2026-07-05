@@ -18,17 +18,22 @@ from kanban_pro.core.flow import (
     load_flows,
 )
 from kanban_pro.core.recording import RecordingBackend
+from kanban_pro.core.work import Claim, ClaimStore, WorkItem, WorkQueue
 from kanban_pro.ports import Conflict, KanbanBackend, NotFound
 
 __all__ = [
     "AugmentingBackend",
     "ChangeEvent",
     "ChangeLog",
+    "Claim",
+    "ClaimStore",
     "FREE_ROAM",
     "SCHEME_EXT_KEY",
     "FlowConfig",
     "RecordingBackend",
     "TransitionInfo",
+    "WorkItem",
+    "WorkQueue",
     "fulfilments",
     "load_flows",
     "delete_card_guarded",

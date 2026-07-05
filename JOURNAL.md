@@ -1,5 +1,26 @@
 # kanban-pro — Journal
 
+## 2026-07-05 — Work queue + claim/lease: the agent loop is complete
+
+- **Did:** `core/work.py` (ClaimStore + Claim/WorkItem/WorkQueue) + four MCP tools
+  (32 total): `list_work`, `claim_card`, `heartbeat_claim`, `release_claim`.
+  68 tests green; smoke-tested on the migrated board (engineer's queue = 6 real
+  cards with legal transitions inline; rival claim bounced with owner + expiry).
+- **Claim/lease:** atomic CAS via SQLite conditional upsert (per-profile
+  `claims-<profile>.db`; in-memory for the memory profile); TTL = visibility
+  timeout; heartbeat renews; expired leases silently reclaimable (crash-redelivery,
+  Hermes-dispatcher pattern). `card.claimed`/`card.released` are change-log events;
+  heartbeats deliberately aren't. Claiming does NOT move/assign — the
+  claim→assign→move convention stays explicit and visible.
+- **Work queue:** workable = backlog/unstarted/started; assignee match = full actor
+  or bare name ("agent:engineer" matches hermes-style "engineer"); cards leased to
+  others excluded; **a card I hold a lease on appears regardless of assignment**
+  (test-caught ruling); transitions inline per item (Jan); sort:
+  started → unstarted → backlog, then position.
+- The message-bus story is now real end-to-end: event stream with cursors ✅ +
+  competing consumers ✅. Cutover's remaining blocker is only the Hermes-dispatcher
+  consumption switch.
+
 ## 2026-07-05 — Migration ran: the Hermes kanban lives in the native store
 
 - **Did:** `kanban-pro-migrate` (new console script + `kanban_pro/migrate.py`) —

@@ -18,7 +18,7 @@ from pathlib import Path
 from kanban_pro.adapters.hermes import HermesAdapter
 from kanban_pro.adapters.memory import MemoryBackend
 from kanban_pro.adapters.native import NativeStore
-from kanban_pro.core import AugmentingBackend, ChangeLog, RecordingBackend, load_flows
+from kanban_pro.core import AugmentingBackend, ChangeLog, ClaimStore, RecordingBackend, load_flows
 from kanban_pro.ports import KanbanBackend
 
 PROFILE_ENV = "KANBAN_PRO_PROFILE"
@@ -57,6 +57,15 @@ def changelog_path(profile: str) -> Path | None:
     if profile == "memory":
         return None
     path = _data_dir() / f"changelog-{profile}.db"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def claims_path(profile: str) -> Path | None:
+    """Per-profile claim/lease db; None = in-memory (ephemeral memory profile)."""
+    if profile == "memory":
+        return None
+    path = _data_dir() / f"claims-{profile}.db"
     path.parent.mkdir(parents=True, exist_ok=True)
     return path
 
@@ -107,4 +116,5 @@ async def build_backend(profile: str | None = None, actor: str | None = None) ->
         AugmentingBackend(await factory(), flows=flows),
         ChangeLog(changelog_path(name)),
         resolved_actor,
+        claims=ClaimStore(claims_path(name)),
     )

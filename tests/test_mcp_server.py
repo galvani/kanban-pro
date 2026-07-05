@@ -50,6 +50,7 @@ def test_tools_registered_match_methods_doc() -> None:
         "list_comments", "add_comment", "delete_comment",
         "list_relations", "add_relation", "delete_relation",
         "list_changes", "list_transitions", "list_flows",
+        "list_work", "claim_card", "heartbeat_claim", "release_claim",
     }  # fmt: skip
     assert tools == expected
 

@@ -15,6 +15,9 @@ with no bespoke integration. Concretely, you can:
 
 - **Give all your agents one shared board.** One `claude mcp add` line per harness;
   multiple harnesses share the same store safely, each under its own identity.
+- **Let agents pull their own work.** `list_work` answers "what should I work on?" —
+  the agent's cards, each with its legal moves inline — and an atomic claim/lease
+  (TTL + heartbeat + crash-reclaim) guarantees two agents never grab the same card.
 - **Always know who did what.** Every connection declares an actor
   (`agent:claude-code`, `human:jan`); every write lands in an append-only change-log.
   Ask `list_changes` and see exactly which agent moved which card, and when.
@@ -168,8 +171,8 @@ infrastructure an agent fleet would otherwise need:
 - The **change-log** is an append-only event stream with consumer cursors — an agent
   (or your Slack notifier) reads `list_changes since=<seq>` and resumes exactly where
   it left off. Kafka-style offsets, no broker to run. ✅
-- **Claim/lease** (🔜) is the competing-consumers pattern: atomic claim with a TTL,
-  heartbeats, crash-reclaim = redelivery. Two agents never grab the same card.
+- **Claim/lease** is the competing-consumers pattern: atomic claim with a TTL,
+  heartbeats, crash-reclaim = redelivery. Two agents never grab the same card. ✅
 - **Durable subscriptions** (🔜 webhook listeners with per-listener cursors + retry)
   and the **attention flag** (🔜 — route "this needs a decision" to a specific agent
   or human) round out fan-out and routing.
@@ -237,8 +240,7 @@ tool — all tested, and verified live against a real production board.
 
 **Next (🔜):** the CLI, idempotency keys + retry dedupe, flow hooks/validators, the
 MCP-backed `jira` adapter with cross-board copy/link, smart remote caching,
-confirmation-gated two-way sync, the work queue (`list_work` + atomic claim/lease so
-two agents never grab the same card), human-readable card keys (`PRO-12`), MCP push
+confirmation-gated two-way sync, human-readable card keys (`PRO-12`), MCP push
 notifications, and a richer UI. Roadmap: [SPEC.md](SPEC.md#roadmap); the full queue:
 [TODO.md](TODO.md). Anything marked 🔜 does not run today.
 

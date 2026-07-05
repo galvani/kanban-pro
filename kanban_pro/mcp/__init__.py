@@ -309,6 +309,46 @@ async def delete_relation(relation_id: str) -> str:
     return f"relation {relation_id} deleted"
 
 
+# --- work distribution: the agent loop (claim -> work -> release) ---
+
+
+def _recording(backend: KanbanBackend) -> core.RecordingBackend:
+    if not isinstance(backend, core.RecordingBackend):
+        raise ToolError("not_supported: work distribution needs the core stack")
+    return backend
+
+
+@mcp.tool(annotations=_RO)
+async def list_work(assignee: str | None = None, include_unassigned: bool = True) -> core.WorkQueue:
+    """What should I work on? Workable cards for `assignee` (default: YOU, this
+    connection's actor) — assigned to you or unassigned, in backlog/ready/started
+    columns, cards leased to others excluded. Each item carries its legal transitions,
+    so one call gives you the whole plan."""
+    return await _call(_recording(await _get_backend()).list_work(assignee, include_unassigned))
+
+
+@mcp.tool(annotations=_WRITE)
+async def claim_card(card_id: str, ttl_seconds: int = 900) -> core.Claim:
+    """Atomically lease a card so no other agent picks it up (visible in list_work).
+    The lease expires after ttl_seconds unless renewed via heartbeat_claim — a crashed
+    agent's card becomes claimable again automatically. Convention: after claiming,
+    assign yourself and move the card to a started column."""
+    return await _call(_recording(await _get_backend()).claim_card(card_id, ttl_seconds))
+
+
+@mcp.tool(annotations=_WRITE)
+async def heartbeat_claim(card_id: str, ttl_seconds: int = 900) -> core.Claim:
+    """Renew your live lease on a card while still working it."""
+    return await _call(_recording(await _get_backend()).heartbeat_claim(card_id, ttl_seconds))
+
+
+@mcp.tool(annotations=_WRITE)
+async def release_claim(card_id: str) -> str:
+    """Release your lease (done or giving up). Idempotent."""
+    await _call(_recording(await _get_backend()).release_claim(card_id))
+    return f"claim on {card_id} released"
+
+
 # --- change feed (decision 9 pull surface; WS/MCP push land with the UI) ---
 
 

@@ -82,6 +82,18 @@ Subtasks = child cards via `PARENT`/`CHILD` relations (`SUBTASKS`).
 - **User lookup** — `list_users()` / `get_user(user_id)`. Without it a caller can't
   discover valid ids for `assignees[]` / `Comment.author`.
 
+### Work distribution (core convenience — not port ops)
+
+| Operation | Signature | Notes |
+|---|---|---|
+| work queue | `list_work(assignee?, include_unassigned=True)` | default assignee = the connection's actor; workable = backlog/unstarted/started, cards leased to others excluded, own leases marked; **each item carries its legal transitions inline** |
+| claim | `claim_card(card_id, ttl_seconds=900)` | atomic CAS lease (competing consumers); expired leases are silently reclaimable; recorded as `card.claimed` |
+| heartbeat | `heartbeat_claim(card_id, ttl_seconds=900)` | renew own live lease (not recorded) |
+| release | `release_claim(card_id)` | idempotent; recorded as `card.released` |
+
+Claiming does NOT move or assign — the convention "claim → assign yourself → move to
+a started column" stays visible in the change-log.
+
 ### Bulk (API/MCP convenience — SPEC "Canonical operations")
 
 `bulk_create` · `bulk_move` · `bulk_update` · `bulk_archive` — accept a list, run a

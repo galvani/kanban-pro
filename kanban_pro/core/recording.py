@@ -19,6 +19,7 @@ from kanban_pro.domain import (
     Card,
     CardPatch,
     Column,
+    ColumnCategory,
     ColumnPatch,
     Comment,
     Placement,
@@ -29,15 +30,28 @@ from kanban_pro.ports import Capability, Fulfilment, KanbanBackend, NotSupported
 from .augment import AugmentingBackend
 from .augment import fulfilments as _fulfilments
 from .flow import FlowConfig, TransitionInfo
+from .work import Claim, ClaimStore, WorkItem, WorkQueue
+
+#: categories that count as "workable" for the queue (done/canceled/triage are not)
+_READYISH = {ColumnCategory.BACKLOG, ColumnCategory.UNSTARTED, ColumnCategory.STARTED}
+#: queue ordering: my in-flight work first, then actionable, then queued
+_CATEGORY_RANK = {ColumnCategory.STARTED: 0, ColumnCategory.UNSTARTED: 1, ColumnCategory.BACKLOG: 2}
 
 
 class RecordingBackend:
     """KanbanBackend decorator: delegate everything, log successful writes."""
 
-    def __init__(self, inner: KanbanBackend, changelog: ChangeLog, actor: str) -> None:
+    def __init__(
+        self,
+        inner: KanbanBackend,
+        changelog: ChangeLog,
+        actor: str,
+        claims: ClaimStore | None = None,
+    ) -> None:
         self._inner = inner
         self.changelog = changelog
         self.actor = actor
+        self.claims = claims or ClaimStore()
         self.capabilities: frozenset[Capability] = inner.capabilities
 
     def fulfilments(self) -> dict[Capability, Fulfilment]:
@@ -52,6 +66,74 @@ class RecordingBackend:
         if not isinstance(self._inner, AugmentingBackend):
             raise NotSupported("transitions query needs the augmenting layer")
         return await self._inner.transitions(card_id, board_id)
+
+    # --- work distribution (claim/lease + queue; see core/work.py) ---
+
+    async def claim_card(self, card_id: str, ttl_seconds: int = 900) -> Claim:
+        """Atomically lease a card for this actor (CAS; expired claims are takeable)."""
+        await self._inner.get_card(card_id)  # not_found before claiming ghosts
+        claim = await self.claims.claim(card_id, self.actor, ttl_seconds)
+        await self._record("card", card_id, "claimed", expires_at=claim.expires_at.isoformat())
+        return claim
+
+    async def heartbeat_claim(self, card_id: str, ttl_seconds: int = 900) -> Claim:
+        """Extend this actor's live claim (not recorded — heartbeats are noise)."""
+        return await self.claims.renew(card_id, self.actor, ttl_seconds)
+
+    async def release_claim(self, card_id: str) -> None:
+        had = await self.claims.get(card_id)
+        await self.claims.release(card_id, self.actor)
+        if had is not None and not had.expired:
+            await self._record("card", card_id, "released")
+
+    def _matches_actor(self, assignees: list[str], wanted: str) -> bool:
+        # actor is "kind:name"; backends often key assignees by bare name
+        bare = wanted.split(":", 1)[-1]
+        return wanted in assignees or bare in assignees
+
+    async def list_work(
+        self, assignee: str | None = None, include_unassigned: bool = True
+    ) -> WorkQueue:
+        """The agent's queue: workable cards for `assignee` (default: this actor),
+        each annotated with its legal transitions — one call, whole plan."""
+        if not isinstance(self._inner, AugmentingBackend):
+            raise NotSupported("work queue needs the augmenting layer")
+        wanted = assignee or self.actor
+        live_claims = await self.claims.live()
+        items: list[WorkItem] = []
+        for board in await self._inner.list_boards():
+            columns = {c.id: c for c in board.columns}
+            for card in await self._inner.list_cards(board.id):
+                placement = next((p for p in card.placements if p.board_id == board.id), None)
+                column = columns.get(placement.column_id) if placement else None
+                if placement is None or column is None or column.category not in _READYISH:
+                    continue
+                claim = live_claims.get(card.id)
+                claimed_by_wanted = claim is not None and claim.owner == wanted
+                if claim is not None and not claimed_by_wanted:
+                    continue  # leased to someone else -> not available
+                mine = self._matches_actor(card.assignees, wanted)
+                # a card I hold a lease on is my work regardless of assignment
+                if not (mine or claimed_by_wanted or (include_unassigned and not card.assignees)):
+                    continue
+                items.append(
+                    WorkItem(
+                        card=card,
+                        board_id=board.id,
+                        column_id=column.id,
+                        column_name=column.name,
+                        column_category=column.category.value,
+                        claimed_by_me=claimed_by_wanted,
+                        transitions=await self._inner.transitions(card.id, board.id),
+                    )
+                )
+        items.sort(
+            key=lambda i: (
+                _CATEGORY_RANK.get(ColumnCategory(i.column_category), 9),
+                next(p.position for p in i.card.placements if p.board_id == i.board_id),
+            )
+        )
+        return WorkQueue(actor=wanted, items=items)
 
     async def _record(
         self,

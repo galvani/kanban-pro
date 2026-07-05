@@ -142,6 +142,14 @@ scheme badge + drag-highlighting, `scheme=` list filter.
 
 ## Cross-cutting (queued 2026-07-05, Jan)
 
+- [ ] **Subcard ergonomics** (subcards themselves work today: child cards via
+  PARENT/CHILD relations, Q4): (a) atomic one-call spawn — `parent_id` on
+  create_card (two-call create+relate can orphan on a crash between them; Hermes has
+  `--parent`); (b) `subcards(card_id)` convenience returning the child CARDS with
+  board/column context, not just relation edges; (c) **roll-up semantics as a flow
+  hook** — "when all children done → move/notify parent" (Hermes `recompute_ready`
+  generalized; lands with the hooks phase of the flow engine).
+
 - [ ] **Tags = the existing Labels, with agent ergonomics** (ruled 2026-07-05: one
   concept, no parallel "tags" entity). Build: label-registry port ops +
   `tag_card`/`untag_card` + label filter on listings (and later `list_work`);
@@ -169,16 +177,11 @@ scheme badge + drag-highlighting, `scheme=` list filter.
     (stack traces, stdout, tokens) stays outside; the card carries a reference
     (attachment link / session id in ext). HARD boundary against drifting into an
     observability platform.
-  - **Work-queue query — "what's available for me?":** a core projection (no port
-    change): scan live cards, filter assignee == actor (or Jan) OR unassigned,
-    column category in ready-ish states (backlog/unstarted/started), return with
-    board/column context. MCP tool (e.g. `list_work(assignee?, include_unassigned)`),
-    default assignee = the connection's actor. Adapters may later add native
-    filtering for efficiency.
-    **+ transitions inline (Jan, 2026-07-05):** each returned card is annotated with
-    its legal next moves + resolved scheme (reuse `AugmentingBackend.transitions`) —
-    one call gives a harness agent its cards AND what it may do with each; no
-    per-card discovery round-trips, no moves that bounce.
+  - [x] **Work queue — DONE 2026-07-05** (`list_work` MCP tool + core projection):
+    default assignee = connection actor (full or bare-name match), unassigned
+    included by default, cards leased to others excluded, own leases marked,
+    **transitions inline per item** (Jan's ruling), sorted started→unstarted→backlog.
+    Adapters may later add native filtering for efficiency.
   - **Multi-assignee:** already in the model (`Card.assignees[]` list +
     `MULTI_ASSIGNEE` capability, native in both stores) — nothing to build; single-
     owner backends map via capability honesty (Hermes is single-assignee). Convention
@@ -197,10 +200,13 @@ scheme badge + drag-highlighting, `scheme=` list filter.
     + monday "stuck" meet the ≥2-backends rule; today hermes blocked lossily maps to
     STARTED. Add when the enum is next touched (likely with migration). It answers
     "which column means blocked" — complements the attention flag, never replaces it.
-  - **Claim/lease op** (proven needed by Hermes's dispatcher: `claim_lock` CAS + TTL +
-    heartbeat + reclaim-on-crash): atomic "this worker owns this card until <expiry>"
-    so two agents never pick the same card. Design as a core op once the Hermes
-    dispatcher becomes a kanban-pro consumer (see docs/hermes-kanban.md).
+  - [x] **Claim/lease — DONE 2026-07-05** (`core/work.py` ClaimStore + claim_card /
+    heartbeat_claim / release_claim MCP tools): atomic CAS (SQLite conditional
+    upsert, per-profile `claims-<profile>.db`), TTL = visibility timeout, expired
+    leases silently reclaimable (crash-redelivery), claims/releases are change-log
+    events, heartbeats aren't (noise). Claiming does NOT move/assign — the
+    convention stays explicit. Remaining: the Hermes dispatcher consuming this
+    (cutover item).
   - **`priority` core promotion candidate:** Hermes and Jira both have it (≥2 backends
     rule met) — decide when the hermes adapter lands.
 
