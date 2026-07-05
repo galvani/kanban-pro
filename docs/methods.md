@@ -115,7 +115,7 @@ patch semantics, Q17):
 | Key | Owner | Meaning |
 |---|---|---|
 | `kanban_pro.scheme` | flow engine | the card's workflow scheme name (`"docs"`, `"free-roam"`; unset = default) |
-| `kanban_pro.flow` | flow engine (queued) | inline one-card flow definition `{states, transitions}` — precedence over `scheme` |
+| `kanban_pro.flow` | flow engine | inline ONE-card flow `{states, transitions}` — precedence over `scheme`, enforced even without flow.yaml; malformed → default scheme + warning |
 | `kanban_pro.attention` | attention signal (queued) | `{reason, raised_by, for}` — needs a decision/input |
 | `kanban_pro.copied_from` | cross-mount copy (queued) | provenance link `"<mount>/<card-id>"` |
 | `kanban_pro.migrated_from` | `kanban-pro-migrate` | import provenance `"<profile>/<board-id>"` |

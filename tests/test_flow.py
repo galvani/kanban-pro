@@ -173,3 +173,66 @@ async def _list_transitions(flows: FlowConfig) -> None:
     roam = await be.create_card(_card(board, "todo", scheme=FREE_ROAM))
     info = await be.transitions(roam.id)
     assert (info.source, len(info.options)) == ("free-roam", 4)
+
+
+_INLINE = {"states": ["todo", "done"], "transitions": [{"from": "todo", "to": "done"}]}
+
+
+def test_inline_one_card_flow(flows: FlowConfig) -> None:
+    asyncio.run(_inline(flows))
+
+
+async def _inline(flows: FlowConfig) -> None:
+    be, _ = _stack(flows)
+    board = await _board(be, "todo", "doing", "review", "done")
+    card = await be.create_card(
+        Card(
+            title="T",
+            ext={"kanban_pro.flow": _INLINE},
+            placements=[Placement(board_id=board.id, column_id=_col(board, "todo"))],
+        )
+    )
+    # inline allows todo->done though the profile default scheme forbids it
+    await be.move_card(card.id, board.id, _col(board, "done"), 0)
+    info = await be.transitions(card.id)
+    assert (info.source, info.resolved_scheme) == ("inline", "inline")
+    with pytest.raises(Conflict, match="'inline'"):  # inline has no done->todo edge
+        await be.move_card(card.id, board.id, _col(board, "todo"), 0)
+
+    # malformed inline -> falls back to the default scheme, flagged, never frozen
+    bad = await be.create_card(
+        Card(
+            title="B",
+            ext={"kanban_pro.flow": {"states": "nope"}},
+            placements=[Placement(board_id=board.id, column_id=_col(board, "doing"))],
+        )
+    )
+    info = await be.transitions(bad.id)
+    assert info.resolved_scheme == "default"
+    assert info.note is not None and "fallback" in info.note
+    with pytest.raises(Conflict, match="'default'"):  # default forbids doing->done
+        await be.move_card(bad.id, board.id, _col(board, "done"), 0)
+
+
+def test_inline_flow_enforced_without_any_config() -> None:
+    asyncio.run(_inline_no_config())
+
+
+async def _inline_no_config() -> None:
+    be, _ = _stack(None)  # no flow.yaml: board is free — but an inline flow still binds
+    board = await _board(be, "todo", "doing", "done")
+    card = await be.create_card(
+        Card(
+            title="T",
+            ext={"kanban_pro.flow": _INLINE},
+            placements=[Placement(board_id=board.id, column_id=_col(board, "todo"))],
+        )
+    )
+    await be.move_card(card.id, board.id, _col(board, "done"), 0)  # inline permits
+    with pytest.raises(Conflict, match="'inline'"):
+        await be.move_card(card.id, board.id, _col(board, "todo"), 0)
+    # a sibling card without an inline flow stays free-roam
+    free = await be.create_card(
+        Card(title="F", placements=[Placement(board_id=board.id, column_id=_col(board, "done"))])
+    )
+    await be.move_card(free.id, board.id, _col(board, "todo"), 0)

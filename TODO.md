@@ -86,14 +86,12 @@ scheme badge + drag-highlighting, `scheme=` list filter.
     becomes a named-scheme map, a card carries `scheme` (default from board/profile),
     validation + `list_transitions` resolve through the card's scheme. Assignment
     must be easy: settable at create and via update_card.
-  - **Inline one-card flows (Jan, 2026-07-05):** an agent can give ONE card its own
-    rules without touching flow.yaml — the scheme definition travels on the card:
-    `ext["kanban_pro.flow"] = {states, transitions}`. Scoped by construction (no
-    registry/GC/naming), one shallow-merge write to create (audited as card.updated),
-    survives restarts, `list_transitions` reports `source: "inline"`. Resolution
-    precedence gains a step 0: inline flow > named scheme > default > free-roam.
-    Malformed inline → fall back to named/default + loud warning (rule-3 spirit).
-    Composes with subcards: orchestrators hand each subcard a tailored mini-flow.
+  - [x] **Inline one-card flows — DONE 2026-07-05:** `ext["kanban_pro.flow"] =
+    {states, transitions}` — resolution step 0 (inline > named > default >
+    free-roam), enforced even on profiles WITHOUT flow.yaml (attaching one is an
+    explicit request for rules), malformed → default + loud warning + flagged in
+    `list_transitions` (`source: "inline"`; "inline" is now a reserved name like
+    free-roam).
   - **Scheme/flow resolution chain (card without a flow — ruled 2026-07-05):**
     (1) no flow configured → free-move (engine is opt-in, absence never blocks);
     (2) card has no scheme → board/profile default scheme;

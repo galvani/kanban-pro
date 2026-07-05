@@ -30,6 +30,8 @@ logger = logging.getLogger("kanban_pro.flow")
 
 FREE_ROAM = "free-roam"
 SCHEME_EXT_KEY = "kanban_pro.scheme"
+FLOW_EXT_KEY = "kanban_pro.flow"  # inline ONE-CARD flow definition {states, transitions}
+INLINE = "inline"
 
 
 class _TransitionRule(BaseModel):
@@ -96,28 +98,48 @@ def free_roam(requested: str | None = None) -> Resolution:
     return Resolution(requested=requested, resolved=FREE_ROAM)
 
 
+def _build_flow(name: str, spec: _FlowSpec) -> Flow:
+    """Validate one flow spec into a Flow. Raises ValueError on dangling references."""
+    states = [s.lower() for s in spec.states]
+    allowed: dict[str, list[str]] = {}
+    for rule in spec.transitions:
+        source = rule.from_.lower()
+        targets = [t.lower() for t in (rule.to if isinstance(rule.to, list) else [rule.to])]
+        for endpoint in [source, *targets]:
+            if endpoint not in states:
+                raise ValueError(
+                    f"flow {name!r}: transition references undeclared state {endpoint!r}"
+                )
+        allowed.setdefault(source, []).extend(
+            t for t in targets if t not in allowed.get(source, [])
+        )
+    return Flow(name=name, states=states, allowed=allowed)
+
+
+def parse_inline_flow(raw: object) -> Flow | None:
+    """Validate a card's inline flow (ext["kanban_pro.flow"]).
+
+    Returns None when malformed — the caller falls back to the named/default scheme
+    with a loud warning (resolution-chain rule-3 spirit: never freeze a card on a
+    bad definition). Note: an inline flow is enforced even on profiles with NO
+    flow.yaml — attaching one is an explicit request for rules; the WORKFLOW
+    fulfilment still reflects only the profile config.
+    """
+    try:
+        return _build_flow(INLINE, _FlowSpec.model_validate(raw))
+    except (ValueError, TypeError) as exc:  # pydantic ValidationError subclasses ValueError
+        logger.warning("malformed inline flow ignored: %s", exc)
+        return None
+
+
 def load_flows(path: str | Path) -> FlowConfig:
     """Parse + validate flow.yaml. Fails fast on any dangling reference (guardrail)."""
     raw = yaml.safe_load(Path(path).read_text())
     parsed = _FlowsFile.model_validate(raw)
-    if FREE_ROAM in parsed.flows:
-        raise ValueError(f"{FREE_ROAM!r} is a reserved built-in scheme — remove it from flows")
-    flows: dict[str, Flow] = {}
-    for name, spec in parsed.flows.items():
-        states = [s.lower() for s in spec.states]
-        allowed: dict[str, list[str]] = {}
-        for rule in spec.transitions:
-            source = rule.from_.lower()
-            targets = [t.lower() for t in (rule.to if isinstance(rule.to, list) else [rule.to])]
-            for endpoint in [source, *targets]:
-                if endpoint not in states:
-                    raise ValueError(
-                        f"flow {name!r}: transition references undeclared state {endpoint!r}"
-                    )
-            allowed.setdefault(source, []).extend(
-                t for t in targets if t not in allowed.get(source, [])
-            )
-        flows[name] = Flow(name=name, states=states, allowed=allowed)
+    for reserved in (FREE_ROAM, INLINE):
+        if reserved in parsed.flows:
+            raise ValueError(f"{reserved!r} is a reserved scheme name — remove it from flows")
+    flows = {name: _build_flow(name, spec) for name, spec in parsed.flows.items()}
     default = parsed.default_flow or "default"
     if default not in flows:
         raise ValueError(

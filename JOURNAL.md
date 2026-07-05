@@ -1,5 +1,18 @@
 # kanban-pro — Journal
 
+## 2026-07-05 — Inline one-card flows (75 tests); dispatcher build deferred
+
+- **Inline flows shipped as ruled:** `ext["kanban_pro.flow"] = {states, transitions}`
+  gives ONE card its own rules — resolution chain step 0 (inline > named scheme >
+  default > free-roam), validated by the same builder as flow.yaml (`_build_flow`
+  extracted, "inline" reserved alongside "free-roam"). Enforced even on profiles
+  with NO flow.yaml — attaching a flow is an explicit request; the WORKFLOW
+  fulfilment still reflects only profile config (documented). Malformed → default
+  scheme + warning + `fell_back` note; `list_transitions` reports `source: "inline"`.
+- **Dispatcher v0 build attempt aborted:** the subagent hit the session API limit
+  (resets 22:50) with ZERO code written — kanban-dispatcher repo still docs-only.
+  Re-run the build after reset; the full brief is preserved in the session.
+
 ## 2026-07-05 — Phase C landed: skills unified in ~/.agents, all harnesses wired
 
 - **Discovery that simplified everything:** `~/.claude/skills` is a SYMLINK to

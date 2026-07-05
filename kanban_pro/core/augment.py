@@ -19,6 +19,8 @@ from __future__ import annotations
 from typing import Protocol, runtime_checkable
 
 from kanban_pro.core.flow import (
+    FLOW_EXT_KEY,
+    INLINE,
     SCHEME_EXT_KEY,
     FlowConfig,
     NativeTransitions,
@@ -26,6 +28,7 @@ from kanban_pro.core.flow import (
     TransitionInfo,
     TransitionOption,
     free_roam,
+    parse_inline_flow,
 )
 from kanban_pro.domain import (
     Board,
@@ -123,16 +126,27 @@ class AugmentingBackend:
     # --- Tier-1 flow enforcement (flow engine — core/flow.py; ruled 2026-07-05) ---
 
     async def _resolve_flow(self, card: Card) -> Resolution:
-        requested = card.ext.get(SCHEME_EXT_KEY) if isinstance(card.ext, dict) else None
-        scheme = str(requested) if requested is not None else None
+        ext = card.ext if isinstance(card.ext, dict) else {}
+        scheme_raw = ext.get(SCHEME_EXT_KEY)
+        scheme = str(scheme_raw) if scheme_raw is not None else None
+        # chain rule 0: an inline one-card flow wins over everything (explicit rules
+        # travelling ON the card); malformed -> fall back below, flagged.
+        inline_raw = ext.get(FLOW_EXT_KEY)
+        if inline_raw is not None:
+            inline = parse_inline_flow(inline_raw)
+            if inline is not None:
+                return Resolution(requested=INLINE, resolved=INLINE, flow=inline)
+            fallback = self.flows.resolve(scheme) if self.flows else free_roam(scheme)
+            return fallback.model_copy(update={"fell_back": True})
         if self.flows is None:
             return free_roam(scheme)  # chain rule 1: no config -> unrestricted
         return self.flows.resolve(scheme)
 
     async def _check_flow(self, card_id: str, to_board_id: str, to_column_id: str) -> None:
         """Validate a move against the card's scheme. Skips: backend-native WORKFLOW
-        (trust it), free-roam, unmodeled endpoints (chain rule 4), repositioning."""
-        if self.flows is None or Capability.WORKFLOW in self._adapter.capabilities:
+        (trust it), free-roam, unmodeled endpoints (chain rule 4), repositioning.
+        Inline card flows are enforced even when no flow.yaml is configured."""
+        if Capability.WORKFLOW in self._adapter.capabilities:
             return
         card = await self._adapter.get_card(card_id)
         resolution = await self._resolve_flow(card)
@@ -196,20 +210,23 @@ class AugmentingBackend:
                 options=options(None),
             )  # fmt: skip
         flow = resolution.flow
+        source = INLINE if resolution.resolved == INLINE else "flow"
         current_name = names.get(current_id) if current_id else None
         note = (
-            "scheme fallback applied — requested scheme unknown" if resolution.fell_back else None
+            "scheme/flow fallback applied — requested definition unknown or malformed"
+            if resolution.fell_back
+            else None
         )
         if current_name is None or current_name not in flow.states:
             return TransitionInfo(
                 card_id=card_id, board_id=board_id, current_column_id=current_id,
-                scheme=scheme, resolved_scheme=resolution.resolved, source="flow",
+                scheme=scheme, resolved_scheme=resolution.resolved, source=source,
                 options=options(None),
                 note=(note or "") + " (current column not modeled by the scheme — free)",
             )  # fmt: skip
         return TransitionInfo(
             card_id=card_id, board_id=board_id, current_column_id=current_id,
-            scheme=scheme, resolved_scheme=resolution.resolved, source="flow",
+            scheme=scheme, resolved_scheme=resolution.resolved, source=source,
             options=options(set(flow.allowed.get(current_name, []))), note=note,
         )  # fmt: skip
 
