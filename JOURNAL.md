@@ -1,5 +1,29 @@
 # kanban-pro — Journal
 
+## 2026-07-05 — Push-fed web UI + HTTP API (`kanban-pro-ui`)
+
+- **Did:** built the secondary interface (kanban_pro/api/) + a self-contained board
+  page. `kanban-pro-ui --profile <p> --actor <a> [--port 8747]` — the ONLY way the UI
+  starts (optional/on-demand rule). Routes: meta (profile/actor/fulfilments), boards,
+  board snapshot (+change-log cursor), card detail + comments, move, add-comment,
+  `/api/changes` (pull), **`/api/events` (SSE push)**. Canonical errors → HTTP status
+  by taxonomy code. 55 tests green incl. a real-uvicorn SSE test proving a write is
+  pushed to a connected browser with zero client action.
+- **Push mechanics:** browser gets ONE snapshot (carries the change-log cursor), then
+  SSE deltas; reconnect resumes via Last-Event-ID (browser-native). Server side:
+  `ChangeLog.wait_for_change()` — same-process writes wake the stream instantly;
+  writes from other processes sharing the SQLite log surface within the 2s re-check.
+  No polling in the browser, ever (Jan's rule).
+- **UI page (v1, deliberately minimal):** dark board, columns by `order` with
+  WIP counts, DnD card moves (server round-trip; the SSE event refreshes the view —
+  the UI trusts the log, not its own optimism), card modal with comments + add-comment
+  (author defaults to the server actor). Board selector for multi-board profiles.
+  Richer Hermes-plugin port stays queued.
+- **Gotcha:** `httpx.ASGITransport` buffers entire responses — an endless SSE route
+  hangs it; the SSE test runs a real uvicorn on an ephemeral port instead.
+- **Verified live over `--profile hermes`:** real board renders (64 cards, 9 lanes
+  incl. ad-hoc `staging`), SSE stream opens, capabilities honest.
+
 ## 2026-07-05 — Actor identity + change-log core (decisions 9 & 10 live)
 
 - **Did:** `core/changelog.py` (ChangeEvent + ChangeLog: append-only, seq-cursored;

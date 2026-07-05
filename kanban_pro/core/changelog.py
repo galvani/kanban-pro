@@ -10,6 +10,7 @@ Storage: SQLite (cursor = autoincrement seq) or in-memory (memory profile / test
 
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import UTC, datetime
 from pathlib import Path
@@ -50,16 +51,39 @@ class ChangeEvent(BaseModel):
 
 
 class ChangeLog:
-    """Append-only event store. `db_path=None` -> in-memory (ephemeral profiles/tests)."""
+    """Append-only event store. `db_path=None` -> in-memory (ephemeral profiles/tests).
+
+    In-process consumers (the SSE stream) can `wait_for_change()` instead of polling:
+    same-process appends wake them instantly; the timeout doubles as the re-check
+    cadence for appends made by OTHER processes sharing the SQLite file.
+    """
 
     def __init__(self, db_path: str | Path | None = None) -> None:
         self._path = str(db_path) if db_path else None
         self._mem: list[ChangeEvent] = []
+        self._waiters: set[asyncio.Event] = set()
+
+    def _wake(self) -> None:
+        for waiter in self._waiters:
+            waiter.set()
+
+    async def wait_for_change(self, timeout: float) -> None:
+        """Return when an append happens in this process, or after `timeout` seconds."""
+        waiter = asyncio.Event()
+        self._waiters.add(waiter)
+        try:
+            async with asyncio.timeout(timeout):
+                await waiter.wait()
+        except TimeoutError:
+            pass
+        finally:
+            self._waiters.discard(waiter)
 
     async def append(self, event: ChangeEvent) -> ChangeEvent:
         if self._path is None:
             stamped = event.model_copy(update={"seq": len(self._mem) + 1})
             self._mem.append(stamped)
+            self._wake()
             return stamped
         async with aiosqlite.connect(self._path) as db:
             await db.executescript(_SCHEMA)
@@ -78,7 +102,18 @@ class ChangeLog:
             )
             await db.commit()
             assert cur.lastrowid is not None
+            self._wake()
             return event.model_copy(update={"seq": cur.lastrowid})
+
+    async def head(self) -> int:
+        """The newest seq (0 when empty) — snapshot consumers resume SSE from here."""
+        if self._path is None:
+            return self._mem[-1].seq if self._mem else 0
+        async with aiosqlite.connect(self._path) as db:
+            await db.executescript(_SCHEMA)
+            async with db.execute("SELECT COALESCE(MAX(seq), 0) FROM changes") as cur:
+                row = await cur.fetchone()
+        return int(row[0]) if row else 0
 
     async def since(self, cursor: int = 0, limit: int = 100) -> list[ChangeEvent]:
         """Events with seq > cursor, oldest first. Next cursor = last event's seq."""

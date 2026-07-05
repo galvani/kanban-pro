@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>kanban-pro</title>
+<style>
+  :root {
+    --bg: #14161a; --panel: #1d2026; --card: #262a32; --card-hover: #2d323c;
+    --text: #e6e8eb; --dim: #8a919e; --accent: #4f8cff; --ok: #3fb96b;
+    --border: #333845; --danger: #e5534b;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 14px/1.45 system-ui, sans-serif; height: 100vh; display: flex; flex-direction: column; }
+  header { display: flex; align-items: center; gap: 12px; padding: 10px 16px;
+           background: var(--panel); border-bottom: 1px solid var(--border); }
+  header h1 { font-size: 15px; margin: 0; font-weight: 600; }
+  header h1 span { color: var(--accent); }
+  select { background: var(--card); color: var(--text); border: 1px solid var(--border);
+           border-radius: 6px; padding: 4px 8px; }
+  .meta { margin-left: auto; display: flex; gap: 10px; align-items: center;
+          color: var(--dim); font-size: 12px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--dim); }
+  .dot.live { background: var(--ok); }
+  #board { flex: 1; display: flex; gap: 12px; padding: 14px; overflow-x: auto; align-items: flex-start; }
+  .col { background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+         min-width: 240px; width: 240px; max-height: 100%; display: flex; flex-direction: column; }
+  .col h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--dim);
+            margin: 0; padding: 10px 12px 6px; display: flex; justify-content: space-between; }
+  .col.dragover { outline: 2px dashed var(--accent); outline-offset: -4px; }
+  .cards { padding: 6px 8px 10px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 8px;
+          padding: 8px 10px; cursor: grab; }
+  .card:hover { background: var(--card-hover); }
+  .card .t { font-weight: 500; word-break: break-word; }
+  .card .sub { margin-top: 4px; font-size: 11px; color: var(--dim);
+               display: flex; gap: 6px; flex-wrap: wrap; }
+  .chip { background: #1a1d23; border: 1px solid var(--border); border-radius: 10px; padding: 0 7px; }
+  dialog { background: var(--panel); color: var(--text); border: 1px solid var(--border);
+           border-radius: 12px; width: min(620px, 92vw); max-height: 84vh; overflow-y: auto; }
+  dialog::backdrop { background: rgba(0,0,0,.55); }
+  dialog .body { padding: 18px 20px; }
+  dialog h3 { margin: 0 0 4px; }
+  dialog .desc { white-space: pre-wrap; color: var(--text); margin: 10px 0;
+                 border-left: 3px solid var(--border); padding-left: 10px; }
+  .comment { border-top: 1px solid var(--border); padding: 8px 0; }
+  .comment .who { font-size: 11px; color: var(--dim); }
+  form { display: flex; gap: 8px; margin-top: 12px; }
+  input[type=text] { flex: 1; background: var(--card); border: 1px solid var(--border);
+                     color: var(--text); border-radius: 6px; padding: 7px 9px; }
+  button { background: var(--accent); border: 0; color: white; border-radius: 6px;
+           padding: 7px 14px; cursor: pointer; }
+  #toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%);
+           background: var(--danger); color: white; padding: 8px 16px; border-radius: 8px;
+           opacity: 0; transition: opacity .25s; pointer-events: none; max-width: 80vw; }
+  #toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+<header>
+  <h1>kanban<span>-pro</span></h1>
+  <select id="boardSel" title="board"></select>
+  <div class="meta">
+    <span id="profile"></span><span id="actor"></span>
+    <div class="dot" id="liveDot" title="live event stream"></div>
+  </div>
+</header>
+<div id="board"></div>
+
+<dialog id="cardDlg"><div class="body">
+  <h3 id="dlgTitle"></h3>
+  <div class="sub" id="dlgMeta" style="color:var(--dim);font-size:12px"></div>
+  <div class="desc" id="dlgDesc"></div>
+  <div id="dlgComments"></div>
+  <form id="commentForm">
+    <input type="text" id="commentBody" placeholder="add a comment…" autocomplete="off">
+    <button type="submit">Send</button>
+  </form>
+</div></dialog>
+<div id="toast"></div>
+
+<script>
+/* Push-fed board: one snapshot per board switch, then SSE deltas. No polling timers. */
+let boardId = null, cursor = 0, es = null, refreshTimer = null, openCardId = null;
+
+const $ = id => document.getElementById(id);
+const api = async (path, opts) => {
+  const res = await fetch(path, opts);
+  if (!res.ok) {
+    let msg = res.statusText;
+    try { msg = (await res.json()).message || msg; } catch {}
+    throw new Error(msg);
+  }
+  return res.json();
+};
+const toast = msg => {
+  $("toast").textContent = msg; $("toast").classList.add("show");
+  setTimeout(() => $("toast").classList.remove("show"), 3500);
+};
+
+async function loadMeta() {
+  const m = await api("/api/meta");
+  $("profile").textContent = "profile: " + m.profile;
+  $("actor").textContent = "actor: " + m.actor;
+}
+
+async function loadBoards() {
+  const boards = await api("/api/boards");
+  const sel = $("boardSel");
+  sel.innerHTML = "";
+  for (const b of boards) sel.add(new Option(b.name, b.id));
+  if (boards.length && !boardId) boardId = boards[0].id;
+  sel.value = boardId;
+  sel.onchange = () => { boardId = sel.value; refresh(); };
+}
+
+function cardEl(card) {
+  const el = document.createElement("div");
+  el.className = "card"; el.draggable = true; el.dataset.id = card.id;
+  const chips = (card.assignees || []).map(a => `<span class="chip">${esc(a)}</span>`).join("");
+  el.innerHTML = `<div class="t">${esc(card.title)}</div>
+                  <div class="sub"><span>${esc(card.id.slice(0, 10))}</span>${chips}</div>`;
+  el.addEventListener("dragstart", ev => ev.dataTransfer.setData("text/plain", card.id));
+  el.addEventListener("click", () => openCard(card.id));
+  return el;
+}
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+async function refresh() {
+  if (!boardId) return;
+  const snap = await api(`/api/boards/${boardId}`);
+  cursor = Math.max(cursor, snap.cursor);
+  const root = $("board");
+  root.innerHTML = "";
+  for (const col of [...snap.board.columns].sort((a, b) => a.order - b.order)) {
+    const cards = snap.cards.filter(c =>
+      (c.placements || []).some(p => p.board_id === boardId && p.column_id === col.id));
+    cards.sort((a, b) => {
+      const pa = a.placements.find(p => p.column_id === col.id).position;
+      const pb = b.placements.find(p => p.column_id === col.id).position;
+      return pa - pb;
+    });
+    const el = document.createElement("div");
+    el.className = "col";
+    el.innerHTML = `<h2>${esc(col.name)}<span>${cards.length}${col.wip_limit ? "/" + col.wip_limit : ""}</span></h2>`;
+    const list = document.createElement("div");
+    list.className = "cards";
+    for (const c of cards) list.appendChild(cardEl(c));
+    el.appendChild(list);
+    el.addEventListener("dragover", ev => { ev.preventDefault(); el.classList.add("dragover"); });
+    el.addEventListener("dragleave", () => el.classList.remove("dragover"));
+    el.addEventListener("drop", async ev => {
+      ev.preventDefault(); el.classList.remove("dragover");
+      const id = ev.dataTransfer.getData("text/plain");
+      try {
+        await api(`/api/cards/${id}/move`, {
+          method: "POST", headers: {"content-type": "application/json"},
+          body: JSON.stringify({to_board_id: boardId, to_column_id: col.id, position: 0}),
+        });
+      } catch (e) { toast(e.message); }
+      /* no manual refresh — the SSE event triggers it */
+    });
+    root.appendChild(el);
+  }
+  connect();
+}
+
+function scheduleRefresh() {           /* debounce bursts of pushed events */
+  clearTimeout(refreshTimer);
+  refreshTimer = setTimeout(refresh, 150);
+}
+
+function connect() {
+  if (es) return;
+  es = new EventSource(`/api/events?since=${cursor}`);
+  es.onopen = () => $("liveDot").classList.add("live");
+  es.onerror = () => $("liveDot").classList.remove("live");
+  es.onmessage = msg => {
+    cursor = Math.max(cursor, Number(msg.lastEventId) || 0);
+    const ev = JSON.parse(msg.data);
+    /* refresh when the event touches this board — or when we can't tell */
+    if (!ev.board_id || ev.board_id === boardId || ev.entity !== "board") scheduleRefresh();
+    if (openCardId && (ev.entity_id === openCardId || ev.data?.card_id === openCardId))
+      openCard(openCardId);
+  };
+}
+
+async function openCard(id) {
+  const d = await api(`/api/cards/${id}`);
+  openCardId = id;
+  $("dlgTitle").textContent = d.card.title;
+  $("dlgMeta").textContent = `${d.card.id} · ${(d.card.assignees || []).join(", ") || "unassigned"}`
+    + (d.card.archived ? " · ARCHIVED" : "");
+  $("dlgDesc").textContent = d.card.description || "";
+  $("dlgComments").innerHTML = d.comments.map(c =>
+    `<div class="comment"><div class="who">${esc(c.author)} · ${c.created_at ? new Date(c.created_at).toLocaleString() : ""}</div>${esc(c.body)}</div>`
+  ).join("") || `<div class="comment" style="color:var(--dim)">no comments</div>`;
+  const dlg = $("cardDlg");
+  if (!dlg.open) dlg.showModal();
+}
+$("cardDlg").addEventListener("close", () => { openCardId = null; });
+$("commentForm").addEventListener("submit", async ev => {
+  ev.preventDefault();
+  const body = $("commentBody").value.trim();
+  if (!body || !openCardId) return;
+  try {
+    await api(`/api/cards/${openCardId}/comments`, {
+      method: "POST", headers: {"content-type": "application/json"},
+      body: JSON.stringify({body}),
+    });
+    $("commentBody").value = "";
+  } catch (e) { toast(e.message); }
+});
+
+(async () => {
+  try { await loadMeta(); await loadBoards(); await refresh(); }
+  catch (e) { toast(e.message); }
+})();
+</script>
+</body>
+</html>

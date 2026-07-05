@@ -203,14 +203,17 @@ move, empty-only delete guards, ext shallow-merge) — see JOURNAL 2026-07-05.)*
 
 ## UI (to explore)
 
-- [ ] **UI is push-fed, never browser-refresh (Jan, 2026-07-05):** the backend pushes
-  changes to the browser (WebSocket/SSE off the core change-log — the UI is just
-  another decision-9 projection, like MCP notifications). No client polling loops.
-  The ported Hermes plugin already expects a WS events feed, so the port keeps that
-  shape. Consequence — build order for the UI: actor identity → core change-log +
-  WS endpoint → UI port. Initial page load = one REST snapshot; everything after =
-  pushed deltas keyed by change-log cursor (reconnect resumes from cursor, no
-  full reload).
+- [x] **v1 board UI — DONE 2026-07-05** (`kanban-pro-ui`, kanban_pro/api/): FastAPI
+  secondary interface (snapshot REST + move + comments + `/api/changes` +
+  `/api/events` SSE) + a self-contained push-fed board page (DnD moves, card modal
+  with comments, live dot; SSE resumes via Last-Event-ID). Optional & on-demand ✓;
+  push-fed, zero browser polling ✓ (same-process writes push instantly via ChangeLog
+  wakeup; cross-process within ~2s server-side re-check). Works over any profile —
+  verified live on `hermes` (64 cards).
+- [ ] **Richer UI — port the Hermes board plugin** on top of this API (the v1 page is
+  deliberately minimal). Plugin source is readable (no-build IIFE) but needs an SDK
+  shim (React/shadcn host) + data-layer rewrite; prune harness-specific panels
+  (runs/workers/dispatch) until claim/lease lands.
 
 - [ ] **Check the Hermes board plugin we built** — see whether its board UI can be reused
   / easily wired into kanban-pro's own UI (as a front-end consumer of the canonical API).

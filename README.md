@@ -20,7 +20,12 @@ underneath.
 uv sync                                  # install deps (incl. dev tools)
 uv run kanban-pro-mcp                    # MCP server (stdio) over the native SQLite store
 uv run kanban-pro-mcp --profile memory   # ... over an ephemeral in-memory board
+uv run kanban-pro-ui --profile hermes    # OPTIONAL web board (on demand only) -> :8747
 ```
+
+Pass `--actor kind:name` (e.g. `agent:hermes-engineer`, `human:jan`) so every write is
+attributed in the change-log. The web UI is **push-fed** (SSE off the change-log — no
+browser polling) and never starts unless you run it.
 
 The store lives at `~/.local/share/kanban-pro/kanban.db` (override: `KANBAN_PRO_DB`).
 
