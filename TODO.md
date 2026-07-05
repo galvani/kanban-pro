@@ -46,11 +46,14 @@ move, empty-only delete guards, ext shallow-merge) — see JOURNAL 2026-07-05.)*
   archived + 608 comments + 55 relations now in the native store, provenance in
   `ext["kanban_pro.migrated_from"]`, import attributed in the change-log). Hermes
   remains untouched + authoritative until cutover.
-- [ ] **Cutover** (the remaining half): re-point the harnesses at kanban-pro MCP
-  (`--profile default`), re-run the import for freshness right before switching,
-  decide what the Hermes dispatcher consumes (needs work queue + claim/lease), then
-  retire the built-in kanban. Decide the moment with Jan. Follow-up: import
-  `task_events` history into the change-log (optional).
+- [ ] **Cutover — phase 1 DONE 2026-07-05** (fresh import; Claude Code registered
+  user-scope with `agent:claude-code`; Hermes config edit staged, awaiting Jan's
+  approval — backup at `~/.hermes/config.yaml.bak-kanban-cutover`). **Phase 2
+  remaining:** apply the Hermes registration, OpenCode registration, switch card
+  execution to `~/workspace/kanban-dispatcher` (seeded), stop the Hermes dispatcher,
+  retire the built-in kanban toolset. Until then: kanban-pro = primary for new work,
+  Hermes board = legacy (re-run `kanban-pro-migrate` to absorb changes). Follow-up:
+  import `task_events` history into the change-log (optional).
 - [ ] `--profile` selection + profile registry in `config.py`.
 - [ ] FastAPI routes + `GET /capabilities` in `kanban_pro/api/`; `app.py` entrypoint.
 

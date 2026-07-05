@@ -1,5 +1,26 @@
 # kanban-pro — Journal
 
+## 2026-07-05 — Cutover (phase 1): kanban-pro is the primary board
+
+- **Fresh import ran** right before switching: 172 cards / 608 comments / 55
+  relations, idempotent re-run over the earlier import.
+- **Claude Code registered** (user scope): `kanban-pro` MCP with
+  `--actor agent:claude-code` — every session on this box now has the board.
+- **Hermes registration STAGED, awaiting Jan's approval** (live-assistant config;
+  auto-mode declined the edit, correctly): add a `kanban-pro` entry under
+  `mcp_servers:` in `~/.hermes/config.yaml` (uv run … kanban-pro-mcp
+  `--actor agent:hermes`) + allowlist `- kanban-pro` in `platform_toolsets.api_server`.
+  Backup exists: `~/.hermes/config.yaml.bak-kanban-cutover`.
+- **Deliberately NOT done (phase 2, needs kanban-dispatcher):** stopping the Hermes
+  dispatcher, retiring the built-in kanban toolset, OpenCode registration. The
+  dispatcher subproject is seeded at `~/workspace/kanban-dispatcher` (SPEC: headless
+  `claude -p` launcher first; opencode driven via sessions against the running
+  server, never spawned; hermes self-manages transitionally).
+- **Drift policy until phase 2:** kanban-pro native store = primary for NEW work;
+  the Hermes board is legacy/reference — cards still created there (by the Hermes
+  dispatcher flow) reach kanban-pro by re-running `kanban-pro-migrate` (idempotent).
+  Avoid dual-writing the same card in both.
+
 ## 2026-07-05 — Work queue + claim/lease: the agent loop is complete
 
 - **Did:** `core/work.py` (ClaimStore + Claim/WorkItem/WorkQueue) + four MCP tools
