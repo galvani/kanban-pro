@@ -198,7 +198,15 @@ def main() -> None:
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO)
     app = create_app(profile=args.profile, actor=args.actor or "human:ui")
     logger.info("kanban-pro UI on http://%s:%s (profile=%s)", args.host, args.port, args.profile)
-    uvicorn.run(app, host=args.host, port=args.port, log_level="info")
+    uvicorn.run(
+        app,
+        host=args.host,
+        port=args.port,
+        log_level="info",
+        # SSE streams never end on their own; without this, Ctrl+C/SIGTERM hangs
+        # forever "gracefully" waiting for open event streams. Force-close instead.
+        timeout_graceful_shutdown=2,
+    )
 
 
 __all__ = ["create_app", "main"]
