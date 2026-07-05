@@ -84,23 +84,29 @@ actors.
 6. → moved to phase C (Hermes-side skills change together, after the gateway loads
    the kanban-pro MCP registration).
 
-### C — Write-path adoption (the agent behavior upgrade) — owner: me + review, ~1-2 sessions
-0. **Sample skills shipped IN the repo** (Jan, 2026-07-05): `examples/skills/
-   kanban-worker/` (the pull loop + discipline rules) and `kanban-orchestrator/`
-   (goal→cards decomposition, scheme assignment, feed-watching, never works cards
-   itself) — drop-in for any Claude-family harness, the reference the Hermes skill
-   rewrite (step 7) adapts, and living documentation of the board contract. Keep
-   principle-based/thin (name tools, don't duplicate schemas); re-review on MCP
-   surface changes (AGENTS.md note).
-7. **Rewrite `kanban-worker` skill** around the pull-worker loop above; document the
-   claim→assign→move convention, `list_transitions` before moving, force discipline
-   ("never force unless the card says why"), subcard decomposition.
-8. **`kanban_tools.py` v2 in Hermes**: thin wrappers over kanban-pro MCP (or drop —
-   workers can use MCP directly; ⚖️ **decision: wrap vs direct** — direct is less
-   code, wrap keeps old prompts working during transition. Recommendation: direct
-   for new skill, keep old tools functioning against old board until E).
-9. **Gap to close first (kanban-pro side): idempotency keys** — old `create` had
-   native dedup; worker retries need it. Small build (core TTL cache, decision 8).
+### C — Write-path adoption — ✅ largely DONE 2026-07-05
+0. ✅ **Sample skills shipped in the repo** (`examples/skills/kanban-{worker,
+   orchestrator}`) with a GENERATED tool-reference block (drift test:
+   `tests/test_toolref.py`; regenerate `uv run python -m tests.toolref --write`).
+   Installed via `~/.claude/skills` — which is a symlink to **`~/.agents/skills`**
+   (Jan's synced cross-tool assets), so they're portable AND Hermes loads them too
+   (`skills.external_dirs` in its config). One source, every harness.
+0b. ✅ **All three harness configs carry the MCP + skills** (Jan's ruling): Claude
+   Code (`agent:claude-code`, user scope), Hermes (`agent:hermes` in config.yaml +
+   external skills dir), OpenCode (`agent:opencode` in opencode.json, backup taken).
+7. ✅ **Hermes kanban skills updated as the TWO-LAYER structure** (not a rewrite —
+   legacy-dispatched workers still need the old-board content until phase D):
+   each got a prepended "the board moved" routing section (legacy worker → old
+   tools, everyone else → kanban-pro MCP + the shared skills, with the old→new tool
+   mapping, attention-over-blocked, idempotency keys, no-dual-write rule); all
+   legacy guidance preserved below the fold, marked legacy-only.
+8. **`kanban_tools.py` / KANBAN_GUIDANCE (prompt_builder.py)**: unchanged — they
+   serve legacy-dispatched workers and retire WITH the legacy dispatcher (phase E).
+   Direct-MCP won over wrappers (Jan's rec confirmed): new-board work uses the MCP
+   tools, no wrapper layer.
+9. ✅ **Idempotency keys shipped** (optional param v1; required flips on when
+   workers all send them). `api-verify`/`browser-verify` skills: still pending —
+   they follow their workers (phase D switch).
 
 ### D — Execution switch — owner: kanban-dispatcher project
 10. Build `~/workspace/kanban-dispatcher` v0 (claude launcher first, per its SPEC);

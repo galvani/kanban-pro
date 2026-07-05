@@ -1,5 +1,27 @@
 # kanban-pro — Journal
 
+## 2026-07-05 — Phase C landed: skills unified in ~/.agents, all harnesses wired
+
+- **Discovery that simplified everything:** `~/.claude/skills` is a SYMLINK to
+  `~/.agents/skills` (Jan's Dropbox-synced cross-tool assets), and Hermes already
+  loads that dir via `skills.external_dirs` — so the repo's sample skills are
+  automatically the ONE source for Claude Code, Hermes, and OpenCode. No copies to
+  maintain.
+- **Hermes kanban skills = two-layer structure** (deliberately NOT a rewrite): the
+  old skills' content still serves legacy-dispatched workers (workspace kinds,
+  tenant isolation, KANBAN_GUIDANCE companion) until phase D — each got a prepended
+  "the board moved" routing section: legacy worker → finish on the old board with
+  old tools; everyone else → kanban-pro MCP + the shared skills. Includes the
+  old→new tool mapping (`kanban_block --kind needs_input` → `raise_attention`!),
+  the no-dual-write rule, and idempotency-key habit. v2.0.0 → 2.1.0.
+- **OpenCode registered** (`agent:opencode` in opencode.json, backup taken) — all
+  three harnesses now carry the MCP with distinct actors.
+- **`kanban_tools.py`/prompt_builder KANBAN_GUIDANCE left untouched by design:**
+  they serve the legacy dispatcher's workers and retire with it (phase E).
+- Remaining before E: dispatcher v0 (phase D, ~/workspace/kanban-dispatcher),
+  api-/browser-verify skill switch (follows the workers), Hermes gateway MCP reload
+  (Jan, whenever).
+
 ## 2026-07-05 — Idempotency keys + attention flag (72 tests)
 
 - **Idempotency (decision 8, v1):** `core/dedupe.py` DedupeStore (kind+key →
