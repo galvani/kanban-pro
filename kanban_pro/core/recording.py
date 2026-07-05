@@ -24,9 +24,11 @@ from kanban_pro.domain import (
     Placement,
     Relation,
 )
-from kanban_pro.ports import Capability, Fulfilment, KanbanBackend
+from kanban_pro.ports import Capability, Fulfilment, KanbanBackend, NotSupported
 
+from .augment import AugmentingBackend
 from .augment import fulfilments as _fulfilments
+from .flow import FlowConfig, TransitionInfo
 
 
 class RecordingBackend:
@@ -40,6 +42,16 @@ class RecordingBackend:
 
     def fulfilments(self) -> dict[Capability, Fulfilment]:
         return _fulfilments(self._inner)
+
+    @property
+    def flows(self) -> FlowConfig | None:
+        return self._inner.flows if isinstance(self._inner, AugmentingBackend) else None
+
+    async def transitions(self, card_id: str, board_id: str | None = None) -> TransitionInfo:
+        """Read-only — delegated to the augmenting layer, never recorded."""
+        if not isinstance(self._inner, AugmentingBackend):
+            raise NotSupported("transitions query needs the augmenting layer")
+        return await self._inner.transitions(card_id, board_id)
 
     async def _record(
         self,
@@ -132,12 +144,25 @@ class RecordingBackend:
         return updated
 
     async def move_card(
-        self, card_id: str, to_board_id: str, to_column_id: str, position: int
+        self,
+        card_id: str,
+        to_board_id: str,
+        to_column_id: str,
+        position: int,
+        *,
+        force: bool = False,
     ) -> Card:
-        moved = await self._inner.move_card(card_id, to_board_id, to_column_id, position)
+        if force and isinstance(self._inner, AugmentingBackend):
+            moved = await self._inner.move_card(
+                card_id, to_board_id, to_column_id, position, force=True
+            )
+        else:
+            moved = await self._inner.move_card(card_id, to_board_id, to_column_id, position)
+        # a forced move is never silent (Jan): the event carries the flag.
         await self._record(
-            "card", card_id, "moved", to_board_id, column_id=to_column_id, position=position
-        )
+            "card", card_id, "moved", to_board_id,
+            column_id=to_column_id, position=position, forced=force or None,
+        )  # fmt: skip
         return moved
 
     async def add_placement(self, card_id: str, placement: Placement) -> Card:

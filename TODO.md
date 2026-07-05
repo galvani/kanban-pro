@@ -52,6 +52,16 @@ move, empty-only delete guards, ext shallow-merge) — see JOURNAL 2026-07-05.)*
 
 ## Flow management (workflow engine) — design area
 
+**SHIPPED 2026-07-05 (core/flow.py + augmenting layer):** flow.yaml loader
+(fail-fast validation), named schemes, per-card scheme via `ext["kanban_pro.scheme"]`,
+reserved built-in **free-roam** scheme (Jan: the unrestricted one; the real `default`
+enforces), the full resolution chain incl. fallbacks, transition enforcement in
+`move_card`, **audited force** (`force=true`, event flagged), `list_transitions` +
+`list_flows` MCP tools, hermes native-transitions hook. **Remaining in this block:**
+hooks (validators + post-actions + `hook:<name>` escape), flow-level `wip_limits` key
+(column `wip_limit` already enforced), runtime-editable flows, the UI flows view +
+scheme badge + drag-highlighting, `scheme=` list filter.
+
 - [ ] **Flow management: transitions + hooks.** Grow `WORKFLOW` from "allowed moves" into
   a small per-board/profile automation engine (kanban-pro Tier-1 polyfill — works over any
   backend since it wraps `move_card`).
@@ -69,6 +79,24 @@ move, empty-only delete guards, ext shallow-merge) — see JOURNAL 2026-07-05.)*
     becomes a named-scheme map, a card carries `scheme` (default from board/profile),
     validation + `list_transitions` resolve through the card's scheme. Assignment
     must be easy: settable at create and via update_card.
+  - **Scheme/flow resolution chain (card without a flow — ruled 2026-07-05):**
+    (1) no flow configured → free-move (engine is opt-in, absence never blocks);
+    (2) card has no scheme → board/profile default scheme;
+    (3) card's scheme UNKNOWN (typo/renamed/imported) → fall back to default scheme
+    + loud warning + visible in list_transitions ("using 'default'") — never freeze
+    the board on a config typo (rules guide, don't imprison; --force stays the
+    escape hatch);
+    (4) card in a column the scheme doesn't model (ad-hoc lanes, e.g. hermes
+    `staging`) → moves out are free, logged as unmodeled.
+    Guardrails: flow.yaml fails fast at load on internally-dangling references;
+    every fallback-applied move is visible in the change-log (no silent leniency).
+  - **Visibility surfaces (Jan asked 2026-07-05 — pin them):** available schemes =
+    `flow.yaml` (edit) + `kanban://flows` resource / `list_flows` tool (schemes,
+    states, transitions, default) + read-only UI flows view. Assigned scheme =
+    `get_card` (`scheme` field, empty = inherited default) + `list_transitions`
+    (shows the RESOLVED scheme incl. fallback) + a scheme badge in the UI card
+    modal (later: legal-target highlighting during drag). Which-cards-use-scheme =
+    a `scheme=` filter on list surfaces, not a dedicated report.
   - **Hooks:**
     - *pre-transition validators* — can block/deny a move (e.g. "can't reach Done with an
       open checklist" / required field missing). Return allow/deny + reason.

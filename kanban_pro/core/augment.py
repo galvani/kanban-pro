@@ -8,16 +8,25 @@ This is what the interfaces actually call. Per capability it decides:
                  relations held in the overlay store, keyed to backend entity ids).
 - UNAVAILABLE -> neither possible -> canonical NotSupported.
 
-v1 slice: WIP enforcement (Tier 1) + comments/relations overlay (Tier 2).
-Still to come: WORKFLOW transitions (blocked on the flow-YAML design, see TODO),
-ARCHIVE flag polyfill and write-through encoding (with the first remote adapter),
-reconciliation GC for out-of-band backend deletes.
+Tier-1 enforcement here: WIP limits + the flow engine (core/flow.py — per-card
+schemes, free-roam, audited force). Tier-2 overlay: comments/relations. Still to
+come: ARCHIVE flag polyfill, write-through encoding, reconciliation GC for
+out-of-band backend deletes, flow hooks/validators.
 """
 
 from __future__ import annotations
 
 from typing import Protocol, runtime_checkable
 
+from kanban_pro.core.flow import (
+    SCHEME_EXT_KEY,
+    FlowConfig,
+    NativeTransitions,
+    Resolution,
+    TransitionInfo,
+    TransitionOption,
+    free_roam,
+)
 from kanban_pro.domain import (
     Board,
     BoardPatch,
@@ -43,9 +52,15 @@ class AugmentingBackend:
     Without an overlay, only Tier-1 enforcement is added.
     """
 
-    def __init__(self, adapter: KanbanBackend, overlay: KanbanBackend | None = None) -> None:
+    def __init__(
+        self,
+        adapter: KanbanBackend,
+        overlay: KanbanBackend | None = None,
+        flows: FlowConfig | None = None,
+    ) -> None:
         self._adapter = adapter
         self._overlay = overlay
+        self.flows = flows
         self._fulfilments = self._compute_fulfilments()
         #: port conformance: everything not UNAVAILABLE is callable on this backend.
         self.capabilities: frozenset[Capability] = frozenset(
@@ -59,6 +74,8 @@ class AugmentingBackend:
                 out[cap] = Fulfilment.NATIVE
             elif cap is Capability.WIP_LIMITS:
                 out[cap] = Fulfilment.POLYFILLED  # Tier-1 enforcement, always available
+            elif cap is Capability.WORKFLOW and self.flows is not None:
+                out[cap] = Fulfilment.POLYFILLED  # Tier-1: the flow engine (flow.yaml)
             elif cap in _OVERLAY_CAPS and self._overlay is not None:
                 out[cap] = Fulfilment.POLYFILLED
             else:
@@ -102,6 +119,99 @@ class AugmentingBackend:
                 f"column {column.name!r} is at its WIP limit ({column.wip_limit})"
                 " — move a card out first"
             )
+
+    # --- Tier-1 flow enforcement (flow engine — core/flow.py; ruled 2026-07-05) ---
+
+    async def _resolve_flow(self, card: Card) -> Resolution:
+        requested = card.ext.get(SCHEME_EXT_KEY) if isinstance(card.ext, dict) else None
+        scheme = str(requested) if requested is not None else None
+        if self.flows is None:
+            return free_roam(scheme)  # chain rule 1: no config -> unrestricted
+        return self.flows.resolve(scheme)
+
+    async def _check_flow(self, card_id: str, to_board_id: str, to_column_id: str) -> None:
+        """Validate a move against the card's scheme. Skips: backend-native WORKFLOW
+        (trust it), free-roam, unmodeled endpoints (chain rule 4), repositioning."""
+        if self.flows is None or Capability.WORKFLOW in self._adapter.capabilities:
+            return
+        card = await self._adapter.get_card(card_id)
+        resolution = await self._resolve_flow(card)
+        flow = resolution.flow
+        if flow is None:  # free-roam
+            return
+        placement = next((p for p in card.placements if p.board_id == to_board_id), None)
+        if placement is None:
+            return  # the adapter's strict-move NotFound handles this (Q16)
+        columns = {c.id: c.name.lower() for c in await self._adapter.list_columns(to_board_id)}
+        current = columns.get(placement.column_id)
+        target = columns.get(to_column_id)
+        if current is None or target is None:
+            return
+        if current not in flow.states or target not in flow.states:
+            return  # a scheme governs only the states it declares
+        if current == target:
+            return  # repositioning within a column is not a transition
+        if not flow.permits(current, target):
+            allowed = ", ".join(flow.allowed.get(current, [])) or "none"
+            raise Conflict(
+                f"scheme {resolution.resolved!r} does not allow {current} -> {target}"
+                f" (allowed from {current}: {allowed}); use force=true to override"
+            )
+
+    async def transitions(self, card_id: str, board_id: str | None = None) -> TransitionInfo:
+        """What moves are legal for this card, and under which resolved scheme."""
+        card = await self._adapter.get_card(card_id)
+        if board_id is None:
+            if not card.placements:
+                raise Conflict(f"card {card_id!r} has no placement — nothing to move")
+            board_id = card.placements[0].board_id
+        placement = next((p for p in card.placements if p.board_id == board_id), None)
+        columns = await self._adapter.list_columns(board_id)
+        names = {c.id: c.name.lower() for c in columns}
+        current_id = placement.column_id if placement else None
+        requested = card.ext.get(SCHEME_EXT_KEY) if isinstance(card.ext, dict) else None
+        scheme = str(requested) if requested is not None else None
+
+        def options(predicate_names: set[str] | None) -> list[TransitionOption]:
+            return [
+                TransitionOption(column_id=c.id, name=c.name)
+                for c in columns
+                if c.id != current_id
+                and (predicate_names is None or c.name.lower() in predicate_names)
+            ]
+
+        if isinstance(self._adapter, NativeTransitions):
+            lanes = {name.lower() for name in await self._adapter.list_transitions(card_id)}
+            return TransitionInfo(
+                card_id=card_id, board_id=board_id, current_column_id=current_id,
+                scheme=scheme, resolved_scheme=None, source="backend",
+                options=options(lanes), note="workflow enforced by the backend",
+            )  # fmt: skip
+        resolution = await self._resolve_flow(card)
+        if resolution.flow is None:
+            return TransitionInfo(
+                card_id=card_id, board_id=board_id, current_column_id=current_id,
+                scheme=scheme, resolved_scheme=resolution.resolved,
+                source="free-roam" if self.flows is not None else "free",
+                options=options(None),
+            )  # fmt: skip
+        flow = resolution.flow
+        current_name = names.get(current_id) if current_id else None
+        note = (
+            "scheme fallback applied — requested scheme unknown" if resolution.fell_back else None
+        )
+        if current_name is None or current_name not in flow.states:
+            return TransitionInfo(
+                card_id=card_id, board_id=board_id, current_column_id=current_id,
+                scheme=scheme, resolved_scheme=resolution.resolved, source="flow",
+                options=options(None),
+                note=(note or "") + " (current column not modeled by the scheme — free)",
+            )  # fmt: skip
+        return TransitionInfo(
+            card_id=card_id, board_id=board_id, current_column_id=current_id,
+            scheme=scheme, resolved_scheme=resolution.resolved, source="flow",
+            options=options(set(flow.allowed.get(current_name, []))), note=note,
+        )  # fmt: skip
 
     # --- boards / columns: delegate ---
 
@@ -161,9 +271,19 @@ class AugmentingBackend:
             await self._overlay.delete_card(card_id)
 
     async def move_card(
-        self, card_id: str, to_board_id: str, to_column_id: str, position: int
+        self,
+        card_id: str,
+        to_board_id: str,
+        to_column_id: str,
+        position: int,
+        *,
+        force: bool = False,
     ) -> Card:
-        await self._check_wip(to_board_id, to_column_id, card_id)
+        # force (Jan): a deliberate override skips flow + WIP validation. It is never
+        # silent — the recording layer flags the event, so a forced move is auditable.
+        if not force:
+            await self._check_flow(card_id, to_board_id, to_column_id)
+            await self._check_wip(to_board_id, to_column_id, card_id)
         return await self._adapter.move_card(card_id, to_board_id, to_column_id, position)
 
     async def add_placement(self, card_id: str, placement: Placement) -> Card:

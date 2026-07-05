@@ -1,5 +1,30 @@
 # kanban-pro — Journal
 
+## 2026-07-05 — Flow engine shipped (+ vision README)
+
+- **Did:** `core/flow.py` + augmenting-layer enforcement (60 tests green):
+  - flow.yaml loader: pydantic-validated, fail-fast on dangling references, reserved
+    names protected; `hooks`/`wip_limits` keys accepted-but-ignored (syntax reserved).
+    Location: `$KANBAN_PRO_FLOWS` > `~/.config/kanban-pro/flows-<profile>.yaml` >
+    `flows.yaml`; absent = engine off (free-roam behavior).
+  - **Named schemes per card** via `ext["kanban_pro.scheme"]` (shallow-merge makes
+    assignment a one-key patch). **Reserved built-in `free-roam` scheme (Jan):** the
+    named unrestricted flow — a free-roam card moves anywhere while the board default
+    stays enforced; YAML may not redefine it.
+  - Resolution chain implemented exactly as ruled: no-config→free, unset→default,
+    unknown→default+warning (never freeze), unmodeled endpoints→free.
+  - `move_card(force=true)`: skips flow+WIP validation, event carries `forced: true`
+    — never silent. Enforcement skipped when the backend's WORKFLOW is native (trust
+    hermes's engine).
+  - `list_transitions(card_id)` (28 MCP tools now): resolved scheme + legal targets;
+    sources flow / free-roam / free / **backend** (adapters can expose native
+    transitions via the `NativeTransitions` hook — hermes returns ready/blocked/done).
+  - `list_flows`: all schemes + states + edges + default + the free-roam builtin.
+- **Did (agent):** README rewritten vision-forward (features ✅/🔜, comparison table
+  vs Unified.to-style APIs / Composio Rube / Agent Kanban+Flux / per-backend MCPs /
+  Planka+Vikunja, agent-session example, flow.yaml example) — then trued up post-flow-
+  engine (flow items ✅, 28 tools, free-roam as a real reserved scheme).
+
 ## 2026-07-05 — Push-fed web UI + HTTP API (`kanban-pro-ui`)
 
 - **Did:** built the secondary interface (kanban_pro/api/) + a self-contained board

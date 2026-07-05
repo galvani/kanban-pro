@@ -172,14 +172,64 @@ async def update_card(card_id: str, patch: CardPatch) -> Card:
 
 
 @mcp.tool(annotations=_IDEMPOTENT)
-async def move_card(card_id: str, to_board_id: str, to_column_id: str, position: int = 0) -> Card:
+async def move_card(
+    card_id: str,
+    to_board_id: str,
+    to_column_id: str,
+    position: int = 0,
+    force: bool = False,
+) -> Card:
     """Move a card within a board it's already on (re-column / re-position).
 
-    Errors if the card has no placement on to_board_id — use add_placement for that.
+    Errors if the card has no placement on to_board_id (use add_placement), or if the
+    card's workflow scheme forbids the transition — check list_transitions first.
+    force=true deliberately overrides scheme + WIP validation; the override is always
+    recorded in the change-log, never silent.
     """
-    return await _call(
-        (await _get_backend()).move_card(card_id, to_board_id, to_column_id, position)
+    backend = await _get_backend()
+    if force and isinstance(backend, core.RecordingBackend | core.AugmentingBackend):
+        return await _call(
+            backend.move_card(card_id, to_board_id, to_column_id, position, force=True)
+        )
+    return await _call(backend.move_card(card_id, to_board_id, to_column_id, position))
+
+
+@mcp.tool(annotations=_RO)
+async def list_transitions(card_id: str, board_id: str | None = None) -> core.TransitionInfo:
+    """What moves are legal for this card right now, and under which resolved scheme.
+
+    Sources: the card's flow scheme (flow.yaml; 'free-roam' = unrestricted), the
+    backend's own workflow (e.g. hermes), or free movement when nothing is configured.
+    """
+    backend = await _get_backend()
+    if not isinstance(backend, core.RecordingBackend | core.AugmentingBackend):
+        raise ToolError("not_supported: transitions query needs the core stack")
+    return await _call(backend.transitions(card_id, board_id))
+
+
+@mcp.tool(annotations=_RO)
+async def list_flows() -> dict[str, object]:
+    """Available workflow schemes: every flow.yaml scheme (+ built-in 'free-roam'),
+    with states, allowed transitions, and which scheme is the default."""
+    backend = await _get_backend()
+    flows = (
+        backend.flows
+        if isinstance(backend, core.RecordingBackend | core.AugmentingBackend)
+        else None
     )
+    payload: dict[str, object] = {
+        "builtin": {core.FREE_ROAM: "unrestricted transitions (reserved scheme)"},
+        "scheme_ext_key": core.SCHEME_EXT_KEY,
+    }
+    if flows is None:
+        payload["configured"] = None
+        payload["note"] = "no flow.yaml configured — every card behaves as free-roam"
+    else:
+        payload["default"] = flows.default
+        payload["configured"] = {
+            name: {"states": f.states, "transitions": f.allowed} for name, f in flows.flows.items()
+        }
+    return payload
 
 
 @mcp.tool(annotations=_WRITE)

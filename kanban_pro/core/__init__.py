@@ -10,6 +10,13 @@ from __future__ import annotations
 
 from kanban_pro.core.augment import AugmentingBackend, fulfilments
 from kanban_pro.core.changelog import ChangeEvent, ChangeLog
+from kanban_pro.core.flow import (
+    FREE_ROAM,
+    SCHEME_EXT_KEY,
+    FlowConfig,
+    TransitionInfo,
+    load_flows,
+)
 from kanban_pro.core.recording import RecordingBackend
 from kanban_pro.ports import Conflict, KanbanBackend, NotFound
 
@@ -17,8 +24,13 @@ __all__ = [
     "AugmentingBackend",
     "ChangeEvent",
     "ChangeLog",
+    "FREE_ROAM",
+    "SCHEME_EXT_KEY",
+    "FlowConfig",
     "RecordingBackend",
+    "TransitionInfo",
     "fulfilments",
+    "load_flows",
     "delete_card_guarded",
     "delete_board_guarded",
     "delete_column_guarded",

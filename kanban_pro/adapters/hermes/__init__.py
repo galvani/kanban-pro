@@ -142,6 +142,11 @@ class HermesAdapter(BaseAdapter):
         await self._run(["reassign", card_id, profile], slug)
         return await self.get_card(card_id)
 
+    async def list_transitions(self, card_id: str) -> list[str]:
+        """core.flow.NativeTransitions hook: lane names move_card can enter."""
+        await self._reader.find_task(card_id)  # 404 for unknown cards
+        return sorted(_MOVE_VERBS)
+
     async def move_card(
         self, card_id: str, to_board_id: str, to_column_id: str, position: int
     ) -> Card:
