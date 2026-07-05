@@ -13,6 +13,13 @@ kanban-pro exposes **one canonical kanban API** and routes every operation to a
 pluggable **backend adapter**. Point it at Hermes today, at Trello or a local
 SQLite store tomorrow — the clients calling kanban-pro never change.
 
+**Goal update (2026-07-05):** kanban-pro's endgame is to **replace the Hermes kanban**
+(this was not the original goal — it is now). The native store becomes the system of
+record and Hermes, like every other harness, consumes kanban-pro over MCP/CLI. The
+`hermes` adapter is still built first — it is the **discovery + migration vehicle**
+(learn the harness's real data shapes, proxy during the transition, then import into
+the native store and cut over).
+
 ## Motivation
 
 Kanban backends are interchangeable in concept but incompatible in practice: each

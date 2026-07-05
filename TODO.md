@@ -37,8 +37,17 @@ move, empty-only delete guards, ext shallow-merge) — see JOURNAL 2026-07-05.)*
 
 ## Planned (from SPEC)
 
-- [ ] Confirm Hermes's real kanban API surface, then write the `hermes` adapter (v1
-  target = Hermes parity).
+- [ ] Write the `hermes` adapter — API surface CONFIRMED 2026-07-05, full mapping in
+  **docs/hermes-kanban.md** (SQLite-per-board storage, status-lanes→columns,
+  parent/child DAG→relations, single assignee, native idempotency keys + workflow
+  enforcement). Access path: SQLite reads + `hermes kanban --json` CLI writes.
+  Purpose: discovery + migration vehicle for replacing the Hermes kanban.
+- [ ] **Hermes → native migration + cutover** (goal: kanban-pro replaces the Hermes
+  kanban). Import boards/cards/comments from Hermes into the native store via the
+  canonical model (hermes adapter reads, native store writes); then point the Hermes
+  harness at kanban-pro's MCP/CLI and retire the built-in kanban. Transitional
+  coexistence = the confirmed two-way sync item (above); decide cutover moment with
+  Jan.
 - [ ] `--profile` selection + profile registry in `config.py`.
 - [ ] FastAPI routes + `GET /capabilities` in `kanban_pro/api/`; `app.py` entrypoint.
 
@@ -90,6 +99,40 @@ move, empty-only delete guards, ext shallow-merge) — see JOURNAL 2026-07-05.)*
   - Relates to SPEC decision 2 (WORKFLOW polyfill, Tier 1) + decision 9 (events).
 
 ## Cross-cutting (queued 2026-07-05, Jan)
+
+- [ ] **Agent-native kanban** (goal follows from replacing the Hermes kanban):
+  - **Agent assignees:** an agent is a `User` with `ext.kind="agent"` (works today);
+    promote a first-class `User.kind: human|agent` once proven. Prereq: the queued
+    `list_users`/`get_user` port ops — assignment needs discoverable ids.
+  - **Actor identity on ops (design BEFORE the change-log):** every write should know
+    who did it. Proposal: per-connection identity (MCP registration declares
+    `--actor agent:hermes-engineer`), optional per-call override. The change-log then
+    records actor per transition — retrofitting later would be painful.
+  - **Transition log = the v2 change-log** (decision 9) — one build serves events,
+    audit trail, and the "good logging" item. Card timeline = change-log filtered by
+    card + its comments.
+  - **Card-scoped error events, NOT a log sink:** agent failures land as typed
+    comments/events on the card ("error: …", actor, timestamp). Raw telemetry
+    (stack traces, stdout, tokens) stays outside; the card carries a reference
+    (attachment link / session id in ext). HARD boundary against drifting into an
+    observability platform.
+  - **Work-queue query — "what's available for me?":** a core projection (no port
+    change): scan live cards, filter assignee == actor (or Jan) OR unassigned,
+    column category in ready-ish states (backlog/unstarted/started), return with
+    board/column context. MCP tool (e.g. `list_work(assignee?, include_unassigned)`),
+    default assignee = the connection's actor. Adapters may later add native
+    filtering for efficiency.
+  - **Multi-assignee:** already in the model (`Card.assignees[]` list +
+    `MULTI_ASSIGNEE` capability, native in both stores) — nothing to build; single-
+    owner backends map via capability honesty (Hermes is single-assignee). Convention
+    for agent collision-avoidance: claiming a card = assign yourself + move to a
+    started column in one action, visible in the actor-stamped change-log.
+  - **Claim/lease op** (proven needed by Hermes's dispatcher: `claim_lock` CAS + TTL +
+    heartbeat + reclaim-on-crash): atomic "this worker owns this card until <expiry>"
+    so two agents never pick the same card. Design as a core op once the Hermes
+    dispatcher becomes a kanban-pro consumer (see docs/hermes-kanban.md).
+  - **`priority` core promotion candidate:** Hermes and Jira both have it (≥2 backends
+    rule met) — decide when the hermes adapter lands.
 
 - [ ] **Backlog support (Jira-style)** — a board's backlog (in Jira it lives OUTSIDE the
   board's columns) must be visible/manageable through kanban-pro too. We have

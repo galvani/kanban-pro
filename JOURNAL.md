@@ -1,5 +1,36 @@
 # kanban-pro — Journal
 
+## 2026-07-05 — Goal shift: replace the Hermes kanban
+
+- **Decision (Jan):** kanban-pro now aims to **replace** the Hermes built-in kanban,
+  not just proxy to it ("it was not at the start but it is now"). Native store becomes
+  the system of record; the Hermes harness becomes an ordinary MCP/CLI consumer.
+- **Sequencing unchanged:** the `hermes` adapter is still built first — as the
+  discovery vehicle for the harness's real data shapes and the migration path
+  (adapter reads Hermes → native store imports), with transitional proxy/sync until
+  cutover. Recorded in SPEC (Purpose) + TODO (migration item).
+- Kicked off read-only discovery of the Hermes kanban surface (background agent).
+
+## 2026-07-05 — Hermes kanban discovered & mapped (docs/hermes-kanban.md)
+
+- **Did:** background agent swept `~/.hermes` read-only; full map + canonical mapping
+  recorded in docs/hermes-kanban.md. Headlines: SQLite per board; lanes ARE statuses
+  (extensible vocab, `archived` is a lane → our flag); tasks are agent-work-rich
+  (assignee=profile, priority, claims/heartbeats/runs, block kinds, created_by,
+  **native idempotency_key**, `task_events` audit stream = our change-log concept
+  independently invented); `task_links` DAG = our PARENT/CHILD relations; no labels,
+  no due dates, no in-lane ordering; comments 608 strong on the live board.
+- **Decision (proposed):** adapter access = **SQLite reads + `hermes kanban --json`
+  CLI writes** (raw SQL writes would bypass engine invariants: event emission,
+  ready-recompute, CAS claims).
+- **Model implications adopted into TODO:** claim/lease op is a real requirement
+  (Hermes dispatcher proves it); `priority` qualifies for core promotion (Hermes+Jira);
+  actor identity validated (`created_by`, comment `author` exist there).
+- **Agent-native validation:** Jan's direction (agent assignees, transition/error
+  logging, work queue) mirrors what Hermes already does — kanban-pro generalizes it
+  behind the canonical model instead of a harness-private schema. Containerized
+  workers can't run the Hermes CLI (documented gap) — kanban-pro's MCP fixes that.
+
 ## 2026-07-05 — v1 core: augmenting layer + BaseAdapter + contract suite
 
 - **Did:** built the adapter-structure plan's build-order steps 1–2 (38 tests green):
