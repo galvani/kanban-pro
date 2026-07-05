@@ -25,6 +25,7 @@ dev = [
 [project.scripts]
 kanban-pro-mcp = "kanban_pro.mcp:main"
 kanban-pro-ui = "kanban_pro.api:main"
+kanban-pro-migrate = "kanban_pro.migrate:main"
 
 [build-system]
 requires = ["hatchling"]

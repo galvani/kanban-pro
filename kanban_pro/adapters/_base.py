@@ -64,7 +64,7 @@ class BaseAdapter:
         raise self._not_supported("delete_column")
 
     # --- cards ---
-    async def list_cards(self, board_id: str) -> list[Card]:
+    async def list_cards(self, board_id: str, include_archived: bool = False) -> list[Card]:
         raise self._not_supported("list_cards")
 
     async def get_card(self, card_id: str) -> Card:

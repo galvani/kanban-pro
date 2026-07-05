@@ -45,7 +45,7 @@ Conventions: `Card`/`Board`/… are the [domain models](../SPEC.md#canonical-dom
 
 | Operation | Signature | Returns | Capability |
 |---|---|---|---|
-| list cards | `list_cards(board_id)` | `list[Card]` (excl. archived) | — |
+| list cards | `list_cards(board_id, include_archived=False)` | `list[Card]` | — |
 | get card | `get_card(card_id)` | `Card` | — |
 | create card **†** | `create_card(card: Card)` — `placements[]` ≥ 1 | `Card` | — |
 | update card | `update_card(card_id, patch: CardPatch)` | `Card` | — |
@@ -81,8 +81,6 @@ Subtasks = child cards via `PARENT`/`CHILD` relations (`SUBTASKS`).
   (`CardPatch` doesn't cover them); dedicated ops land in the next port expansion.
 - **User lookup** — `list_users()` / `get_user(user_id)`. Without it a caller can't
   discover valid ids for `assignees[]` / `Comment.author`.
-- **Archived listing** — `list_cards(board_id, include_archived=False)`; today archived
-  cards are reachable only by id, so unarchive/purge targets aren't discoverable.
 
 ### Bulk (API/MCP convenience — SPEC "Canonical operations")
 

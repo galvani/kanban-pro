@@ -216,13 +216,14 @@ class NativeStore:
             await db.commit()
 
     # --- cards ---
-    async def list_cards(self, board_id: str) -> list[Card]:
+    async def list_cards(self, board_id: str, include_archived: bool = False) -> list[Card]:
+        archived_clause = "" if include_archived else " AND c.archived=0"  # decision 7
         async with aiosqlite.connect(self._path) as db:
             await self._get_board(db, board_id)  # 404 if the board is gone
             async with db.execute(
                 "SELECT DISTINCT p.card_id FROM placements p "
                 "JOIN cards c ON c.id = p.card_id "
-                "WHERE p.board_id=? AND c.archived=0",  # archived hidden (decision 7)
+                f"WHERE p.board_id=?{archived_clause}",
                 (board_id,),
             ) as cur:
                 ids = [r[0] for r in await cur.fetchall()]

@@ -38,8 +38,8 @@ class StubRemote(BaseAdapter):
     async def list_columns(self, board_id: str) -> list[Column]:
         return await self._store.list_columns(board_id)
 
-    async def list_cards(self, board_id: str) -> list[Card]:
-        return await self._store.list_cards(board_id)
+    async def list_cards(self, board_id: str, include_archived: bool = False) -> list[Card]:
+        return await self._store.list_cards(board_id, include_archived)
 
     async def get_card(self, card_id: str) -> Card:
         return await self._store.get_card(card_id)

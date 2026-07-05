@@ -64,9 +64,10 @@ class KanbanContract:
         assert upd.title == "task2"
         assert upd.placements[0].column_id == done.id  # unset fields untouched
 
-        # archive hides from listing but the card is still directly gettable
+        # archive hides from listing but stays discoverable via include_archived
         await be.archive_card(card.id)
         assert await be.list_cards(board.id) == []
+        assert [c.id for c in await be.list_cards(board.id, include_archived=True)] == [card.id]
         assert (await be.get_card(card.id)).archived is True
         await be.unarchive_card(card.id)
         assert len(await be.list_cards(board.id)) == 1

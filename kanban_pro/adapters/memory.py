@@ -114,13 +114,14 @@ class MemoryBackend:
             board.columns = [c for c in board.columns if c.id != column_id]
 
     # --- cards ---
-    async def list_cards(self, board_id: str) -> list[Card]:
+    async def list_cards(self, board_id: str, include_archived: bool = False) -> list[Card]:
         await self.get_board(board_id)  # 404 if the board is gone
         # archived cards are hidden from normal listings (SPEC decision 7)
         return [
             c
             for c in self._cards.values()
-            if not c.archived and any(p.board_id == board_id for p in c.placements)
+            if (include_archived or not c.archived)
+            and any(p.board_id == board_id for p in c.placements)
         ]
 
     async def get_card(self, card_id: str) -> Card:

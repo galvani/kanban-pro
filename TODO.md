@@ -41,12 +41,16 @@ move, empty-only delete guards, ext shallow-merge) — see JOURNAL 2026-07-05.)*
   writes per docs/hermes-kanban.md; `--profile hermes`; smoke-tested read-only against
   the live board). Known limits (CLI-bound): no unarchive, update = assignee only,
   move enters only ready/blocked/done. Next feeds the migration item below.
-- [ ] **Hermes → native migration + cutover** (goal: kanban-pro replaces the Hermes
-  kanban). Import boards/cards/comments from Hermes into the native store via the
-  canonical model (hermes adapter reads, native store writes); then point the Hermes
-  harness at kanban-pro's MCP/CLI and retire the built-in kanban. Transitional
-  coexistence = the confirmed two-way sync item (above); decide cutover moment with
-  Jan.
+- [x] **Hermes → native migration — IMPORT DONE 2026-07-05** (`kanban-pro-migrate`,
+  generic port-to-port, idempotent, dry-run mode; ran for real: 172 cards incl. 108
+  archived + 608 comments + 55 relations now in the native store, provenance in
+  `ext["kanban_pro.migrated_from"]`, import attributed in the change-log). Hermes
+  remains untouched + authoritative until cutover.
+- [ ] **Cutover** (the remaining half): re-point the harnesses at kanban-pro MCP
+  (`--profile default`), re-run the import for freshness right before switching,
+  decide what the Hermes dispatcher consumes (needs work queue + claim/lease), then
+  retire the built-in kanban. Decide the moment with Jan. Follow-up: import
+  `task_events` history into the change-log (optional).
 - [ ] `--profile` selection + profile registry in `config.py`.
 - [ ] FastAPI routes + `GET /capabilities` in `kanban_pro/api/`; `app.py` entrypoint.
 
@@ -138,6 +142,16 @@ scheme badge + drag-highlighting, `scheme=` list filter.
 
 ## Cross-cutting (queued 2026-07-05, Jan)
 
+- [ ] **Tags = the existing Labels, with agent ergonomics** (ruled 2026-07-05: one
+  concept, no parallel "tags" entity). Build: label-registry port ops +
+  `tag_card`/`untag_card` + label filter on listings (and later `list_work`);
+  **auto-create-on-use** (tagging with an unknown name auto-registers it in the board
+  registry, default color — folksonomy UX over a curated registry; opt-outable).
+  Mapping: Jira free-form labels auto-register on read; hermes has none → first real
+  `LABELS` overlay polyfill (transitional — native store owns them post-cutover).
+  Boundary: tags classify (`backend`, `bug`), they never carry STATE — attention stays
+  the flag, blocked stays the column.
+
 - [ ] **Agent-native kanban** (goal follows from replacing the Hermes kanban):
   - **Agent assignees:** an agent is a `User` with `ext.kind="agent"` (works today);
     promote a first-class `User.kind: human|agent` once proven. Prereq: the queued
@@ -166,6 +180,19 @@ scheme badge + drag-highlighting, `scheme=` list filter.
     owner backends map via capability honesty (Hermes is single-assignee). Convention
     for agent collision-avoidance: claiming a card = assign yourself + move to a
     started column in one action, visible in the actor-stamped change-log.
+  - **Attention signal (Jan, 2026-07-05 — ruled: card-level flag + events, NOT a
+    column):** `ext["kanban_pro.attention"] = {reason, raised_by, for}` + change-log
+    events `attention.raised` / `attention.cleared`. Rationale: attention strikes in
+    any column; forcing a move to signal it loses real position and pollutes every
+    scheme's transition graph. Consumers: Slack-notifier agent = change-feed consumer
+    (zero special infra — decision-9 payoff), answering agents filter on `for=`,
+    "needs my attention" query joins list_work, UI badge. Q&A content lives in
+    comments (already attributed). Hermes mapping: `block_kind: needs_input` ⇄ the
+    flag.
+  - **`ColumnCategory.BLOCKED` candidate** (separate, smaller): hermes `blocked` lane
+    + monday "stuck" meet the ≥2-backends rule; today hermes blocked lossily maps to
+    STARTED. Add when the enum is next touched (likely with migration). It answers
+    "which column means blocked" — complements the attention flag, never replaces it.
   - **Claim/lease op** (proven needed by Hermes's dispatcher: `claim_lock` CAS + TTL +
     heartbeat + reclaim-on-crash): atomic "this worker owns this card until <expiry>"
     so two agents never pick the same card. Design as a core op once the Hermes

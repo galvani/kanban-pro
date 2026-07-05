@@ -1,5 +1,25 @@
 # kanban-pro — Journal
 
+## 2026-07-05 — Migration ran: the Hermes kanban lives in the native store
+
+- **Did:** `kanban-pro-migrate` (new console script + `kanban_pro/migrate.py`) —
+  **generic port-to-port copy** (nothing hermes-specific in the loop: `--source` /
+  `--dest` are profiles, so jira→native works the day the adapter exists). Boards,
+  columns, cards **including archived history**, comments, relations; idempotent
+  upserts (ids preserved; comment ids prefixed `<board>:c<id>` — per-board uniqueness);
+  provenance `ext["kanban_pro.migrated_from"]`; positions assigned from source order;
+  `--dry-run`; writes through the dest core stack → the import is actor-attributed in
+  the change-log (`migration:hermes-import`).
+- **Prerequisite shipped:** `list_cards(board_id, include_archived=False)` port
+  expansion (all adapters + stack + MCP tool) — closes the "archived cards
+  undiscoverable" gap AND was required for a faithful migration (the live board is
+  108 archived / 64 live).
+- **RAN FOR REAL:** 172 cards (108 archived), 608 comments, 55 relations imported;
+  verified through the full stack. Hermes stays untouched + authoritative — cutover
+  (re-point harnesses, dispatcher story) is the tracked remaining half.
+- 63 tests green (migration faithfulness incl. ext preservation, idempotent re-run,
+  dry-run writes nothing; archived-listing added to the contract suite).
+
 ## 2026-07-05 — Flow engine shipped (+ vision README)
 
 - **Did:** `core/flow.py` + augmenting-layer enforcement (60 tests green):

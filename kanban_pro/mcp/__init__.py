@@ -148,9 +148,10 @@ async def delete_column(column_id: str) -> str:
 
 
 @mcp.tool(annotations=_RO)
-async def list_cards(board_id: str) -> list[Card]:
-    """List a board's cards. Archived cards are hidden (use get_card by id for those)."""
-    return await _call((await _get_backend()).list_cards(board_id))
+async def list_cards(board_id: str, include_archived: bool = False) -> list[Card]:
+    """List a board's cards. Archived cards are hidden unless include_archived=true
+    (that's how you find unarchive/purge targets)."""
+    return await _call((await _get_backend()).list_cards(board_id, include_archived))
 
 
 @mcp.tool(annotations=_RO)

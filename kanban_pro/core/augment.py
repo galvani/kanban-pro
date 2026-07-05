@@ -244,8 +244,8 @@ class AugmentingBackend:
 
     # --- cards: delegate + WIP checks on column entry ---
 
-    async def list_cards(self, board_id: str) -> list[Card]:
-        return await self._adapter.list_cards(board_id)
+    async def list_cards(self, board_id: str, include_archived: bool = False) -> list[Card]:
+        return await self._adapter.list_cards(board_id, include_archived)
 
     async def get_card(self, card_id: str) -> Card:
         return await self._adapter.get_card(card_id)

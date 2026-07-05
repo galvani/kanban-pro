@@ -86,8 +86,8 @@ class HermesAdapter(BaseAdapter):
 
     # --- cards ---
 
-    async def list_cards(self, board_id: str) -> list[Card]:
-        rows = await self._reader.tasks(board_id)
+    async def list_cards(self, board_id: str, include_archived: bool = False) -> list[Card]:
+        rows = await self._reader.tasks(board_id, include_archived=include_archived)
         return [mapping.card_from_row(board_id, r) for r in rows]
 
     async def get_card(self, card_id: str) -> Card:
