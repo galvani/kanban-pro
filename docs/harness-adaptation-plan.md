@@ -85,6 +85,13 @@ actors.
    the kanban-pro MCP registration).
 
 ### C — Write-path adoption (the agent behavior upgrade) — owner: me + review, ~1-2 sessions
+0. **Sample skills shipped IN the repo** (Jan, 2026-07-05): `examples/skills/
+   kanban-worker/` (the pull loop + discipline rules) and `kanban-orchestrator/`
+   (goal→cards decomposition, scheme assignment, feed-watching, never works cards
+   itself) — drop-in for any Claude-family harness, the reference the Hermes skill
+   rewrite (step 7) adapts, and living documentation of the board contract. Keep
+   principle-based/thin (name tools, don't duplicate schemas); re-review on MCP
+   surface changes (AGENTS.md note).
 7. **Rewrite `kanban-worker` skill** around the pull-worker loop above; document the
    claim→assign→move convention, `list_transitions` before moving, force discipline
    ("never force unless the card says why"), subcard decomposition.

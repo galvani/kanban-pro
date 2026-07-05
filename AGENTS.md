@@ -72,6 +72,13 @@ and the shared contract suite). In brief:
 - Don't add speculative abstraction: extract only on real, substantial reuse
   (≥2 call sites); a thin wrapper around a one-liner is noise.
 
+## Example skills carry a GENERATED tool reference
+
+`examples/skills/*/SKILL.md` contain a block rendered from the live MCP server. After
+ANY change to the MCP tool surface, regenerate: `uv run python -m tests.toolref
+--write` — `tests/test_toolref.py` fails the suite until you do. Jan's installed
+copies live in `~/.claude/skills/kanban-{worker,orchestrator}` — re-copy on change.
+
 ## Verify
 
 ```bash
