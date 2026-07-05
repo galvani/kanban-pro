@@ -15,13 +15,14 @@ from mcp.server.fastmcp.exceptions import ToolError
 
 import kanban_pro.mcp as kmcp
 from kanban_pro.adapters.memory import MemoryBackend
+from kanban_pro.core import AugmentingBackend
 from kanban_pro.domain import Board, Card, Column, Placement
 
 
 @pytest.fixture(autouse=True)
 def fresh_backend() -> None:
-    """Each test gets its own in-memory backend bound to the MCP module."""
-    kmcp.configure(MemoryBackend(), "memory")
+    """Each test gets its own augmented in-memory backend (the real stack shape)."""
+    kmcp.configure(AugmentingBackend(MemoryBackend()), "memory")
 
 
 async def _make_board_with_card() -> tuple[Board, Card]:
@@ -99,7 +100,8 @@ async def _capabilities_resource_reports_fulfilment() -> None:
     assert payload["profile"] == "memory"
     caps = payload["capabilities"]
     assert caps["comments"] == "native"
-    assert caps["workflow"] == "unavailable"  # enforcement is a core concern (v1)
+    assert caps["wip_limits"] == "polyfilled"  # Tier-1 core enforcement
+    assert caps["workflow"] == "unavailable"  # flow-YAML design pending
 
 
 def test_capabilities_resource_reports_fulfilment() -> None:

@@ -5,9 +5,9 @@ set is an MCP resource (`kanban://capabilities`) — that's how a harness learns
 this kanban can do. Tool schemas are generated from the domain models, so the port,
 the docs, and the MCP surface cannot drift.
 
-v0 scope (SPEC roadmap): tools + resources over the configured backend. The augmenting
-layer, idempotency-key dedupe (decision 8), and event notifications (decision 9) slot
-in at v1/v2 — dispatch already goes through `core` where those will live.
+Dispatch goes through the augmenting layer (`config.build_backend` wraps the adapter
+in core's AugmentingBackend) and core guards. Idempotency-key dedupe (decision 8) and
+event notifications (decision 9) land at v1/v2.
 
 Runs on stdio: `kanban-pro-mcp [--profile NAME]` or `python -m kanban_pro.mcp`.
 Logs go to stderr (stdout is the JSON-RPC channel — never print to it).
@@ -38,7 +38,7 @@ from kanban_pro.domain import (
     Placement,
     Relation,
 )
-from kanban_pro.ports import Capability, Fulfilment, KanbanBackend, KanbanError
+from kanban_pro.ports import KanbanBackend, KanbanError
 
 logger = logging.getLogger("kanban_pro.mcp")
 
@@ -258,17 +258,12 @@ async def delete_relation(relation_id: str) -> str:
 
 @mcp.resource("kanban://capabilities")
 async def capabilities_resource() -> str:
-    """Active profile's capabilities, each with its fulfilment (SPEC decision 2).
-
-    v0: no augmenting layer yet, so fulfilment is native or unavailable — 'polyfilled'
-    appears once the overlay lands (v1).
-    """
+    """Active profile's capabilities, each with its fulfilment (SPEC decision 2):
+    native (backend does it), polyfilled (kanban-pro fulfils it), unavailable."""
     backend = await _get_backend()
     caps = {
-        cap.name.lower(): (
-            Fulfilment.NATIVE if cap in backend.capabilities else Fulfilment.UNAVAILABLE
-        ).name.lower()
-        for cap in Capability
+        cap.name.lower(): fulfilment.name.lower()
+        for cap, fulfilment in core.fulfilments(backend).items()
     }
     return json.dumps({"profile": _profile or "default", "capabilities": caps}, indent=2)
 

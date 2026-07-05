@@ -12,12 +12,17 @@ move, empty-only delete guards, ext shallow-merge) — see JOURNAL 2026-07-05.)*
   Jira-style per-board keys (`PRO-12`: board prefix + counter) as first-class card ids
   instead of uuid hex; adapters with native keys (Jira) map theirs. Agents and humans
   address `jira/TASK-001`, not `eda39e7b…`. Decide: replace `id` vs a `key` alias field.
-- [ ] **Augmentation layer** (`AugmentingBackend` decorator = adapter + overlay). Wraps
-  any adapter, delegates NATIVE capabilities, polyfills the rest from the overlay, merges
-  on read. Report per-capability `Fulfilment` via `GET /capabilities`.
-  - Tier 1 first (workflow-transition + WIP enforcement — pure logic, no data split).
-  - Then Tier 2 (relations/custom-fields/comments in the overlay, keyed to backend IDs).
-  - Reconciliation: GC overlay rows orphaned by out-of-band backend deletes.
+- [ ] **Augmentation layer — remaining slices** (core exists 2026-07-05:
+  `AugmentingBackend` + `BaseAdapter` + contract suite; WIP enforcement (Tier 1) +
+  comments/relations overlay polyfill (Tier 2) + fulfilment reporting + delete-GC of
+  overlay rows all live). Still to build:
+  - WORKFLOW transition enforcement — blocked on the flow-YAML design (below), incl.
+    the force override.
+  - ARCHIVE flag polyfill for backends without archive (needs shadow-flag storage).
+  - Write-through encoding (persist polyfill data into backend containers) + the
+    per-adapter/per-capability persistence-strategy choice.
+  - Reconciliation polling: GC overlay rows orphaned by out-of-band backend deletes
+    (delete-through-us already GCs).
 
 ## Harness-native interfaces (must-have) — MCP-first, shell-first
 
@@ -36,7 +41,6 @@ move, empty-only delete guards, ext shallow-merge) — see JOURNAL 2026-07-05.)*
   target = Hermes parity).
 - [ ] `--profile` selection + profile registry in `config.py`.
 - [ ] FastAPI routes + `GET /capabilities` in `kanban_pro/api/`; `app.py` entrypoint.
-- [ ] Contract test suite (the shared suite every adapter must pass).
 
 ## Flow management (workflow engine) — design area
 

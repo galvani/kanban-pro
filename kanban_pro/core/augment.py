@@ -1,0 +1,202 @@
+"""AugmentingBackend — adapter + overlay decorator over the port (SPEC decision 2).
+
+This is what the interfaces actually call. Per capability it decides:
+
+- NATIVE      -> the adapter declared it -> delegate to the backend.
+- POLYFILLED  -> kanban-pro fulfils it itself: Tier-1 *enforcement* (WIP limits —
+                 pure rules, no stored data) or Tier-2 *overlay data* (comments,
+                 relations held in the overlay store, keyed to backend entity ids).
+- UNAVAILABLE -> neither possible -> canonical NotSupported.
+
+v1 slice: WIP enforcement (Tier 1) + comments/relations overlay (Tier 2).
+Still to come: WORKFLOW transitions (blocked on the flow-YAML design, see TODO),
+ARCHIVE flag polyfill and write-through encoding (with the first remote adapter),
+reconciliation GC for out-of-band backend deletes.
+"""
+
+from __future__ import annotations
+
+from kanban_pro.domain import (
+    Board,
+    BoardPatch,
+    Card,
+    CardPatch,
+    Column,
+    ColumnPatch,
+    Comment,
+    Placement,
+    Relation,
+)
+from kanban_pro.ports import Capability, Conflict, Fulfilment, KanbanBackend, NotSupported
+
+#: capabilities the overlay store can polyfill with its own data (Tier 2, v1 slice)
+_OVERLAY_CAPS = frozenset({Capability.COMMENTS, Capability.RELATIONS})
+
+
+class AugmentingBackend:
+    """KanbanBackend decorator: delegate native capabilities, polyfill the rest.
+
+    `overlay` is a full store adapter (NativeStore in production, any KanbanBackend
+    in tests) holding polyfilled data keyed to the wrapped backend's entity ids.
+    Without an overlay, only Tier-1 enforcement is added.
+    """
+
+    def __init__(self, adapter: KanbanBackend, overlay: KanbanBackend | None = None) -> None:
+        self._adapter = adapter
+        self._overlay = overlay
+        self._fulfilments = self._compute_fulfilments()
+        #: port conformance: everything not UNAVAILABLE is callable on this backend.
+        self.capabilities: frozenset[Capability] = frozenset(
+            cap for cap, f in self._fulfilments.items() if f is not Fulfilment.UNAVAILABLE
+        )
+
+    def _compute_fulfilments(self) -> dict[Capability, Fulfilment]:
+        out: dict[Capability, Fulfilment] = {}
+        for cap in Capability:
+            if cap in self._adapter.capabilities:
+                out[cap] = Fulfilment.NATIVE
+            elif cap is Capability.WIP_LIMITS:
+                out[cap] = Fulfilment.POLYFILLED  # Tier-1 enforcement, always available
+            elif cap in _OVERLAY_CAPS and self._overlay is not None:
+                out[cap] = Fulfilment.POLYFILLED
+            else:
+                out[cap] = Fulfilment.UNAVAILABLE
+        return out
+
+    def fulfilments(self) -> dict[Capability, Fulfilment]:
+        """Per-capability fulfilment — the `capabilities` resource payload."""
+        return dict(self._fulfilments)
+
+    def _route(self, cap: Capability) -> KanbanBackend:
+        """The backend that fulfils a data capability: adapter, overlay, or nobody."""
+        fulfilment = self._fulfilments[cap]
+        if fulfilment is Fulfilment.NATIVE:
+            return self._adapter
+        if fulfilment is Fulfilment.POLYFILLED and self._overlay is not None:
+            return self._overlay
+        raise NotSupported(f"{cap.name.lower()} is unavailable on this profile")
+
+    # --- Tier-1 WIP enforcement (SPEC decision 2; core rule, no stored data) ---
+
+    async def _check_wip(self, board_id: str, column_id: str, incoming_card_id: str) -> None:
+        """Reject a move/placement into a column already at its wip_limit.
+
+        Skipped when the backend enforces WIP natively (trust it, incl. overrides).
+        """
+        if Capability.WIP_LIMITS in self._adapter.capabilities:
+            return
+        columns = await self._adapter.list_columns(board_id)
+        column = next((c for c in columns if c.id == column_id), None)
+        if column is None or column.wip_limit is None:
+            return
+        occupants = [
+            card
+            for card in await self._adapter.list_cards(board_id)
+            if card.id != incoming_card_id
+            and any(p.board_id == board_id and p.column_id == column_id for p in card.placements)
+        ]
+        if len(occupants) >= column.wip_limit:
+            raise Conflict(
+                f"column {column.name!r} is at its WIP limit ({column.wip_limit})"
+                " — move a card out first"
+            )
+
+    # --- boards / columns: delegate ---
+
+    async def list_boards(self) -> list[Board]:
+        return await self._adapter.list_boards()
+
+    async def get_board(self, board_id: str) -> Board:
+        return await self._adapter.get_board(board_id)
+
+    async def create_board(self, board: Board) -> Board:
+        return await self._adapter.create_board(board)
+
+    async def update_board(self, board_id: str, patch: BoardPatch) -> Board:
+        return await self._adapter.update_board(board_id, patch)
+
+    async def delete_board(self, board_id: str) -> None:
+        await self._adapter.delete_board(board_id)
+
+    async def list_columns(self, board_id: str) -> list[Column]:
+        return await self._adapter.list_columns(board_id)
+
+    async def create_column(self, board_id: str, column: Column) -> Column:
+        return await self._adapter.create_column(board_id, column)
+
+    async def update_column(self, column_id: str, patch: ColumnPatch) -> Column:
+        return await self._adapter.update_column(column_id, patch)
+
+    async def delete_column(self, column_id: str) -> None:
+        await self._adapter.delete_column(column_id)
+
+    # --- cards: delegate + WIP checks on column entry ---
+
+    async def list_cards(self, board_id: str) -> list[Card]:
+        return await self._adapter.list_cards(board_id)
+
+    async def get_card(self, card_id: str) -> Card:
+        return await self._adapter.get_card(card_id)
+
+    async def create_card(self, card: Card) -> Card:
+        for placement in card.placements:
+            await self._check_wip(placement.board_id, placement.column_id, card.id)
+        return await self._adapter.create_card(card)
+
+    async def update_card(self, card_id: str, patch: CardPatch) -> Card:
+        return await self._adapter.update_card(card_id, patch)
+
+    async def archive_card(self, card_id: str) -> Card:
+        return await self._adapter.archive_card(card_id)
+
+    async def unarchive_card(self, card_id: str) -> Card:
+        return await self._adapter.unarchive_card(card_id)
+
+    async def delete_card(self, card_id: str) -> None:
+        await self._adapter.delete_card(card_id)
+        if self._overlay is not None:
+            # GC polyfilled rows keyed to the purged card (comments/relations cascade).
+            await self._overlay.delete_card(card_id)
+
+    async def move_card(
+        self, card_id: str, to_board_id: str, to_column_id: str, position: int
+    ) -> Card:
+        await self._check_wip(to_board_id, to_column_id, card_id)
+        return await self._adapter.move_card(card_id, to_board_id, to_column_id, position)
+
+    async def add_placement(self, card_id: str, placement: Placement) -> Card:
+        await self._check_wip(placement.board_id, placement.column_id, card_id)
+        return await self._adapter.add_placement(card_id, placement)
+
+    async def remove_placement(self, card_id: str, board_id: str) -> Card:
+        return await self._adapter.remove_placement(card_id, board_id)
+
+    # --- comments / relations: capability-routed (adapter, overlay, or NotSupported) ---
+
+    async def list_comments(self, card_id: str) -> list[Comment]:
+        return await self._route(Capability.COMMENTS).list_comments(card_id)
+
+    async def add_comment(self, comment: Comment) -> Comment:
+        return await self._route(Capability.COMMENTS).add_comment(comment)
+
+    async def delete_comment(self, comment_id: str) -> None:
+        await self._route(Capability.COMMENTS).delete_comment(comment_id)
+
+    async def list_relations(self, card_id: str) -> list[Relation]:
+        return await self._route(Capability.RELATIONS).list_relations(card_id)
+
+    async def add_relation(self, relation: Relation) -> Relation:
+        return await self._route(Capability.RELATIONS).add_relation(relation)
+
+    async def delete_relation(self, relation_id: str) -> None:
+        await self._route(Capability.RELATIONS).delete_relation(relation_id)
+
+
+def fulfilments(backend: KanbanBackend) -> dict[Capability, Fulfilment]:
+    """Per-capability fulfilment for any backend (augmented or bare adapter)."""
+    if isinstance(backend, AugmentingBackend):
+        return backend.fulfilments()
+    return {
+        cap: Fulfilment.NATIVE if cap in backend.capabilities else Fulfilment.UNAVAILABLE
+        for cap in Capability
+    }

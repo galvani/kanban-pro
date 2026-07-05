@@ -1,5 +1,28 @@
 # kanban-pro — Journal
 
+## 2026-07-05 — v1 core: augmenting layer + BaseAdapter + contract suite
+
+- **Did:** built the adapter-structure plan's build-order steps 1–2 (38 tests green):
+  - `adapters/_base.py` — `BaseAdapter`: whole port as `NotSupported` defaults, empty
+    capabilities; thin remote adapters subclass and override only what's native.
+  - `core/augment.py` — `AugmentingBackend(adapter, overlay)`: per-capability routing
+    (native → adapter, polyfilled → overlay/enforcement, else `not_supported`),
+    `fulfilments()` map. v1 slice: **WIP-limit enforcement** (Tier 1 — checked on
+    create/move/add_placement into a column; skipped when the backend enforces
+    natively; re-positioning within a full column allowed) and **comments/relations
+    overlay polyfill** (Tier 2 — overlay rows keyed to backend ids; `delete_card`
+    GCs them). WORKFLOW stays unavailable (flow-YAML pending); ARCHIVE polyfill +
+    write-through + reconciliation-GC deferred (TODO).
+  - `tests/contract_suite.py` — the shared behavioral suite; memory, native, and
+    augmented-memory all inherit it (dedup of the copied scenarios). Native keeps its
+    persistence-across-reopen test; `test_augment.py` adds a thin `StubRemote` proving
+    gap-filling + honest fulfilment reporting.
+  - Wiring: `config.build_backend` now returns the adapter wrapped in
+    `AugmentingBackend` — interfaces call core, per the architecture. The MCP
+    `capabilities` resource reports real fulfilments (wip_limits shows `polyfilled`).
+- **Consequence:** WIP limits are now actually enforced for every profile — the first
+  differentiator feature live.
+
 ## 2026-07-05 — Port expansion: Q14–Q17 implemented
 
 - **Did:** implemented the morning's rulings across port + both adapters + core + MCP

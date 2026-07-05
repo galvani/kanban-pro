@@ -17,6 +17,7 @@ from pathlib import Path
 
 from kanban_pro.adapters.memory import MemoryBackend
 from kanban_pro.adapters.native import NativeStore
+from kanban_pro.core import AugmentingBackend
 from kanban_pro.ports import KanbanBackend
 
 PROFILE_ENV = "KANBAN_PRO_PROFILE"
@@ -49,12 +50,17 @@ REGISTRY: dict[str, Callable[[], Awaitable[KanbanBackend]]] = {
 }
 
 
-async def build_backend(profile: str | None = None) -> KanbanBackend:
-    """Resolve the active profile (arg > env > 'default') and build its adapter."""
+async def build_backend(profile: str | None = None) -> AugmentingBackend:
+    """Resolve the active profile (arg > env > 'default'), build its adapter, and wrap
+    it in the augmenting layer (what interfaces call — SPEC decision 2).
+
+    Store profiles need no overlay (they're full-capability); remote profiles will pass
+    a NativeStore overlay here when they land.
+    """
     name = profile or os.environ.get(PROFILE_ENV) or "default"
     try:
         factory = REGISTRY[name]
     except KeyError:
         known = ", ".join(sorted(REGISTRY))
         raise ValueError(f"unknown profile {name!r} (known: {known})") from None
-    return await factory()
+    return AugmentingBackend(await factory())

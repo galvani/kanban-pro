@@ -8,7 +8,16 @@ roadmap (v1/v2).
 
 from __future__ import annotations
 
+from kanban_pro.core.augment import AugmentingBackend, fulfilments
 from kanban_pro.ports import Conflict, KanbanBackend, NotFound
+
+__all__ = [
+    "AugmentingBackend",
+    "fulfilments",
+    "delete_card_guarded",
+    "delete_board_guarded",
+    "delete_column_guarded",
+]
 
 # Adapters purge unconditionally; the guards below are core's, so no interface can
 # bypass them (SPEC decision 7 + Q14).

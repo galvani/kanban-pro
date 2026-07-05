@@ -1,7 +1,11 @@
-# kanban-pro — adapter structure (plan)
+# kanban-pro — adapter structure
 
 How adapters are organized so that adding a backend (Hermes, Jira, Trello…) is a small,
 consistent job. Grounded in the two existing adapters (`memory`, `native`).
+**Status:** `BaseAdapter` (`adapters/_base.py`), the augmenting layer
+(`core/augment.py` — WIP enforcement + comments/relations overlay slice), and the shared
+contract suite (`tests/contract_suite.py`) are implemented; remote-adapter layout and
+rate-limit descriptors apply from the first remote adapter on.
 
 ## Two kinds of adapter
 
