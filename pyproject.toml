@@ -10,6 +10,7 @@ dependencies = [
     "httpx>=0.27",
     "uvicorn>=0.30",
     "aiosqlite>=0.20",
+    "mcp>=1.28.1",
 ]
 
 [dependency-groups]
@@ -18,6 +19,9 @@ dev = [
     "mypy>=1.11",
     "pytest>=8.0",
 ]
+
+[project.scripts]
+kanban-pro-mcp = "kanban_pro.mcp:main"
 
 [build-system]
 requires = ["hatchling"]

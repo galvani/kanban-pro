@@ -55,13 +55,15 @@ class Capability(Enum):
 class Fulfilment(Enum):
     """How a Capability is satisfied for the active provider (SPEC decision 2).
 
-    Reported per-capability by `GET /capabilities` so clients know the guarantees:
-    NATIVE data is authoritative in the backend; POLYFILLED data lives only in
-    kanban-pro's overlay store (a partial system of record).
+    Reported per-capability by the `capabilities` resource so clients know the
+    guarantees. NATIVE: the backend is authoritative. POLYFILLED: kanban-pro fulfils
+    it — written through into a backend container (comment/field/description) where
+    one exists so the backend stays authoritative, else held in the overlay store
+    (only that fallback is a partial system of record).
     """
 
     NATIVE = auto()  # adapter delegates to the backend
-    POLYFILLED = auto()  # kanban-pro provides it from the overlay store
+    POLYFILLED = auto()  # kanban-pro fulfils it (write-through preferred, overlay fallback)
     UNAVAILABLE = auto()  # neither possible -> canonical not_supported
 
 
@@ -70,22 +72,33 @@ class Fulfilment(Enum):
 
 
 class KanbanError(Exception):
-    """Base of the canonical error taxonomy adapters translate backend errors into."""
+    """Base of the canonical error taxonomy adapters translate backend errors into.
+
+    `code` is the stable machine-readable taxonomy id every interface layer reports
+    (MCP tool errors, HTTP bodies, CLI exit messages).
+    """
+
+    code = "error"
 
 
-class NotFound(KanbanError): ...
+class NotFound(KanbanError):
+    code = "not_found"
 
 
-class Conflict(KanbanError): ...
+class Conflict(KanbanError):
+    code = "conflict"
 
 
-class Unauthorized(KanbanError): ...
+class Unauthorized(KanbanError):
+    code = "unauthorized"
 
 
-class NotSupported(KanbanError): ...
+class NotSupported(KanbanError):
+    code = "not_supported"
 
 
-class BackendUnavailable(KanbanError): ...
+class BackendUnavailable(KanbanError):
+    code = "backend_unavailable"
 
 
 @runtime_checkable
