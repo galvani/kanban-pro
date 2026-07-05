@@ -28,7 +28,7 @@ Conventions: `Card`/`Board`/… are the [domain models](../SPEC.md#canonical-dom
 | get board | `get_board(board_id)` | `Board` | — |
 | create board **†** | `create_board(board: Board)` | `Board` | — |
 | update board | `update_board(board_id, patch: BoardPatch)` | `Board` | — |
-| delete board | `delete_board(board_id)` | `None` | — |
+| delete board | `delete_board(board_id)` — core-guarded: empty-only (Q14) | `None` | — |
 
 ### Columns
 
@@ -37,7 +37,7 @@ Conventions: `Card`/`Board`/… are the [domain models](../SPEC.md#canonical-dom
 | list columns | `list_columns(board_id)` | `list[Column]` | — |
 | create column **†** | `create_column(board_id, column: Column)` | `Column` | — |
 | update column | `update_column(column_id, patch: ColumnPatch)` | `Column` | — |
-| delete column | `delete_column(column_id)` | `None` | — |
+| delete column | `delete_column(column_id)` — core-guarded: empty-only (Q14) | `None` | — |
 | reorder column | via `update_column` (`order` field) | `Column` | `REORDER_COLUMNS` |
 | set WIP limit | via `update_column` (`wip_limit` field) | `Column` | `WIP_LIMITS` |
 
@@ -49,7 +49,9 @@ Conventions: `Card`/`Board`/… are the [domain models](../SPEC.md#canonical-dom
 | get card | `get_card(card_id)` | `Card` | — |
 | create card **†** | `create_card(card: Card)` — `placements[]` ≥ 1 | `Card` | — |
 | update card | `update_card(card_id, patch: CardPatch)` | `Card` | — |
-| move card | `move_card(card_id, to_board_id, to_column_id, position)` | `Card` | `REORDER_CARDS` / `MULTI_BOARD_MEMBERSHIP` |
+| move card | `move_card(card_id, to_board_id, to_column_id, position)` — strict within-board (Q16): errors if the card isn't on `to_board_id` | `Card` | `REORDER_CARDS` |
+| add placement | `add_placement(card_id, placement)` — one placement per board | `Card` | `MULTI_BOARD_MEMBERSHIP` |
+| remove placement | `remove_placement(card_id, board_id)` — last placement protected (archive instead) | `Card` | `MULTI_BOARD_MEMBERSHIP` |
 | archive card | `archive_card(card_id)` | `Card` | `ARCHIVE` |
 | unarchive card | `unarchive_card(card_id)` | `Card` | `ARCHIVE` |
 | delete card | `delete_card(card_id)` — guarded to archived (decision 7) | `None` | — |
@@ -81,8 +83,6 @@ Subtasks = child cards via `PARENT`/`CHILD` relations (`SUBTASKS`).
   discover valid ids for `assignees[]` / `Comment.author`.
 - **Archived listing** — `list_cards(board_id, include_archived=False)`; today archived
   cards are reachable only by id, so unarchive/purge targets aren't discoverable.
-- Placement add/remove (pending QUESTIONS Q15) and `move_card` source disambiguation
-  (pending Q16).
 
 ### Bulk (API/MCP convenience — SPEC "Canonical operations")
 
@@ -105,7 +105,7 @@ Snake-case names matching the operations above:
 list_boards, get_board, create_board, update_board, delete_board,
 list_columns, create_column, update_column, delete_column,
 list_cards, get_card, create_card, update_card, move_card,
-archive_card, unarchive_card, delete_card,
+add_placement, remove_placement, archive_card, unarchive_card, delete_card,
 list_comments, add_comment, delete_comment,
 list_relations, add_relation, delete_relation,
 bulk_create, bulk_move, bulk_update, bulk_archive

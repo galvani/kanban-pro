@@ -19,7 +19,7 @@ from kanban_pro.domain import (
     Relation,
     RelationKind,
 )
-from kanban_pro.ports import Capability, KanbanBackend, NotFound
+from kanban_pro.ports import Capability, Conflict, KanbanBackend, NotFound
 
 
 def test_conforms_to_port() -> None:
@@ -113,3 +113,33 @@ async def _requires_placement(db: Path) -> None:
     store = await NativeStore.open(db)
     with pytest.raises(ValueError, match="placement"):
         await store.create_card(Card(title="nowhere"))
+
+
+async def _placements_and_ext_merge(path: Path) -> None:
+    store = await NativeStore.open(path)
+    b1 = await store.create_board(Board(name="A", columns=[Column(name="t")]))
+    b2 = await store.create_board(Board(name="B", columns=[Column(name="i")]))
+    card = await store.create_card(
+        Card(
+            title="c",
+            ext={"a": 1},
+            placements=[Placement(board_id=b1.id, column_id=b1.columns[0].id)],
+        )
+    )
+    with pytest.raises(NotFound):  # strict move (Q16)
+        await store.move_card(card.id, b2.id, b2.columns[0].id, 0)
+    await store.add_placement(card.id, Placement(board_id=b2.id, column_id=b2.columns[0].id))
+    await store.update_card(card.id, CardPatch(ext={"b": 2, "a": None}))
+
+    reopened = await NativeStore.open(path)  # placements + merged ext persist
+    got = await reopened.get_card(card.id)
+    assert {p.board_id for p in got.placements} == {b1.id, b2.id}
+    assert got.ext == {"b": 2}
+    got = await reopened.remove_placement(card.id, b1.id)
+    assert [p.board_id for p in got.placements] == [b2.id]
+    with pytest.raises(Conflict):  # last placement is protected
+        await reopened.remove_placement(card.id, b2.id)
+
+
+def test_placements_and_ext_merge(tmp_path: Path) -> None:
+    asyncio.run(_placements_and_ext_merge(tmp_path / "k.db"))

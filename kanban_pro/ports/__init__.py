@@ -22,6 +22,7 @@ from kanban_pro.domain import (
     Column,
     ColumnPatch,
     Comment,
+    Placement,
     Relation,
 )
 
@@ -135,11 +136,18 @@ class KanbanBackend(Protocol):
     async def unarchive_card(self, card_id: str) -> Card: ...
     # permanent purge; the core guards this to archived cards only (SPEC decision 7).
     async def delete_card(self, card_id: str) -> None: ...
-    # move targets a (board, column, position) placement; board_id disambiguates when a
-    # card has multiple placements (Capability.MULTI_BOARD_MEMBERSHIP).
+    # move is STRICT within-board (Q16): re-columns/re-positions the placement on
+    # to_board_id, raises NotFound if the card has no placement there. Never creates
+    # a placement — membership changes go through add/remove_placement.
     async def move_card(
         self, card_id: str, to_board_id: str, to_column_id: str, position: int
     ) -> Card: ...
+    # placement-set ops (Q15): a card holds at most ONE placement per board.
+    # add_placement raises Conflict if already on that board (move_card instead);
+    # remove_placement raises Conflict when removing the LAST placement (a card must
+    # live somewhere — archive_card instead) and NotFound if not on that board.
+    async def add_placement(self, card_id: str, placement: Placement) -> Card: ...
+    async def remove_placement(self, card_id: str, board_id: str) -> Card: ...
 
     # --- comments (Capability.COMMENTS) ---
     async def list_comments(self, card_id: str) -> list[Comment]: ...

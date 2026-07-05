@@ -177,6 +177,22 @@ class Relation(BaseModel):
 # EXCEPTION — `ext` is a SHALLOW MERGE, not a replace (SPEC decision 1, Q17): patch keys
 # merge into the stored dict; a key set to None is removed. Protects concurrent writers
 # and kanban-pro's own `kanban_pro.*` metadata from being clobbered.
+# Adapters apply patches via `apply_patch` below — the single implementation of these
+# semantics.
+
+
+def apply_patch[M: BaseModel](entity: M, patch: BaseModel) -> M:
+    """Apply a *Patch model to an entity (the canonical patch semantics, see above).
+
+    `ext` shallow-merges: patch keys overwrite/add, a key set to None is removed
+    (None values never persist in ext). `ext: null` for the whole dict = untouched.
+    """
+    data = patch.model_dump(exclude_unset=True)
+    ext_patch = data.pop("ext", None)
+    if ext_patch is not None:
+        merged = {**getattr(entity, "ext", {}), **ext_patch}
+        data["ext"] = {k: v for k, v in merged.items() if v is not None}
+    return entity.model_copy(update=data)
 
 
 class BoardPatch(BaseModel):
@@ -220,4 +236,5 @@ __all__ = [
     "BoardPatch",
     "ColumnPatch",
     "CardPatch",
+    "apply_patch",
 ]

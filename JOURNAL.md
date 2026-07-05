@@ -1,5 +1,23 @@
 # kanban-pro — Journal
 
+## 2026-07-05 — Port expansion: Q14–Q17 implemented
+
+- **Did:** implemented the morning's rulings across port + both adapters + core + MCP
+  + tests + methods.md (25 tests green):
+  - `add_placement` / `remove_placement` in the port and both store adapters (Q15);
+    one placement per board; removing the last placement raises `conflict` (archive
+    instead); `add_placement` verifies the target board exists.
+  - `move_card` strict within-board (Q16): raises `not_found` if the card isn't on
+    `to_board_id`; the silent placement-add is gone. Error message points at
+    `add_placement`.
+  - `core.delete_board_guarded` / `delete_column_guarded` (Q14, empty-only, live
+    cards block; archived leftovers cascade on board delete). MCP delete tools route
+    through them. Note: column→board lookup lives in core (the port has none).
+  - `domain.apply_patch` — the single implementation of patch semantics incl. the
+    Q17 `ext` shallow-merge (`None` removes a key); both adapters' six update methods
+    now use it (was: whole-dict replace via `model_copy`).
+- MCP surface: 25 tools (+`add_placement`, `remove_placement`).
+
 ## 2026-07-05 — Q13–Q17 ruled (delete guards, placements, move, identifiers, ext)
 
 - **Q13:** guarded delete confirmed (archive → then delete); strict archive-only

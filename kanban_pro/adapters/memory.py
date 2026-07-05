@@ -19,8 +19,9 @@ from kanban_pro.domain import (
     Comment,
     Placement,
     Relation,
+    apply_patch,
 )
-from kanban_pro.ports import Capability, NotFound
+from kanban_pro.ports import Capability, Conflict, NotFound
 
 
 def _now() -> datetime:
@@ -74,8 +75,7 @@ class MemoryBackend:
         return board
 
     async def update_board(self, board_id: str, patch: BoardPatch) -> Board:
-        board = await self.get_board(board_id)
-        updated = board.model_copy(update=patch.model_dump(exclude_unset=True))
+        updated = apply_patch(await self.get_board(board_id), patch)
         self._boards[board_id] = updated
         return updated
 
@@ -105,7 +105,7 @@ class MemoryBackend:
 
     async def update_column(self, column_id: str, patch: ColumnPatch) -> Column:
         board, col = self._find_column(column_id)
-        updated = col.model_copy(update=patch.model_dump(exclude_unset=True))
+        updated = apply_patch(col, patch)
         board.columns = [updated if c.id == column_id else c for c in board.columns]
         return updated
 
@@ -139,10 +139,8 @@ class MemoryBackend:
         return stored
 
     async def update_card(self, card_id: str, patch: CardPatch) -> Card:
-        card = await self.get_card(card_id)
-        data = patch.model_dump(exclude_unset=True)
-        data["updated_at"] = _now()
-        updated = card.model_copy(update=data)
+        card = apply_patch(await self.get_card(card_id), patch)
+        updated = card.model_copy(update={"updated_at": _now()})
         self._cards[card_id] = updated
         return updated
 
@@ -171,22 +169,44 @@ class MemoryBackend:
     async def move_card(
         self, card_id: str, to_board_id: str, to_column_id: str, position: int
     ) -> Card:
+        # strict within-board (Q16): never creates a placement.
         card = await self.get_card(card_id)
-        placements: list[Placement] = []
-        found = False
-        for p in card.placements:
-            if p.board_id == to_board_id:
-                placements.append(
-                    p.model_copy(update={"column_id": to_column_id, "position": position})
-                )
-                found = True
-            else:
-                placements.append(p)
-        if not found:  # moving onto a board the card isn't on yet -> new placement
-            placements.append(
-                Placement(board_id=to_board_id, column_id=to_column_id, position=position)
+        if not any(p.board_id == to_board_id for p in card.placements):
+            raise NotFound(
+                f"card {card_id!r} has no placement on board {to_board_id!r}"
+                " — use add_placement to put it there"
             )
+        placements = [
+            p.model_copy(update={"column_id": to_column_id, "position": position})
+            if p.board_id == to_board_id
+            else p
+            for p in card.placements
+        ]
         updated = card.model_copy(update={"placements": placements, "updated_at": _now()})
+        self._cards[card_id] = updated
+        return updated
+
+    async def add_placement(self, card_id: str, placement: Placement) -> Card:
+        card = await self.get_card(card_id)
+        await self.get_board(placement.board_id)  # target board must exist
+        if any(p.board_id == placement.board_id for p in card.placements):
+            raise Conflict(
+                f"card {card_id!r} is already on board {placement.board_id!r} — use move_card"
+            )
+        updated = card.model_copy(
+            update={"placements": [*card.placements, placement], "updated_at": _now()}
+        )
+        self._cards[card_id] = updated
+        return updated
+
+    async def remove_placement(self, card_id: str, board_id: str) -> Card:
+        card = await self.get_card(card_id)
+        kept = [p for p in card.placements if p.board_id != board_id]
+        if len(kept) == len(card.placements):
+            raise NotFound(f"card {card_id!r} has no placement on board {board_id!r}")
+        if not kept:
+            raise Conflict("cannot remove a card's last placement — archive_card instead")
+        updated = card.model_copy(update={"placements": kept, "updated_at": _now()})
         self._cards[card_id] = updated
         return updated
 

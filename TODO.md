@@ -5,18 +5,9 @@ Durable backlog. Newest ideas at top; move items into JOURNAL when decided/done.
 ## Decided — next up
 
 *(Done & journaled: domain models, wired port, `memory` adapter, `native` SQLite store,
-**v0 MCP server** (`kanban-pro-mcp`) — see JOURNAL 2026-07-05.)*
+**v0 MCP server** (`kanban-pro-mcp`), **Q14–Q17 port expansion** (placement ops, strict
+move, empty-only delete guards, ext shallow-merge) — see JOURNAL 2026-07-05.)*
 
-- [ ] **Port expansion from Q13–Q16 rulings (2026-07-05)** — implement across port +
-  memory + native + MCP + tests + docs/methods.md:
-  - `add_placement(card_id, placement)` / `remove_placement(card_id, board_id)` (Q15 —
-    removing the last placement should error; a card must live somewhere, archive it
-    instead).
-  - `move_card` strict within-board: error if the card has no placement on
-    `to_board_id`; drop the current silent placement-add (Q16).
-  - Empty-only guards for `delete_board` / `delete_column` in `core/` (Q14).
-  - `ext` patch = **shallow merge**, `null` removes a key (Q17) — today's adapters
-    replace the whole dict via `model_copy(update=…)`; fix in memory + native.
 - [ ] **Human-readable card keys** (from the Q16 brainstorm) — native store mints
   Jira-style per-board keys (`PRO-12`: board prefix + counter) as first-class card ids
   instead of uuid hex; adapters with native keys (Jira) map theirs. Agents and humans

@@ -35,6 +35,7 @@ from kanban_pro.domain import (
     Column,
     ColumnPatch,
     Comment,
+    Placement,
     Relation,
 )
 from kanban_pro.ports import Capability, Fulfilment, KanbanBackend, KanbanError
@@ -105,8 +106,8 @@ async def update_board(board_id: str, patch: BoardPatch) -> Board:
 
 @mcp.tool(annotations=_DESTRUCTIVE)
 async def delete_board(board_id: str) -> str:
-    """Delete a board permanently. DESTRUCTIVE — cards' placements on it are removed."""
-    await _call((await _get_backend()).delete_board(board_id))
+    """Delete a board permanently. Refused while live cards remain — move/archive first."""
+    await _call(core.delete_board_guarded(await _get_backend(), board_id))
     return f"board {board_id} deleted"
 
 
@@ -133,8 +134,8 @@ async def update_column(column_id: str, patch: ColumnPatch) -> Column:
 
 @mcp.tool(annotations=_DESTRUCTIVE)
 async def delete_column(column_id: str) -> str:
-    """Delete a column permanently. DESTRUCTIVE."""
-    await _call((await _get_backend()).delete_column(column_id))
+    """Delete a column permanently. Refused while live cards sit in it — move/archive first."""
+    await _call(core.delete_column_guarded(await _get_backend(), column_id))
     return f"column {column_id} deleted"
 
 
@@ -167,10 +168,26 @@ async def update_card(card_id: str, patch: CardPatch) -> Card:
 
 @mcp.tool(annotations=_IDEMPOTENT)
 async def move_card(card_id: str, to_board_id: str, to_column_id: str, position: int = 0) -> Card:
-    """Move a card to a (board, column, position). New board -> adds a placement."""
+    """Move a card within a board it's already on (re-column / re-position).
+
+    Errors if the card has no placement on to_board_id — use add_placement for that.
+    """
     return await _call(
         (await _get_backend()).move_card(card_id, to_board_id, to_column_id, position)
     )
+
+
+@mcp.tool(annotations=_WRITE)
+async def add_placement(card_id: str, placement: Placement) -> Card:
+    """Put a card on an additional board (one placement per board; errors if already on it)."""
+    return await _call((await _get_backend()).add_placement(card_id, placement))
+
+
+@mcp.tool(annotations=_WRITE)
+async def remove_placement(card_id: str, board_id: str) -> Card:
+    """Take a card off one board (its other placements stay). The last placement can't
+    be removed — archive_card instead."""
+    return await _call((await _get_backend()).remove_placement(card_id, board_id))
 
 
 @mcp.tool(annotations=_IDEMPOTENT)

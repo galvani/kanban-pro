@@ -41,6 +41,7 @@ def test_tools_registered_match_methods_doc() -> None:
         "list_boards", "get_board", "create_board", "update_board", "delete_board",
         "list_columns", "create_column", "update_column", "delete_column",
         "list_cards", "get_card", "create_card", "update_card", "move_card",
+        "add_placement", "remove_placement",
         "archive_card", "unarchive_card", "delete_card",
         "list_comments", "add_comment", "delete_comment",
         "list_relations", "add_relation", "delete_relation",
@@ -79,6 +80,18 @@ async def _delete_card_guarded_archive_first() -> None:
 
 def test_delete_card_guarded_archive_first() -> None:
     asyncio.run(_delete_card_guarded_archive_first())
+
+
+async def _delete_board_guarded_empty_only() -> None:
+    board, card = await _make_board_with_card()
+    with pytest.raises(ToolError, match=r"^conflict: "):
+        await kmcp.delete_board(board.id)  # live card -> refused (Q14)
+    await kmcp.archive_card(card.id)
+    assert "deleted" in await kmcp.delete_board(board.id)
+
+
+def test_delete_board_guarded_empty_only() -> None:
+    asyncio.run(_delete_board_guarded_empty_only())
 
 
 async def _capabilities_resource_reports_fulfilment() -> None:
