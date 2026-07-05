@@ -1,5 +1,22 @@
 # kanban-pro — Journal
 
+## 2026-07-05 (night) — Phase D live: the board became autonomous
+
+- **kanban-dispatcher v0 built** (subagent, 6 commits in its repo: MCP client over
+  stdio, strict routing.yaml, claude launcher, dispatch loop with claims/heartbeats/
+  poison protection, CLI with --once/--dry-run; 33 tests + strict verify green) and
+  **the live smoke PASSED**: a real card, claimed by `agent:dispatcher`, worked by a
+  real headless claude worker (`agent:claude-code`) that commented and moved it
+  ready→running→done via LEGAL transitions — it hit the flow denial, used
+  `list_transitions`, took the legal path unprompted. Full attributed chain:
+  change-log seq 1675–1684. The smoke card sits in done for Jan to see.
+- **Two fixes en route:** kanban-pro gained a `py.typed` marker (downstream mypy saw
+  us as untyped); the claude CLI `--allowedTools` variadic-flag trap is documented in
+  the dispatcher's example config (`=` form required).
+- **Adaptation plan: A ✅ B ✅ C ✅ D ✅ (v0).** Phase E (stop legacy dispatcher,
+  retire built-in kanban) deliberately awaits Jan, as agreed. Hermes gateway MCP
+  reload also still pending (Jan's action).
+
 ## 2026-07-05 — Inline one-card flows (75 tests); dispatcher build deferred
 
 - **Inline flows shipped as ruled:** `ext["kanban_pro.flow"] = {states, transitions}`
