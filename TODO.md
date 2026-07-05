@@ -143,7 +143,10 @@ scheme badge + drag-highlighting, `scheme=` list filter.
 ## Cross-cutting (queued 2026-07-05, Jan)
 
 - [ ] **SUBPROJECT: `kanban-dispatcher` — the harness agent (Jan, 2026-07-05; ruled
-  GOOD idea, separate repo/subproject).** A thin daemon that turns the board into a
+  GOOD idea, separate repo/subproject). **SEEDED 2026-07-05:**
+  `~/workspace/kanban-dispatcher` (docs-first; Jan's corrections folded in:
+  claude = invoke the `claude` CLI; opencode = sessions against the RUNNING
+  service, never spawned).** A thin daemon that turns the board into a
   running agent fleet: `list_work` → route card → `claim_card` (TTL) → spawn an
   agentic platform for it → `heartbeat_claim` while it runs → report (comment +
   move / attention flag on failure) → `release_claim`. Crash = lease expiry =
