@@ -160,6 +160,24 @@ profile into any other — idempotent, dry-run first, provenance-stamped, the im
 itself attributed in the change-log. It has run for real: a 172-card board with 608
 comments imported port-to-port.
 
+## The board is also your message bus
+
+Look at the mechanics and you'll notice kanban-pro quietly replaces the queueing
+infrastructure an agent fleet would otherwise need:
+
+- The **change-log** is an append-only event stream with consumer cursors — an agent
+  (or your Slack notifier) reads `list_changes since=<seq>` and resumes exactly where
+  it left off. Kafka-style offsets, no broker to run. ✅
+- **Claim/lease** (🔜) is the competing-consumers pattern: atomic claim with a TTL,
+  heartbeats, crash-reclaim = redelivery. Two agents never grab the same card.
+- **Durable subscriptions** (🔜 webhook listeners with per-listener cursors + retry)
+  and the **attention flag** (🔜 — route "this needs a decision" to a specific agent
+  or human) round out fan-out and routing.
+
+The difference from a real broker: here every "message" is a **card** — durable,
+stateful, attributed, with history — and the queue is a **board a human can see**,
+reprioritize, and answer in a browser. Your task queue finally has a UI.
+
 ## Why not X?
 
 The concept combo — self-hosted backend-agnostic proxy + honest capability polyfill +
