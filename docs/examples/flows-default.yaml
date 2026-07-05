@@ -1,0 +1,35 @@
+# kanban-pro flow config for the `default` profile (harness-adaptation-plan, phase A1).
+# Installed at ~/.config/kanban-pro/flows-default.yaml ($KANBAN_PRO_FLOWS overrides).
+#
+# The `default` scheme encodes the agent lifecycle the board migrated with —
+# familiar lanes, now actually enforced. `staging` (ad-hoc lane) is deliberately
+# unmodeled: moves in/out of it stay free (resolution-chain rule 4).
+# No WIP limits initially (Jan's decision pending values) — add e.g.
+# `wip_limits: { running: 3 }` per scheme when wanted (key reserved).
+#
+# Per-card overrides: ext["kanban_pro.scheme"] = "docs" | "free-roam",
+# or a full inline flow via ext["kanban_pro.flow"] (queued feature).
+
+flows:
+  default:
+    states: [triage, todo, scheduled, ready, running, blocked, review, done]
+    transitions:
+      - { from: triage,    to: [todo, ready] }            # spec fleshed out -> queue
+      - { from: todo,      to: [ready, scheduled, triage] }
+      - { from: scheduled, to: [ready, todo] }
+      - { from: ready,     to: [running, todo, blocked] }
+      - { from: running,   to: [done, review, blocked, ready] }  # ready = reclaimed
+      - { from: blocked,   to: [ready, todo, running] }
+      - { from: review,    to: [done, running, ready] }
+      - { from: done,      to: [ready] }                  # deliberate reopen
+
+  docs:
+    # documentation / non-code tasks: no review gate
+    states: [todo, ready, running, done]
+    transitions:
+      - { from: todo,    to: ready }
+      - { from: ready,   to: running }
+      - { from: running, to: [done, ready] }
+      - { from: done,    to: ready }
+
+default_flow: default

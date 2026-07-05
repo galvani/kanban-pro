@@ -102,6 +102,24 @@ a started column" stays visible in the change-log.
 
 ---
 
+## Card `ext` conventions (reserved namespaces)
+
+`ext` is free-form, but these keys have pinned meanings (writers use the shallow-merge
+patch semantics, Q17):
+
+| Key | Owner | Meaning |
+|---|---|---|
+| `kanban_pro.scheme` | flow engine | the card's workflow scheme name (`"docs"`, `"free-roam"`; unset = default) |
+| `kanban_pro.flow` | flow engine (queued) | inline one-card flow definition `{states, transitions}` — precedence over `scheme` |
+| `kanban_pro.attention` | attention signal (queued) | `{reason, raised_by, for}` — needs a decision/input |
+| `kanban_pro.copied_from` | cross-mount copy (queued) | provenance link `"<mount>/<card-id>"` |
+| `kanban_pro.migrated_from` | `kanban-pro-migrate` | import provenance `"<profile>/<board-id>"` |
+| `work` | kanban-dispatcher (agreed 2026-07-05) | executor metadata: `{workspace_kind, branch, skills[], max_runtime}` |
+| `hermes` | hermes adapter | the backend's harness-specific fields, verbatim |
+
+Rule: `kanban_pro.*` is reserved for kanban-pro's own features; adapters use their
+backend's name as the namespace; the dispatcher owns `work`.
+
 ## MCP projection
 
 kanban-pro runs as an MCP server (`stdio` local / HTTP+SSE remote). A harness discovers

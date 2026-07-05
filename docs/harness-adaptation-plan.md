@@ -57,28 +57,32 @@ actors.
 
 ## Phases
 
-### A — Foundations (config only; do first) — owner: me, ~1 session
-1. **`flow.yaml` for the default profile** encoding the migrated lifecycle as the
-   enforced `default` scheme (triage→todo→scheduled→ready→running→blocked/review→done,
-   matching the migrated columns), a `docs` scheme, `free-roam` available.
-   ⚖️ **Decision: WIP limits on `running`/`review`?** (old board had none; we can now.)
-2. **Actor granularity.** Today ALL Hermes traffic is `agent:hermes` (one MCP
-   registration). Options: (a) keep shared actor until the dispatcher lands —
-   simplest; (b) per-profile env `KANBAN_PRO_ACTOR` injected by whatever spawns the
-   worker (the dispatcher does this naturally later). ⚖️ **Decision: (a) now, (b)
-   with kanban-dispatcher — my recommendation.**
-3. **Workspace metadata convention** for new cards: `ext["work"] = {workspace_kind,
-   branch, skills[], max_runtime}` (the fields the executor needs; migrated cards
-   already carry them under `ext["hermes"]`). Pin the namespace with the
-   kanban-dispatcher SPEC so both projects agree.
+### A — Foundations — ✅ DONE 2026-07-05
+1. ✅ **`flow.yaml`** installed (`~/.config/kanban-pro/flows-default.yaml`; committed
+   example in `docs/examples/`): `default` scheme = the migrated lifecycle (verified
+   live: todo/blocked constrained, ad-hoc `staging` free per rule 4), `docs` scheme,
+   `free-roam` built-in. WIP limits: **none initially** (key reserved, one line to
+   add — Jan can set values anytime).
+2. ✅ **Actor granularity:** (a) shared `agent:hermes` now; per-spawn actors arrive
+   with kanban-dispatcher (its SPEC already carries the requirement).
+3. ✅ **Workspace metadata namespace pinned** in docs/methods.md ("Card ext
+   conventions"): `ext["work"]` = dispatcher's, `kanban_pro.*` reserved, adapters
+   use their backend name.
 
-### B — Read-path adoption (safe, no behavior risk) — owner: me, ~1 session
-4. **Claude-side skills** (`lane-watch`, `context-watch`, `api-verify`,
-   `browser-verify`, `visualize-skill`, `doc-audit`): replace `hermes kanban` shell
-   calls with kanban-pro MCP reads. Big win: `lane-watch` stops snapshot-diffing —
-   it becomes a `list_changes` cursor consumer (exactly what the feed is for).
-5. **Retire `kanban-lite`** (the read-only MCP) — fully superseded.
-6. Hermes **orchestrator skill**: board overview via `list_cards`/`list_changes`.
+### B — Read-path adoption — ✅ DONE 2026-07-05 (with one correction)
+4. ✅ `lane-watch` rewritten as a **change-feed consumer** (cursor file replaces the
+   snapshot diff; sees every intermediate move + the acting agent + forced flags;
+   resumes after downtime). ✅ `context-watch` comments via `add_comment` (attributed
+   as `agent:context-watch`; CLI fallback kept). ✅ `visualize-skill` prefers the
+   feed as its side-effect signal. `doc-audit`: no change needed (incidental mention).
+   **Correction:** `api-verify`/`browser-verify` are NOT Claude-side — they run
+   inside Hermes reviewer workers on the hermes `kanban_comment` tool; updating them
+   now would break workers still on the old board → moved to phase C.
+5. ✅ **`kanban-lite`:** not actively registered anywhere (not in Hermes
+   `mcp_servers`, not in Claude) — nothing to unwire; delete the directory at
+   phase E.
+6. → moved to phase C (Hermes-side skills change together, after the gateway loads
+   the kanban-pro MCP registration).
 
 ### C — Write-path adoption (the agent behavior upgrade) — owner: me + review, ~1-2 sessions
 7. **Rewrite `kanban-worker` skill** around the pull-worker loop above; document the

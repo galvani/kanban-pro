@@ -1,5 +1,26 @@
 # kanban-pro — Journal
 
+## 2026-07-05 — Harness adaptation: phases A + B executed
+
+- **A1 — flows live:** `~/.config/kanban-pro/flows-default.yaml` (example committed
+  at docs/examples/): `default` scheme = the migrated agent lifecycle
+  (triage→todo→scheduled→ready→running→blocked/review→done, deliberate done→ready
+  reopen), `docs` scheme, no WIP limits initially (Jan's values pending). Verified
+  on the live board: lanes constrained per scheme; unmodeled `staging` free.
+- **A3 — ext conventions pinned** (docs/methods.md): `kanban_pro.*` reserved keys
+  inventory, `work` = dispatcher's executor metadata, adapters namespace by backend.
+- **B — Claude-side skills switched to the MCP:** `lane-watch` = change-feed
+  consumer (cursor replaces snapshot diff; gains actor + forced-move visibility +
+  resume-after-downtime; migration actors filtered); `context-watch` comments via
+  `add_comment` as `agent:context-watch`; `visualize-skill` prefers the feed for
+  side-effect signals.
+- **Correction discovered:** `api-verify`/`browser-verify` run INSIDE Hermes
+  reviewer workers (hermes `kanban_comment` tool) — updating them before workers
+  move would break them → re-scoped to phase C. `kanban-lite` turned out not to be
+  registered anywhere — nothing to unwire, directory deletion at phase E.
+- **Next per plan:** idempotency keys (the phase-C gate), then the worker-skill
+  rewrite; phase D belongs to ~/workspace/kanban-dispatcher.
+
 ## 2026-07-05 — Cutover (phase 1): kanban-pro is the primary board
 
 - **Fresh import ran** right before switching: 172 cards / 608 comments / 55
