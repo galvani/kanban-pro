@@ -175,6 +175,10 @@ scheme badge + drag-highlighting, `scheme=` list filter.
     board/column context. MCP tool (e.g. `list_work(assignee?, include_unassigned)`),
     default assignee = the connection's actor. Adapters may later add native
     filtering for efficiency.
+    **+ transitions inline (Jan, 2026-07-05):** each returned card is annotated with
+    its legal next moves + resolved scheme (reuse `AugmentingBackend.transitions`) —
+    one call gives a harness agent its cards AND what it may do with each; no
+    per-card discovery round-trips, no moves that bounce.
   - **Multi-assignee:** already in the model (`Card.assignees[]` list +
     `MULTI_ASSIGNEE` capability, native in both stores) — nothing to build; single-
     owner backends map via capability honesty (Hermes is single-assignee). Convention
