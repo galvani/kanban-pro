@@ -38,14 +38,36 @@
                display: flex; gap: 6px; flex-wrap: wrap; }
   .chip { background: #1a1d23; border: 1px solid var(--border); border-radius: 10px; padding: 0 7px; }
   dialog { background: var(--panel); color: var(--text); border: 1px solid var(--border);
-           border-radius: 12px; width: min(620px, 92vw); max-height: 84vh; overflow-y: auto; }
+           border-radius: 12px; width: min(760px, 94vw); max-height: 88vh; overflow-y: auto; }
   dialog::backdrop { background: rgba(0,0,0,.55); }
   dialog .body { padding: 18px 20px; }
   dialog h3 { margin: 0 0 4px; }
   dialog .desc { white-space: pre-wrap; color: var(--text); margin: 10px 0;
                  border-left: 3px solid var(--border); padding-left: 10px; }
-  .comment { border-top: 1px solid var(--border); padding: 8px 0; }
+  dialog h4 { font-size: 11px; text-transform: uppercase; letter-spacing: .06em;
+              color: var(--dim); margin: 16px 0 6px; }
+  .comment { border-top: 1px solid var(--border); padding: 8px 0; white-space: pre-wrap; }
   .comment .who { font-size: 11px; color: var(--dim); }
+  .attention { background: #3a2b12; border: 1px solid #8a6d1f; border-radius: 8px;
+               padding: 8px 12px; margin: 10px 0; font-size: 13px; }
+  .metaGrid { display: grid; grid-template-columns: max-content 1fr; gap: 3px 14px;
+              font-size: 12px; margin: 8px 0; }
+  .metaGrid dt { color: var(--dim); }
+  .metaGrid dd { margin: 0; word-break: break-all; }
+  .moveBtns { display: flex; gap: 6px; flex-wrap: wrap; }
+  .moveBtns button { background: var(--card); border: 1px solid var(--border);
+                     color: var(--text); font-size: 12px; padding: 4px 10px; }
+  .moveBtns button:hover { border-color: var(--accent); color: var(--accent); }
+  .relRow { font-size: 13px; padding: 3px 0; }
+  .relRow a { color: var(--accent); cursor: pointer; text-decoration: none; }
+  .activity { font-size: 12px; max-height: 220px; overflow-y: auto; }
+  .activity .ev { display: flex; gap: 8px; padding: 2px 0; border-top: 1px solid #22262e; }
+  .activity .t { color: var(--dim); white-space: nowrap; }
+  .activity .who { color: var(--accent); white-space: nowrap; }
+  .activity .forced { color: var(--danger); font-weight: 600; }
+  details.ext { margin-top: 12px; font-size: 12px; }
+  details.ext pre { background: #14161a; border: 1px solid var(--border); border-radius: 6px;
+                    padding: 8px; overflow-x: auto; max-height: 180px; }
   form { display: flex; gap: 8px; margin-top: 12px; }
   input[type=text] { flex: 1; background: var(--card); border: 1px solid var(--border);
                      color: var(--text); border-radius: 6px; padding: 7px 9px; }
@@ -71,12 +93,21 @@
 <dialog id="cardDlg"><div class="body">
   <h3 id="dlgTitle"></h3>
   <div class="sub" id="dlgMeta" style="color:var(--dim);font-size:12px"></div>
+  <div id="dlgAttention"></div>
+  <dl class="metaGrid" id="dlgGrid"></dl>
+  <h4>Move to</h4>
+  <div class="moveBtns" id="dlgMoves"></div>
   <div class="desc" id="dlgDesc"></div>
+  <div id="dlgRelations"></div>
+  <h4>Comments</h4>
   <div id="dlgComments"></div>
   <form id="commentForm">
     <input type="text" id="commentBody" placeholder="add a comment…" autocomplete="off">
     <button type="submit">Send</button>
   </form>
+  <h4>Activity</h4>
+  <div class="activity" id="dlgActivity"></div>
+  <details class="ext" id="dlgExt"><summary>ext (raw)</summary><pre id="dlgExtPre"></pre></details>
 </div></dialog>
 <div id="toast"></div>
 
@@ -186,16 +217,91 @@ function connect() {
   };
 }
 
+function relLabel(r, id) {
+  /* kind describes from relative to to: PARENT = from is the parent of to */
+  if (r.kind === "parent") return r.from_card === id ? "subcard" : "parent";
+  if (r.kind === "child")  return r.from_card === id ? "parent" : "subcard";
+  return r.kind.replace("_", " ");
+}
+
 async function openCard(id) {
-  const d = await api(`/api/cards/${id}`);
   openCardId = id;
-  $("dlgTitle").textContent = d.card.title;
-  $("dlgMeta").textContent = `${d.card.id} · ${(d.card.assignees || []).join(", ") || "unassigned"}`
-    + (d.card.archived ? " · ARCHIVED" : "");
-  $("dlgDesc").textContent = d.card.description || "";
+  const [d, trans, activity] = await Promise.all([
+    api(`/api/cards/${id}`),
+    api(`/api/cards/${id}/transitions`).catch(() => null),
+    api(`/api/cards/${id}/activity`).catch(() => []),
+  ]);
+  const card = d.card;
+  $("dlgTitle").textContent = card.title;
+
+  const scheme = trans ? (trans.resolved_scheme || "backend workflow") : "?";
+  $("dlgMeta").textContent = `${card.id} · scheme: ${scheme}` + (card.archived ? " · ARCHIVED" : "");
+
+  const att = (card.ext || {})["kanban_pro.attention"];
+  $("dlgAttention").innerHTML = att
+    ? `<div class="attention">⚠️ <b>needs attention</b> — ${esc(att.reason)}<br>
+       <span style="color:var(--dim)">raised by ${esc(att.raised_by || "?")}${att.for ? " · for " + esc(att.for) : ""}</span></div>`
+    : "";
+
+  const fmt = ts => ts ? new Date(ts).toLocaleString() : "—";
+  const provenance = (card.ext || {})["kanban_pro.migrated_from"];
+  const rows = [
+    ["assignees", (card.assignees || []).join(", ") || "unassigned"],
+    ["column", trans && trans.current_column_id ? trans.current_column_id : (card.placements[0] || {}).column_id],
+    ["created", fmt(card.created_at)], ["updated", fmt(card.updated_at)],
+  ];
+  if (provenance) rows.push(["migrated from", provenance]);
+  const work = (card.ext || {}).work;
+  if (work && work.attempts) rows.push(["dispatch attempts", String(work.attempts)]);
+  const hermes = (card.ext || {}).hermes;
+  if (hermes && hermes.priority != null) rows.push(["priority", String(hermes.priority)]);
+  $("dlgGrid").innerHTML = rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join("");
+
+  $("dlgMoves").innerHTML = "";
+  for (const opt of (trans ? trans.options : [])) {
+    const b = document.createElement("button");
+    b.textContent = opt.name;
+    b.onclick = async () => {
+      try {
+        await api(`/api/cards/${id}/move`, { method: "POST",
+          headers: {"content-type": "application/json"},
+          body: JSON.stringify({to_board_id: boardId, to_column_id: opt.column_id, position: 0}) });
+      } catch (e) { toast(e.message); }
+    };
+    $("dlgMoves").appendChild(b);
+  }
+  if (trans && trans.note) {
+    const n = document.createElement("span");
+    n.style.cssText = "color:var(--dim);font-size:11px;align-self:center";
+    n.textContent = trans.note;
+    $("dlgMoves").appendChild(n);
+  }
+
+  $("dlgDesc").textContent = card.description || "";
+
+  $("dlgRelations").innerHTML = (d.relations || []).length
+    ? `<h4>Relations</h4>` + d.relations.map(r =>
+        `<div class="relRow">${esc(relLabel(r, id))}: <a onclick="openCard('${esc(r.other_id)}')">${esc(r.other_title)}</a></div>`
+      ).join("")
+    : "";
+
   $("dlgComments").innerHTML = d.comments.map(c =>
     `<div class="comment"><div class="who">${esc(c.author)} · ${c.created_at ? new Date(c.created_at).toLocaleString() : ""}</div>${esc(c.body)}</div>`
   ).join("") || `<div class="comment" style="color:var(--dim)">no comments</div>`;
+
+  $("dlgActivity").innerHTML = [...activity].reverse().map(e => {
+    const what = e.data && e.data.forced
+      ? `<span class="forced">forced move → ${esc(e.data.column_id || "")}</span>`
+      : `${esc(e.entity)}.${esc(e.op)}` + (e.data && e.data.column_id ? ` → ${esc(String(e.data.column_id).split(":").pop())}` : "")
+        + (e.data && e.data.reason ? ` — ${esc(e.data.reason)}` : "");
+    return `<div class="ev"><span class="t">${new Date(e.ts).toLocaleString()}</span>
+            <span class="who">${esc(e.actor)}</span><span>${what}</span></div>`;
+  }).join("") || `<div style="color:var(--dim)">no recorded activity</div>`;
+
+  const ext = card.ext || {};
+  $("dlgExt").style.display = Object.keys(ext).length ? "" : "none";
+  $("dlgExtPre").textContent = JSON.stringify(ext, null, 2);
+
   const dlg = $("cardDlg");
   if (!dlg.open) dlg.showModal();
 }

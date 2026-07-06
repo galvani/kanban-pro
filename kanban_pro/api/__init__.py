@@ -126,7 +126,43 @@ def create_app(
             comments = await be.list_comments(card_id)
         except NotSupported:
             comments = []
-        return {"card": card, "comments": comments}
+        relations: list[dict[str, object]] = []
+        try:
+            for rel in await be.list_relations(card_id):
+                other_id = rel.to_card if rel.from_card == card_id else rel.from_card
+                try:
+                    other_title = (await be.get_card(other_id)).title
+                except KanbanError:
+                    other_title = "(missing card)"
+                relations.append(
+                    {
+                        "id": rel.id,
+                        "kind": rel.kind.value,
+                        "from_card": rel.from_card,
+                        "to_card": rel.to_card,
+                        "other_id": other_id,
+                        "other_title": other_title,
+                    }
+                )
+        except NotSupported:
+            pass
+        return {"card": card, "comments": comments, "relations": relations}
+
+    @app.get("/api/cards/{card_id}/transitions")
+    async def card_transitions(card_id: str) -> core.TransitionInfo:
+        be = await _backend()
+        if not isinstance(be, core.RecordingBackend | core.AugmentingBackend):
+            raise NotSupported("transitions query needs the core stack")
+        return await be.transitions(card_id)
+
+    @app.get("/api/cards/{card_id}/activity")
+    async def card_activity(card_id: str) -> list[core.ChangeEvent]:
+        be = await _backend()
+        await be.get_card(card_id)  # 404 for unknown cards
+        log = _changelog()
+        if log is None:
+            raise NotSupported("change-log is not wired for this backend")
+        return await log.for_card(card_id)
 
     @app.post("/api/cards/{card_id}/move")
     async def move(card_id: str, body: MoveRequest) -> Card:

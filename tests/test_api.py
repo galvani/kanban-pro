@@ -122,3 +122,41 @@ async def _sse_pushes_events() -> None:
     finally:
         server.should_exit = True
         await serve_task
+
+
+def test_card_detail_endpoints() -> None:
+    asyncio.run(_card_detail_endpoints())
+
+
+async def _card_detail_endpoints() -> None:
+    backend = _stack()
+    board, card = await _seed(backend)
+    # a subcard + attention + a move give the detail endpoints something to show
+    from kanban_pro.domain import Relation
+    from kanban_pro.domain import RelationKind as RK
+
+    child = await backend.create_card(
+        Card(title="sub", placements=[Placement(board_id=board.id, column_id=board.columns[0].id)])
+    )
+    await backend.add_relation(Relation(kind=RK.PARENT, from_card=card.id, to_card=child.id))
+    await backend.raise_attention(card.id, "which db?", for_actor="human:jan")
+    await backend.move_card(card.id, board.id, board.columns[1].id, 0)
+
+    async with _client(backend) as client:
+        detail = (await client.get(f"/api/cards/{card.id}")).json()
+        (rel,) = detail["relations"]
+        assert (rel["kind"], rel["other_id"], rel["other_title"]) == ("parent", child.id, "sub")
+        assert detail["card"]["ext"]["kanban_pro.attention"]["reason"] == "which db?"
+
+        trans = (await client.get(f"/api/cards/{card.id}/transitions")).json()
+        assert trans["source"] == "free"  # no flows configured in this stack
+        assert any(o["name"] == "todo" for o in trans["options"])
+
+        activity = (await client.get(f"/api/cards/{card.id}/activity")).json()
+        kinds = [f"{e['entity']}.{e['op']}" for e in activity]
+        assert "card.created" in kinds and "attention.raised" in kinds and "card.moved" in kinds
+        # the subcard's own creation is NOT this card's activity
+        assert all(e["entity_id"] != child.id or e["entity"] == "relation" for e in activity)
+
+        missing = await client.get("/api/cards/nope/activity")
+        assert missing.status_code == 404

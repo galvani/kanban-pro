@@ -132,6 +132,38 @@ class ChangeLog:
                 return WaitResult(cursor=cursor, events=[])
             await self.wait_for_change(min(2.0, remaining))
 
+    async def for_card(self, card_id: str, limit: int = 200) -> list[ChangeEvent]:
+        """A card's activity timeline: events about the card itself PLUS events whose
+        payload references it (comment.added carries card_id in data). Oldest first."""
+        if self._path is None:
+            hits = [
+                e for e in self._mem if e.entity_id == card_id or e.data.get("card_id") == card_id
+            ]
+            return hits[-limit:]
+        async with aiosqlite.connect(self._path) as db:
+            await db.executescript(_SCHEMA)
+            async with db.execute(
+                "SELECT seq, ts, actor, entity, entity_id, op, board_id, data FROM changes"
+                " WHERE entity_id = ? OR json_extract(data, '$.card_id') = ?"
+                " ORDER BY seq DESC LIMIT ?",
+                (card_id, card_id, limit),
+            ) as rows:
+                fetched = await rows.fetchall()
+        events = [
+            ChangeEvent(
+                seq=seq,
+                ts=datetime.fromisoformat(ts),
+                actor=actor,
+                entity=entity,
+                entity_id=entity_id,
+                op=op,
+                board_id=board_id,
+                data=json.loads(data) if data else {},
+            )
+            for seq, ts, actor, entity, entity_id, op, board_id, data in fetched
+        ]
+        return list(reversed(events))
+
     async def head(self) -> int:
         """The newest seq (0 when empty) — snapshot consumers resume SSE from here."""
         if self._path is None:
