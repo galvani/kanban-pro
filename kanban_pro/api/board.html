@@ -146,12 +146,28 @@ async function loadBoards() {
   sel.onchange = () => { boardId = sel.value; refresh(); };
 }
 
+function age(ts) {
+  if (!ts) return "";
+  const s = (Date.now() - new Date(ts).getTime()) / 1000;
+  if (s < 3600) return Math.max(1, Math.round(s / 60)) + "m";
+  if (s < 86400) return Math.round(s / 3600) + "h";
+  return Math.round(s / 86400) + "d";
+}
+
 function cardEl(card) {
   const el = document.createElement("div");
   el.className = "card"; el.draggable = true; el.dataset.id = card.id;
-  const chips = (card.assignees || []).map(a => `<span class="chip">${esc(a)}</span>`).join("");
+  const ext = card.ext || {};
+  const chips = [];
+  if (ext["kanban_pro.attention"]) chips.push(`<span class="chip" style="border-color:#8a6d1f">⚠️ attention</span>`);
+  for (const a of card.assignees || []) chips.push(`<span class="chip">${esc(a)}</span>`);
+  const prio = (ext.hermes || {}).priority ?? (ext.work || {}).priority;
+  if (prio != null && prio !== 0) chips.push(`<span class="chip">p${esc(prio)}</span>`);
+  if (ext["kanban_pro.scheme"]) chips.push(`<span class="chip">${esc(ext["kanban_pro.scheme"])}</span>`);
+  const created = age(card.created_at);
   el.innerHTML = `<div class="t">${esc(card.title)}</div>
-                  <div class="sub"><span>${esc(card.id.slice(0, 10))}</span>${chips}</div>`;
+                  <div class="sub"><span>${esc(card.id.slice(0, 10))}</span>${chips.join("")}
+                  ${created ? `<span style="margin-left:auto">${created}</span>` : ""}</div>`;
   el.addEventListener("dragstart", ev => ev.dataTransfer.setData("text/plain", card.id));
   el.addEventListener("click", () => openCard(card.id));
   return el;
