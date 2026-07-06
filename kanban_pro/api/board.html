@@ -253,9 +253,12 @@ async function openCard(id) {
   if (provenance) rows.push(["migrated from", provenance]);
   const work = (card.ext || {}).work;
   if (work && work.attempts) rows.push(["dispatch attempts", String(work.attempts)]);
+  if (work && work.log)
+    rows.push(["worker log", `<a href="/api/cards/${esc(id)}/worker-log" target="_blank">view ↗</a>`, true]);
   const hermes = (card.ext || {}).hermes;
   if (hermes && hermes.priority != null) rows.push(["priority", String(hermes.priority)]);
-  $("dlgGrid").innerHTML = rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join("");
+  $("dlgGrid").innerHTML = rows.map(([k, v, raw]) =>
+    `<dt>${esc(k)}</dt><dd>${raw ? v : esc(v)}</dd>`).join("");
 
   $("dlgMoves").innerHTML = "";
   for (const opt of (trans ? trans.options : [])) {

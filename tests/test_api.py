@@ -160,3 +160,36 @@ async def _card_detail_endpoints() -> None:
 
         missing = await client.get("/api/cards/nope/activity")
         assert missing.status_code == 404
+
+
+def test_worker_log_endpoint(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    asyncio.run(_worker_log(tmp_path))
+
+
+async def _worker_log(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    backend = _stack()
+    board, card = await _seed(backend)
+    log = tmp_path / f"{card.id}.log"
+    log.write_text("worker says hi\nline two\n")
+    async with _client(backend) as client:
+        missing = await client.get(f"/api/cards/{card.id}/worker-log")
+        assert missing.status_code == 404  # nothing linked yet
+
+        await backend.update_card(
+            card.id,
+            __import__("kanban_pro.domain", fromlist=["CardPatch"]).CardPatch(
+                ext={"work": {"log": str(log)}}
+            ),
+        )
+        served = await client.get(f"/api/cards/{card.id}/worker-log")
+        assert served.status_code == 200 and "worker says hi" in served.text
+
+        # a linked path outside home/tmp or non-.log is refused
+        await backend.update_card(
+            card.id,
+            __import__("kanban_pro.domain", fromlist=["CardPatch"]).CardPatch(
+                ext={"work": {"log": "/etc/passwd"}}
+            ),
+        )
+        refused = await client.get(f"/api/cards/{card.id}/worker-log")
+        assert refused.status_code == 404

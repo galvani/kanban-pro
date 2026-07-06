@@ -17,13 +17,13 @@ from collections.abc import AsyncIterator
 from pathlib import Path
 
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, StreamingResponse
 from pydantic import BaseModel
 
 from kanban_pro import core
 from kanban_pro.config import ACTOR_ENV, PROFILE_ENV, build_backend
 from kanban_pro.domain import Board, Card, Comment
-from kanban_pro.ports import KanbanBackend, KanbanError, NotSupported
+from kanban_pro.ports import KanbanBackend, KanbanError, NotFound, NotSupported
 
 logger = logging.getLogger("kanban_pro.api")
 
@@ -154,6 +154,29 @@ def create_app(
         if not isinstance(be, core.RecordingBackend | core.AugmentingBackend):
             raise NotSupported("transitions query needs the core stack")
         return await be.transitions(card_id)
+
+    @app.get("/api/cards/{card_id}/worker-log", response_class=PlainTextResponse)
+    async def worker_log(card_id: str) -> str:
+        """Tail of the dispatcher-linked worker log (card ext.work.log).
+
+        The path is card data (any agent can write ext), so serving is constrained:
+        only *.log files under $HOME or the tmp dir — good enough for a
+        localhost-only personal tool, and nothing sensitive matches that shape.
+        """
+        import tempfile
+
+        be = await _backend()
+        card = await be.get_card(card_id)
+        raw = (card.ext.get("work") or {}).get("log") if isinstance(card.ext, dict) else None
+        if not raw:
+            raise NotFound(f"card {card_id!r} has no linked worker log")
+        path = Path(str(raw)).resolve()
+        allowed = (Path.home().resolve(), Path(tempfile.gettempdir()).resolve())
+        if path.suffix != ".log" or not any(path.is_relative_to(b) for b in allowed):
+            raise NotFound("linked log path refused")
+        if not path.exists():
+            raise NotFound(f"log file missing: {path}")
+        return "\n".join(path.read_text(errors="replace").splitlines()[-500:])
 
     @app.get("/api/cards/{card_id}/activity")
     async def card_activity(card_id: str) -> list[core.ChangeEvent]:
