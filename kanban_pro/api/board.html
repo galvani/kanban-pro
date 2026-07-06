@@ -186,7 +186,9 @@ async function refresh() {
     cards.sort((a, b) => {
       const pa = a.placements.find(p => p.column_id === col.id).position;
       const pb = b.placements.find(p => p.column_id === col.id).position;
-      return pa - pb;
+      // every move lands at position 0, so lanes like done are all ties —
+      // break them by recency, newest activity on top
+      return (pa - pb) || String(b.updated_at ?? "").localeCompare(String(a.updated_at ?? ""));
     });
     const el = document.createElement("div");
     el.className = "col";
