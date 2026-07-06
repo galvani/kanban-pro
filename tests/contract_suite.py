@@ -141,6 +141,9 @@ class KanbanContract:
         with pytest.raises(NotFound):  # strict move (Q16): not on b2 yet
             await be.move_card(card.id, b2.id, b2.columns[0].id, 0)
 
+        with pytest.raises(NotFound):  # target column must exist on the board
+            await be.move_card(card.id, b1.id, "no-such-column", 0)
+
         card = await be.add_placement(
             card.id, Placement(board_id=b2.id, column_id=b2.columns[0].id)
         )

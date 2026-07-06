@@ -1,5 +1,25 @@
 # kanban-pro — Journal
 
+## 2026-07-06 — move_card validates columns; foreign MCP doc resources reviewed; notifier example
+
+- **`move_card` now rejects a nonexistent target column (NotFound)** in both adapters +
+  contract test. Found the hard way: the dispatcher force-moved a card to a guessed
+  column id, kanban-pro accepted it, and the card silently fell off every lane view.
+  An id typo must fail fast, not orphan the card.
+- **Foreign session's +257 lines in `mcp/__init__.py` reviewed and kept:** four
+  self-documenting resources (`kanban://event-schema`, `work-distribution`, `workflow`,
+  `domain`) so clients don't have to read code — content verified accurate. Fixed en
+  route: 9 E501s, and the stale `work` ext description now matches reality
+  (`{log, attempts, quota_hits, retry_at}`).
+- **`examples/notifier/` adopted** (kanban-notifier: wait_changes feed → Slack DM,
+  replaces lane-watch + context-watch delivery; a deployed copy runs in the engineer
+  profile). Fixed the example writing its runtime cursor INTO the repo — state dir is
+  now `$KANBAN_NOTIFIER_DIR` (default `~/.local/state/kanban-notifier`); the stray
+  cursor file and `__pycache__` are purged.
+- **Board hygiene after the dispatcher misfire:** 13 attention flags cleared with
+  attempts reset (work ext rewritten whole — Q17), and the `staging` column's category
+  fixed `unstarted` → `backlog` so parked cards are never auto-dispatched.
+
 ## 2026-07-05 (night) — Phase D live: the board became autonomous
 
 - **kanban-dispatcher v0 built** (subagent, 6 commits in its repo: MCP client over

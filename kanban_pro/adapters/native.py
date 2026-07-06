@@ -288,6 +288,11 @@ class NativeStore:
                     f"card {card_id!r} has no placement on board {to_board_id!r}"
                     " — use add_placement to put it there"
                 )
+            # the target column must exist — a typo'd id would drop the card off
+            # every lane view (found via a dispatcher force-move, 2026-07-06)
+            board = await self._get_board(db, to_board_id)
+            if all(c.id != to_column_id for c in board.columns):
+                raise NotFound(f"board {to_board_id!r} has no column {to_column_id!r}")
             placements = [
                 p.model_copy(update={"column_id": to_column_id, "position": position})
                 if p.board_id == to_board_id

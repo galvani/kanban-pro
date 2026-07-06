@@ -431,6 +431,75 @@ async def wait_changes(
 # --- resources ---
 
 
+@mcp.resource("kanban://event-schema")
+async def event_schema_resource() -> str:
+    """The full contract for consuming the change-feed — event shapes, data keys,
+    attention routing, and the notifier pattern.  Call this once, then loop
+    ``wait_changes`` / ``list_changes`` with confidence.
+    """
+    return json.dumps(
+        {
+            "WaitResult": {
+                "cursor": "int — latest seq; pass back as `since` on the next call",
+                "events": "list[ChangeEvent] — empty on timeout (no activity)",
+            },
+            "ChangeEvent": {
+                "seq": "int — feed cursor, monotonically increasing",
+                "ts": "iso8601 — when the write happened",
+                "actor": "str — convention kind:name (agent:prepare, human:jan, …)",
+                "entity": "str — board | column | card | comment | relation | attention",
+                "entity_id": "str — the affected resource (task id, comment id, …)",
+                "op": "str — created | updated | moved | archived | unarchived | deleted"
+                " | added | removed | raised | cleared",
+                "board_id": "str|null — board slug when the event is board-scoped",
+                "data": "{…} — slim payload; key fields per (entity, op) below",
+            },
+            "event_kinds": {
+                "card.created": {"data_keys": ["title", "column_id", "assignees"]},
+                "card.moved": {"data_keys": ["column_id", "forced (bool)"]},
+                "card.archived": {"data_keys": []},
+                "card.unarchived": {"data_keys": []},
+                "comment.added": {"data_keys": ["card_id", "author"]},
+                "relation.added": {"data_keys": ["kind", "from_card", "to_card"]},
+                "attention.raised": {
+                    "data_keys": [
+                        "reason",
+                        "for (str|null — target actor; null = anyone, human:jan = Jan's DM)",
+                    ],
+                    "effect": "sets ext['kanban_pro.attention'] on the card;"
+                    " notifier filters on data.for",
+                },
+                "attention.cleared": {
+                    "data_keys": ["resolution (str|null)"],
+                    "effect": "removes ext['kanban_pro.attention'] from the card",
+                },
+            },
+            "notifier_pattern": {
+                "goal": "DM Jan when a worker needs his input or the board changes"
+                " in a way he cares about.",
+                "loop": "wait_changes(since=cursor) → filter events → DM Slack → save cursor",
+                "filter": {
+                    "jan_relevant": [
+                        "card.created — new task on the board",
+                        "card.moved — lane transition (especially → done)",
+                        "card.archived",
+                        "attention.raised where data.for == 'human:jan'",
+                    ],
+                    "ignore": [
+                        "actor starts with 'migration:'",
+                        "comments, relations, claims, updates",
+                        "attention.raised where data.for != 'human:jan'",
+                    ],
+                },
+                "cursor_storage": "file: .kanban-notifier-cursor.json → {'cursor': <int>}",
+                "first_run": "wait_changes(since=-1) probes the head, saves cursor,"
+                " NO DMs (baseline)",
+            },
+        },
+        indent=2,
+    )
+
+
 @mcp.resource("kanban://capabilities")
 async def capabilities_resource() -> str:
     """Active profile's capabilities, each with its fulfilment (SPEC decision 2):
@@ -462,6 +531,204 @@ async def card_resource(card_id: str) -> str:
     """One card as canonical JSON."""
     card = await (await _get_backend()).get_card(card_id)
     return card.model_dump_json(indent=2)
+
+
+# ── Documentation resources (self-describing contract) ──
+
+
+@mcp.resource("kanban://work-distribution")
+async def work_distribution_resource() -> str:
+    """The work-distribution contract: how agents claim/lease/work/release cards.
+
+    ``list_work`` returns a ``WorkQueue {actor, items: [WorkItem, ...]}``.
+    Each ``WorkItem`` has the full ``Card``, the column it's in (id/name/category),
+    whether YOU currently hold the lease (``claimed_by_me``), and the legal transitions
+    from this column (``transitions`` — see ``kanban://workflow``).
+
+    The life of a claim:
+      1. ``claim_card(card_id, ttl_seconds=900)`` — CAS lease.  Fails with ``conflict``
+         if another agent holds it.
+      2. ``heartbeat_claim(card_id, ttl_seconds)`` — keep the lease alive while working.
+      3. When the worker finishes: move the card + ``release_claim(card_id)``.
+      4. On crash / timeout: the lease expires, the card is reclaimable.
+         The dispatcher / next agent sees it in ``list_work`` again.
+
+    Claiming does NOT move or assign the card — convention: claim → assign yourself →
+    move to a started column, all recorded in the change-log.
+    """
+    return json.dumps(
+        {
+            "WorkQueue": {
+                "actor": "str — whose work queue this is",
+                "items": "list[WorkItem] — cards I can work (unstarted/started, unexpired only)",
+            },
+            "WorkItem": {
+                "card": "Card — the full card object",
+                "board_id": "str",
+                "column_id": "str",
+                "column_name": "str — human-readable",
+                "column_category": "str — triage|backlog|unstarted|started|done|canceled",
+                "claimed_by_me": "bool — do I already hold the lease?",
+                "transitions": "TransitionInfo — legal moves from here (see kanban://workflow)",
+            },
+            "claim_card": {
+                "args": {"card_id": "str", "ttl_seconds": "int (default 900)"},
+                "returns": "Claim {card_id, owner, expires_at}",
+                "errors": "conflict — already claimed by someone else",
+            },
+            "heartbeat_claim": {
+                "args": {"card_id": "str", "ttl_seconds": "int"},
+                "returns": "Claim — with updated expires_at",
+            },
+            "release_claim": {
+                "args": {"card_id": "str"},
+                "returns": "str — confirmation; idempotent",
+            },
+            "pattern": {
+                "worker_loop": "list_work(assignee='agent:<me>') → claim_card"
+                " → update_card(assignees) → move_card(started) → do work"
+                " → move_card(done) → release_claim",
+                "self_report": "workers move their own cards + comment results;"
+                " the dispatcher only backstops crashes",
+            },
+        },
+        indent=2,
+    )
+
+
+@mcp.resource("kanban://workflow")
+async def workflow_resource() -> str:
+    """The workflow contract: how to move cards and what's legal.
+
+    ``list_transitions(card_id, board_id?)`` returns a ``TransitionInfo``:
+    ``{options: [{column_id, name}, ...], resolved_scheme, source}``.
+
+    Each ``column_id`` in ``options[]`` is a valid target for ``move_card``.
+    The ``source`` field tells you where the rules came from:
+      - ``flow`` — flow.yaml scheme (the default)
+      - ``free-roam`` — the reserved scheme; any column is reachable
+      - ``backend`` — the adapter's own lifecycle (e.g. Hermes ready/blocked/done)
+      - ``free`` — current column not modeled by the scheme → free movement
+
+    ``force=true`` on ``move_card`` overrides the scheme + WIP checks.  The override is
+    ALWAYS recorded in the change-log — it's for unblocking, never routine.
+    """
+    return json.dumps(
+        {
+            "list_transitions": {
+                "args": {
+                    "card_id": "str",
+                    "board_id": "str|null — default board if unset",
+                },
+                "returns": {
+                    "card_id": "str",
+                    "board_id": "str",
+                    "current_column_id": "str|null",
+                    "scheme": "str|null — the card's ext[kanban_pro.scheme], if set",
+                    "resolved_scheme": "str|null — what actually applied"
+                    " (free-roam = unrestricted)",
+                    "source": "str — flow|free-roam|backend|free",
+                    "options": "list[{column_id: str, name: str}] — valid targets for move_card",
+                    "note": "str|null",
+                },
+            },
+            "move_card": {
+                "args": {
+                    "card_id": "str",
+                    "to_board_id": "str — must equal an existing placement's board_id",
+                    "to_column_id": "str — must be in list_transitions().options or use force",
+                    "position": "int (default 0)",
+                    "force": "bool (default false) — override scheme + WIP"
+                    " (recorded in change-log)",
+                },
+                "returns": "Card — with updated placement",
+            },
+            "flows": {
+                "discovery": "list_flows() — all schemes, states, transitions, and the default",
+                "scheme_selection": "card ext['kanban_pro.scheme'] = 'docs'|'free-roam'"
+                " — per-card override; unset = config default",
+            },
+        },
+        indent=2,
+    )
+
+
+@mcp.resource("kanban://domain")
+async def domain_resource() -> str:
+    """The canonical domain model: types, conventions, and ext namespaces.
+
+    ``Card`` is the unit of work.  A card's ``placements[]`` (≥1) is where it lives —
+    one placement per board.  ``ext`` is free-form metadata; these namespaces are reserved:
+
+    | key | owner | meaning |
+    |---|---|---|
+    | ``kanban_pro.scheme`` | flow engine | workflow scheme name (see kanban://workflow) |
+    | ``kanban_pro.attention`` | attention signal | ``{reason, raised_by, for}`` |
+    | ``kanban_pro.migrated_from`` | migration | provenance ``\"<profile>/<board-id>\"`` |
+    | ``hermes`` | hermes adapter | backend-specific fields |
+    | ``work`` | kanban-dispatcher | ``{log, attempts, quota_hits, retry_at}`` |
+
+    Patches (``CardPatch``, ``BoardPatch``, …) are PARTIAL UPDATES: only set fields
+    apply.  ``ext`` is a SHALLOW MERGE: patch keys → stored dict; a key set to None
+    is REMOVED.  This protects concurrent writers from clobbering each other's ext data.
+    """
+    return json.dumps(
+        {
+            "Card": {
+                "id": "str — unique, server-assigned",
+                "title": "str — required",
+                "description": "str|null",
+                "placements": "list[{board_id, column_id, position}] — ≥1 required on create",
+                "assignees": "list[str] — user/profile ids (e.g. agent:prepare)",
+                "labels": "list[str] — label ids (board-scoped)",
+                "checklists": "list[{id, title, items: [{text, done}]}]",
+                "attachments": "list[{url, title}] — link-only",
+                "archived": "bool — soft-delete (archive first, then delete)",
+                "created_at": "iso8601|null",
+                "updated_at": "iso8601|null",
+                "ext": "dict — free-form (see namespaces above)",
+            },
+            "CardPatch": {
+                "title": "str|null — set to change, omit to leave untouched",
+                "description": "str|null",
+                "assignees": "list[str]|null — replace the entire list",
+                "ext": "dict|null — SHALLOW MERGE (null = no-op, {'key': None} = remove key)",
+            },
+            "Comment": {
+                "id": "str",
+                "card_id": "str",
+                "author": "str — user id (agent:prepare, human:jan, …)",
+                "body": "str — markdown",
+                "created_at": "iso8601|null",
+            },
+            "Relation": {
+                "id": "str — '<from_card>-><to_card>'",
+                "kind": "str — parent|child|blocks|blocked_by|relates|duplicates|precedes|follows",
+                "from_card": "str — card id",
+                "to_card": "str — card id",
+            },
+            "Column": {
+                "id": "str — e.g. 'default:done'",
+                "name": "str — human-readable",
+                "category": "str — triage|backlog|unstarted|started|done|canceled",
+                "wip_limit": "int|null",
+                "order": "int — display order",
+            },
+            "Board": {
+                "id": "str — slug (e.g. 'default')",
+                "name": "str",
+                "columns": "list[Column]",
+                "labels": "list[{id, name, color}] — board-scoped registry",
+            },
+            "ext_namespaces": {
+                "kanban_pro.*": "reserved for kanban-pro features — never set by app code",
+                "hermes": "hermes adapter backend fields",
+                "work": "kanban-dispatcher runtime state (log, attempts, quota_hits, retry_at)",
+                "<backend>": "each adapter gets its own namespace",
+            },
+        },
+        indent=2,
+    )
 
 
 def _launch_command() -> list[str]:
