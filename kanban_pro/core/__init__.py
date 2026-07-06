@@ -9,7 +9,7 @@ roadmap (v1/v2).
 from __future__ import annotations
 
 from kanban_pro.core.augment import AugmentingBackend, fulfilments
-from kanban_pro.core.changelog import ChangeEvent, ChangeLog
+from kanban_pro.core.changelog import ChangeEvent, ChangeLog, WaitResult
 from kanban_pro.core.dedupe import DedupeStore
 from kanban_pro.core.flow import (
     FREE_ROAM,
@@ -35,6 +35,7 @@ __all__ = [
     "FlowConfig",
     "RecordingBackend",
     "TransitionInfo",
+    "WaitResult",
     "WorkItem",
     "WorkQueue",
     "fulfilments",

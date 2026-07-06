@@ -50,6 +50,13 @@ class ChangeEvent(BaseModel):
         return f"{self.entity}.{self.op}"
 
 
+class WaitResult(BaseModel):
+    """Long-poll answer: new events (empty on timeout) + the cursor to resume from."""
+
+    cursor: int
+    events: list[ChangeEvent]
+
+
 class ChangeLog:
     """Append-only event store. `db_path=None` -> in-memory (ephemeral profiles/tests).
 
@@ -104,6 +111,26 @@ class ChangeLog:
             assert cur.lastrowid is not None
             self._wake()
             return event.model_copy(update={"seq": cur.lastrowid})
+
+    async def wait_since(self, cursor: int, timeout: float, limit: int = 100) -> WaitResult:
+        """Long-poll: return as soon as events exist past `cursor`, else after `timeout`.
+
+        `cursor < 0` is a PROBE: returns the current head immediately with no events —
+        how a consumer joins at the tail without replaying history. Same-process
+        appends wake instantly; foreign-process writes surface within the ~2s re-check.
+        """
+        if cursor < 0:
+            head = await self.head()
+            return WaitResult(cursor=head, events=[])
+        deadline = asyncio.get_running_loop().time() + max(timeout, 0.0)
+        while True:
+            events = await self.since(cursor, limit)
+            if events:
+                return WaitResult(cursor=events[-1].seq, events=events)
+            remaining = deadline - asyncio.get_running_loop().time()
+            if remaining <= 0:
+                return WaitResult(cursor=cursor, events=[])
+            await self.wait_for_change(min(2.0, remaining))
 
     async def head(self) -> int:
         """The newest seq (0 when empty) — snapshot consumers resume SSE from here."""

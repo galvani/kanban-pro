@@ -411,6 +411,23 @@ async def list_changes(since: int = 0, limit: int = 100) -> list[core.ChangeEven
     return await backend.changelog.since(since, min(max(limit, 1), 500))
 
 
+@mcp.tool(annotations=_RO)
+async def wait_changes(
+    since: int = -1, timeout_seconds: int = 25, limit: int = 100
+) -> core.WaitResult:
+    """Long-poll change feed: returns AS SOON AS events exist after cursor `since`
+    (instant for writes through this server; other processes within ~2s), or empty
+    after timeout_seconds. `since=-1` probes the current cursor without replaying
+    history — call that once, then loop with the returned cursor. Push semantics
+    without polling loops."""
+    backend = await _get_backend()
+    if not isinstance(backend, core.RecordingBackend):
+        raise ToolError("not_supported: change-log is not wired for this backend")
+    return await backend.changelog.wait_since(
+        since, float(min(max(timeout_seconds, 0), 60)), min(max(limit, 1), 500)
+    )
+
+
 # --- resources ---
 
 

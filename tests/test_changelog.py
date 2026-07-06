@@ -106,3 +106,37 @@ async def _reads_and_failures() -> None:
     with pytest.raises(NotFound):  # failed write -> nothing recorded
         await be.move_card("missing", board.id, "col", 0)
     assert [e.kind for e in await log.since(0)] == ["board.created"]
+
+
+def test_wait_since_longpoll() -> None:
+    asyncio.run(_wait_since())
+
+
+async def _wait_since() -> None:
+    log = ChangeLog()
+    seeded = await log.append(ChangeEvent(actor="a", entity="card", entity_id="c1", op="created"))
+
+    probe = await log.wait_since(-1, timeout=5)  # join at the tail, no replay
+    assert (probe.cursor, probe.events) == (seeded.seq, [])
+
+    # events already pending -> returns immediately with them
+    ready = await log.wait_since(0, timeout=5)
+    assert [e.seq for e in ready.events] == [seeded.seq]
+    assert ready.cursor == seeded.seq
+
+    # nothing pending -> blocks, wakes INSTANTLY on a same-process append
+    async def append_soon() -> None:
+        await asyncio.sleep(0.05)
+        await log.append(ChangeEvent(actor="b", entity="card", entity_id="c2", op="moved"))
+
+    start = asyncio.get_running_loop().time()
+    task = asyncio.create_task(append_soon())
+    woken = await log.wait_since(probe.cursor, timeout=5)
+    elapsed = asyncio.get_running_loop().time() - start
+    await task
+    assert [e.op for e in woken.events] == ["moved"]
+    assert elapsed < 1.0  # woke on the append, not the timeout
+
+    # timeout path: empty result, cursor unchanged
+    idle = await log.wait_since(woken.cursor, timeout=0.1)
+    assert (idle.cursor, idle.events) == (woken.cursor, [])

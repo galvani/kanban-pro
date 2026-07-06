@@ -86,5 +86,6 @@ yourself implementing, stop and create a card instead.
 - `update_board(board_id, patch)` — Partially update a board — only the fields set in `patch` are applied.
 - `update_card(card_id, patch)` — Partially update a card — only the fields set in `patch` are applied.
 - `update_column(column_id, patch)` — Partially update a column (rename, reorder via `order`, set `wip_limit`...).
+- `wait_changes(since?, timeout_seconds?, limit?)` — Long-poll change feed: returns AS SOON AS events exist after cursor `since`
 
 <!-- /generated:tool-reference -->
