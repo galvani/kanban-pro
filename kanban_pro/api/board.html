@@ -175,7 +175,7 @@
 
 <script>
 /* Push-fed board: one snapshot per board switch, then SSE deltas. No polling timers. */
-let boardId = null, cursor = 0, es = null, refreshTimer = null, detailRefreshTimer = null, openCardId = null, knownAssignees = [], maxRetries = 5;
+let boardId = null, cursor = 0, es = null, refreshTimer = null, detailRefreshTimer = null, openCardId = null, knownAssignees = [], reportRequiredByAssignee = {}, maxRetries = 5;
 
 const $ = id => document.getElementById(id);
 const api = async (path, opts) => {
@@ -197,6 +197,7 @@ async function loadMeta() {
   $("profile").textContent = "profile: " + m.profile;
   $("actor").textContent = "actor: " + m.actor;
   knownAssignees = m.known_assignees || [];
+  reportRequiredByAssignee = m.report_required_by_assignee || {};
   maxRetries = m.max_retries || 5;
 }
 
@@ -409,18 +410,58 @@ function renderReportList(title, rows, cardId, kind) {
   }).join("") + `</section>`;
 }
 
-function renderWorkReport(report, cardId) {
-  if (!report || typeof report !== "object" || !Object.keys(report).length) return "";
+const REPORT_SECTION_LABELS = {
+  about: "About",
+  questions: "Questions",
+  findings: "Findings",
+  plan: "Plan",
+  needs: "Needs",
+  checks: "Checks",
+  analysis_log: "Analysis",
+  verdict: "Verdict",
+  handoff: "Handoff",
+};
+
+function isReportSectionEmpty(value) {
+  if (value === null || value === undefined || value === "") return true;
+  if (Array.isArray(value)) return value.length === 0;
+  if (typeof value === "object") return Object.keys(value).length === 0;
+  return false;
+}
+
+function renderReportValue(title, value, cardId, kind) {
+  if (isReportSectionEmpty(value)) return "";
+  if (Array.isArray(value)) return renderReportList(title, value, cardId, kind);
+  return `<section class="reportSec"><h4>${esc(title)}</h4>${md(reportText(value))}</section>`;
+}
+
+function reportRequiredFor(card) {
+  const out = new Set();
+  for (const assignee of (card.assignees || [])) {
+    const raw = String(assignee);
+    const bare = raw.split(":").pop();
+    for (const key of [raw, bare, "agent:" + bare]) {
+      for (const section of (reportRequiredByAssignee[key] || [])) out.add(section);
+    }
+  }
+  return [...out];
+}
+
+function renderWorkReport(report, cardId, requiredSections = []) {
+  report = report && typeof report === "object" ? report : {};
+  if (!Object.keys(report).length && !requiredSections.length) return "";
   const parts = [];
-  if (report.about) parts.push(`<section class="reportSec"><h4>About</h4>${md(reportText(report.about))}</section>`);
-  parts.push(renderReportList("Questions", report.questions, cardId, "questions"));
-  parts.push(renderReportList("Findings", report.findings, cardId, "findings"));
-  parts.push(renderReportList("Plan", report.plan, cardId, "plan"));
-  parts.push(renderReportList("Needs", report.needs, cardId, "needs"));
-  parts.push(renderReportList("Checks", report.checks, cardId, "checks"));
-  parts.push(renderReportList("Analysis", report.analysis_log, cardId, "analysis_log"));
-  if (report.verdict) parts.push(`<section class="reportSec"><h4>Verdict</h4>${md(reportText(report.verdict))}</section>`);
-  if (report.handoff) parts.push(`<section class="reportSec"><h4>Handoff</h4>${md(reportText(report.handoff))}</section>`);
+  const missing = requiredSections.filter(section => isReportSectionEmpty(report[section]));
+  if (missing.length) {
+    parts.push(`<section class="reportSec"><h4>Required by route</h4><div style="color:var(--danger)">Missing: ${missing.map(s => esc(REPORT_SECTION_LABELS[s] || s)).join(", ")}</div></section>`);
+  }
+  const known = new Set(Object.keys(REPORT_SECTION_LABELS));
+  for (const section of Object.keys(REPORT_SECTION_LABELS)) {
+    parts.push(renderReportValue(REPORT_SECTION_LABELS[section], report[section], cardId, section));
+  }
+  for (const [section, value] of Object.entries(report)) {
+    if (!known.has(section)) parts.push(renderReportValue(section, value, cardId, section));
+  }
   const html = parts.filter(Boolean).join("");
   return html ? `<h4>Work report</h4>${html}` : "";
 }
@@ -530,7 +571,7 @@ async function openCard(id) {
   }
 
   $("dlgDesc").innerHTML = md(card.description || "");
-  $("dlgWorkReport").innerHTML = renderWorkReport((card.ext || {}).work_report, id);
+  $("dlgWorkReport").innerHTML = renderWorkReport((card.ext || {}).work_report, id, reportRequiredFor(card));
 
   /* Build info (surfaced from ext — visible without opening raw ext) */
   const ext = card.ext || {};

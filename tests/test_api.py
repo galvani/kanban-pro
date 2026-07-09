@@ -44,6 +44,7 @@ async def _snapshot_move_comment_feed() -> None:
         meta = (await client.get("/api/meta")).json()
         assert meta["actor"] == "human:test"
         assert meta["capabilities"]["wip_limits"] == "polyfilled"
+        assert "report_required_by_assignee" in meta
 
         snap = (await client.get(f"/api/boards/{board.id}")).json()
         assert [c["title"] for c in snap["cards"]] == ["T"]

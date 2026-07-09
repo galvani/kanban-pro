@@ -244,6 +244,7 @@ def create_app(
         # known assignees from the dispatcher routing table
         routing_path = Path.home() / "workspace" / "kanban-dispatcher" / "routing.yaml"
         known_assignees: list[str] = []
+        report_required_by_assignee: dict[str, list[str]] = {}
         max_retries = 5
         if routing_path.exists():
             try:
@@ -254,6 +255,11 @@ def create_app(
                     ma = (route.get("match") or {}).get("assignee")
                     if ma:
                         known_assignees.append(ma)
+                        required = route.get("report_required") or []
+                        if isinstance(required, list):
+                            report_required_by_assignee[ma] = [
+                                str(section) for section in required if section
+                            ]
                 max_retries = raw.get("defaults", {}).get("max_retries", 5)
             except Exception:
                 pass
@@ -261,6 +267,7 @@ def create_app(
             "profile": profile or "default",
             "actor": actor or "unknown",
             "known_assignees": known_assignees,
+            "report_required_by_assignee": report_required_by_assignee,
             "max_retries": max_retries,
             "capabilities": {
                 cap.name.lower(): f.name.lower() for cap, f in core.fulfilments(be).items()
