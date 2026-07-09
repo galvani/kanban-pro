@@ -249,12 +249,27 @@ def create_app(
         routing_path = Path.home() / "workspace" / "kanban-dispatcher" / "routing.yaml"
         known_assignees: list[str] = []
         report_required_by_assignee: dict[str, list[str]] = {}
+        report_section_order: list[str] = [
+            "about",
+            "needs",
+            "questions",
+            "verdict",
+            "plan",
+            "findings",
+            "checks",
+            "analysis_log",
+            "handoff",
+        ]
+        report_section_order_by_assignee: dict[str, list[str]] = {}
         max_retries = 5
         if routing_path.exists():
             try:
                 import yaml as _yaml
 
                 raw = _yaml.safe_load(routing_path.read_text()) or {}
+                default_order = (raw.get("defaults") or {}).get("report_section_order") or []
+                if isinstance(default_order, list) and default_order:
+                    report_section_order = [str(section) for section in default_order if section]
                 for route in raw.get("routes") or []:
                     ma = (route.get("match") or {}).get("assignee")
                     if ma:
@@ -264,6 +279,11 @@ def create_app(
                             report_required_by_assignee[ma] = [
                                 str(section) for section in required if section
                             ]
+                        order = route.get("report_section_order") or []
+                        if isinstance(order, list) and order:
+                            report_section_order_by_assignee[ma] = [
+                                str(section) for section in order if section
+                            ]
                 max_retries = raw.get("defaults", {}).get("max_retries", 5)
             except Exception:
                 pass
@@ -272,6 +292,8 @@ def create_app(
             "actor": actor or "unknown",
             "known_assignees": known_assignees,
             "report_required_by_assignee": report_required_by_assignee,
+            "report_section_order": report_section_order,
+            "report_section_order_by_assignee": report_section_order_by_assignee,
             "max_retries": max_retries,
             "capabilities": {
                 cap.name.lower(): f.name.lower() for cap, f in core.fulfilments(be).items()

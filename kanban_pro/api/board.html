@@ -58,10 +58,13 @@
   .comment .who { font-size: 11px; color: var(--dim); }
   .attention { background: #3a2b12; border: 1px solid #8a6d1f; border-radius: 8px;
                padding: 8px 12px; margin: 10px 0; font-size: 13px; }
-  .metaGrid { display: grid; grid-template-columns: max-content 1fr; gap: 3px 14px;
-              font-size: 12px; margin: 8px 0; }
-  .metaGrid dt { color: var(--dim); }
-  .metaGrid dd { margin: 0; word-break: break-all; }
+  .metaGrid { display: flex; align-items: center; gap: 12px; font-size: 12px;
+              margin: 8px 0; overflow: hidden; white-space: nowrap; }
+  .metaGrid .mi { display: inline-flex; align-items: center; gap: 5px; min-width: 0; }
+  .metaGrid .mk { color: var(--dim); flex: none; }
+  .metaGrid .mv { min-width: 0; max-width: 170px; overflow: hidden; text-overflow: ellipsis; }
+  .metaGrid .mi.wide .mv { max-width: 230px; }
+  .metaGrid button { padding: 3px 9px; font-size: 12px; }
   .moveBtns { display: flex; gap: 6px; flex-wrap: wrap; }
   .moveBtns button { background: var(--card); border: 1px solid var(--border);
                      color: var(--text); font-size: 12px; padding: 4px 10px; }
@@ -175,7 +178,7 @@
 
 <script>
 /* Push-fed board: one snapshot per board switch, then SSE deltas. No polling timers. */
-let boardId = null, cursor = 0, es = null, refreshTimer = null, detailRefreshTimer = null, openCardId = null, knownAssignees = [], reportRequiredByAssignee = {}, maxRetries = 5;
+let boardId = null, cursor = 0, es = null, refreshTimer = null, detailRefreshTimer = null, openCardId = null, knownAssignees = [], reportRequiredByAssignee = {}, reportSectionOrder = [], reportSectionOrderByAssignee = {}, maxRetries = 5;
 
 const $ = id => document.getElementById(id);
 const api = async (path, opts) => {
@@ -198,6 +201,8 @@ async function loadMeta() {
   $("actor").textContent = "actor: " + m.actor;
   knownAssignees = m.known_assignees || [];
   reportRequiredByAssignee = m.report_required_by_assignee || {};
+  reportSectionOrder = m.report_section_order || [];
+  reportSectionOrderByAssignee = m.report_section_order_by_assignee || {};
   maxRetries = m.max_retries || 5;
 }
 
@@ -447,7 +452,19 @@ function reportRequiredFor(card) {
   return [...out];
 }
 
-function renderWorkReport(report, cardId, requiredSections = []) {
+function reportSectionOrderFor(card) {
+  for (const assignee of (card.assignees || [])) {
+    const raw = String(assignee);
+    const bare = raw.split(":").pop();
+    for (const key of [raw, bare, "agent:" + bare]) {
+      const order = reportSectionOrderByAssignee[key];
+      if (Array.isArray(order) && order.length) return order;
+    }
+  }
+  return reportSectionOrder.length ? reportSectionOrder : Object.keys(REPORT_SECTION_LABELS);
+}
+
+function renderWorkReport(report, cardId, requiredSections = [], sectionOrder = Object.keys(REPORT_SECTION_LABELS)) {
   report = report && typeof report === "object" ? report : {};
   if (!Object.keys(report).length && !requiredSections.length) return "";
   const parts = [];
@@ -456,7 +473,8 @@ function renderWorkReport(report, cardId, requiredSections = []) {
     parts.push(`<section class="reportSec"><h4>Required by route</h4><div style="color:var(--danger)">Missing: ${missing.map(s => esc(REPORT_SECTION_LABELS[s] || s)).join(", ")}</div></section>`);
   }
   const known = new Set(Object.keys(REPORT_SECTION_LABELS));
-  for (const section of Object.keys(REPORT_SECTION_LABELS)) {
+  const ordered = [...sectionOrder, ...Object.keys(REPORT_SECTION_LABELS)].filter((section, index, list) => list.indexOf(section) === index);
+  for (const section of ordered) {
     parts.push(renderReportValue(REPORT_SECTION_LABELS[section], report[section], cardId, section));
   }
   for (const [section, value] of Object.entries(report)) {
@@ -508,8 +526,7 @@ async function openCard(id) {
   const att = (card.ext || {})["kanban_pro.attention"];
   $("dlgAttention").innerHTML = att
     ? `<div class="attention">⚠️ <b>needs attention</b> — ${esc(att.reason)}<br>
-       <span style="color:var(--dim)">raised by ${esc(att.raised_by || "?")}${att.for ? " · for " + esc(att.for) : ""}</span>
-       <div style="margin-top:8px"><button type="button" onclick="retryCard('${esc(id)}')">Retry</button></div></div>`
+       <span style="color:var(--dim)">raised by ${esc(att.raised_by || "?")}${att.for ? " · for " + esc(att.for) : ""}</span></div>`
     : "";
 
   const fmt = ts => ts ? new Date(ts).toLocaleString() : "—";
@@ -545,10 +562,11 @@ async function openCard(id) {
   if (sess.log || (work && work.log))
     rows.push(["session log",
       `<button class="linkbtn" onclick="openLog('${esc(id)}', ${running})">${running ? "▶ watch live" : "view log"} ↗</button>`, true]);
+  if (att) rows.push(["action", `<button type="button" onclick="retryCard('${esc(id)}')">Retry</button>`, true]);
   const hermes = (card.ext || {}).hermes;
   if (hermes && hermes.priority != null) rows.push(["priority", String(hermes.priority)]);
   $("dlgGrid").innerHTML = rows.map(([k, v, raw]) =>
-    `<dt>${esc(k)}</dt><dd>${raw ? v : esc(v)}</dd>`).join("");
+    `<span class="mi${k === "assignees" || k === "session log" ? " wide" : ""}"><span class="mk">${esc(k)}</span><span class="mv" title="${esc(String(v).replace(/<[^>]*>/g, ""))}">${raw ? v : esc(v)}</span></span>`).join("");
   /* wire up assignee dropdown (only present when knownAssignees is non-empty) */
   const dlgAssign = $("dlgAssignee");
   if (dlgAssign) dlgAssign.onchange = async () => {
@@ -584,7 +602,7 @@ async function openCard(id) {
   }
 
   $("dlgDesc").innerHTML = md(card.description || "");
-  $("dlgWorkReport").innerHTML = renderWorkReport((card.ext || {}).work_report, id, reportRequiredFor(card));
+  $("dlgWorkReport").innerHTML = renderWorkReport((card.ext || {}).work_report, id, reportRequiredFor(card), reportSectionOrderFor(card));
 
   /* Build info (surfaced from ext — visible without opening raw ext) */
   const ext = card.ext || {};
