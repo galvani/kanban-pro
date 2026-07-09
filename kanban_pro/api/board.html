@@ -4,6 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>kanban-pro</title>
+<!-- inline SVG favicon: three kanban lanes in the app palette (accent/ok/dim) -->
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2032%2032'%3E%3Crect%20width='32'%20height='32'%20rx='7'%20fill='%231d2026'/%3E%3Crect%20x='5'%20y='7'%20width='6'%20height='18'%20rx='2'%20fill='%234f8cff'/%3E%3Crect%20x='13'%20y='7'%20width='6'%20height='11'%20rx='2'%20fill='%233fb96b'/%3E%3Crect%20x='21'%20y='7'%20width='6'%20height='15'%20rx='2'%20fill='%238a919e'/%3E%3C/svg%3E">
+
 <style>
   :root {
     --bg: #14161a; --panel: #1d2026; --card: #262a32; --card-hover: #2d323c;
@@ -36,17 +39,22 @@
   .card .t { font-weight: 500; word-break: break-word; }
   .card .sub { margin-top: 4px; font-size: 11px; color: var(--dim);
                display: flex; gap: 6px; flex-wrap: wrap; }
+  .card .preview { margin-top: 4px; font-size: 11px; color: var(--dim);
+                   border-left: 2px solid var(--border); padding-left: 6px;
+                   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .chip { background: #1a1d23; border: 1px solid var(--border); border-radius: 10px; padding: 0 7px; }
+  .chip.unknown { background: #3a1f1f; border-color: var(--danger); color: #e5534b; }
+  .chip.unknown::before { content: "⚠️"; margin-right: 2px; }
   dialog { background: var(--panel); color: var(--text); border: 1px solid var(--border);
            border-radius: 12px; width: min(760px, 94vw); max-height: 88vh; overflow-y: auto; }
   dialog::backdrop { background: rgba(0,0,0,.55); }
   dialog .body { padding: 18px 20px; }
   dialog h3 { margin: 0 0 4px; }
-  dialog .desc { white-space: pre-wrap; color: var(--text); margin: 10px 0;
+  dialog .desc { color: var(--text); margin: 10px 0;
                  border-left: 3px solid var(--border); padding-left: 10px; }
   dialog h4 { font-size: 11px; text-transform: uppercase; letter-spacing: .06em;
               color: var(--dim); margin: 16px 0 6px; }
-  .comment { border-top: 1px solid var(--border); padding: 8px 0; white-space: pre-wrap; }
+  .comment { border-top: 1px solid var(--border); padding: 8px 0; }
   .comment .who { font-size: 11px; color: var(--dim); }
   .attention { background: #3a2b12; border: 1px solid #8a6d1f; border-radius: 8px;
                padding: 8px 12px; margin: 10px 0; font-size: 13px; }
@@ -77,6 +85,42 @@
            background: var(--danger); color: white; padding: 8px 16px; border-radius: 8px;
            opacity: 0; transition: opacity .25s; pointer-events: none; max-width: 80vw; }
   #toast.show { opacity: 1; }
+  .chip.live { border-color: var(--ok); color: var(--ok); }
+  button.linkbtn { background: transparent; color: var(--accent); border: 1px solid var(--border);
+                   padding: 2px 8px; font-size: 12px; border-radius: 6px; cursor: pointer; }
+  button.linkbtn:hover { border-color: var(--accent); }
+  /* session-log viewer */
+  #logTitle { display: flex; align-items: center; gap: 10px; }
+  #logLive { font-size: 11px; padding: 1px 8px; border-radius: 10px; font-weight: 600; }
+  #logLive.live { background: #123a1f; color: var(--ok); border: 1px solid #2a6b3f; }
+  #logLive.done { background: #22262e; color: var(--dim); border: 1px solid var(--border); }
+  .logView { font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; background: #14161a;
+             border: 1px solid var(--border); border-radius: 8px; padding: 10px; margin-top: 10px;
+             max-height: 62vh; overflow-y: auto; white-space: pre-wrap; word-break: break-word; }
+  .logView .le { padding: 3px 0; border-top: 1px solid #20242c; }
+  .logView .le:first-child { border-top: 0; }
+  .logView .role { color: var(--dim); font-size: 10px; text-transform: uppercase;
+                   letter-spacing: .05em; margin-right: 6px; }
+  .logView .le.assistant .role { color: var(--accent); }
+  .logView .le.tool_use { color: #cbd6e6; }
+  .logView .le.tool_use .role { color: var(--ok); }
+  .logView .le.tool_result { color: var(--dim); }
+  .logView .le.thinking { color: var(--dim); font-style: italic; }
+  .logView .le.summary { color: var(--dim); }
+  /* rendered markdown (card description + comments) */
+  .md-h { font-size: 13px; font-weight: 600; text-transform: none; letter-spacing: 0;
+          color: var(--text); margin: 12px 0 4px; }
+  h1.md-h { font-size: 15px; } h2.md-h { font-size: 14px; }
+  .md-p { margin: 6px 0; }
+  .md-p:first-child { margin-top: 0; }
+  .md-list { margin: 6px 0; padding-left: 22px; }
+  .md-list li { margin: 2px 0; }
+  .md-ic { background: #14161a; border: 1px solid var(--border); border-radius: 4px;
+           padding: 0 4px; font-family: ui-monospace, monospace; font-size: 12px; }
+  .md-code { background: #14161a; border: 1px solid var(--border); border-radius: 6px;
+             padding: 8px; overflow-x: auto; margin: 8px 0; }
+  .md-code code { font-family: ui-monospace, monospace; font-size: 12px; white-space: pre; }
+  .desc a, .comment a { color: var(--accent); }
 </style>
 </head>
 <body>
@@ -109,11 +153,19 @@
   <div class="activity" id="dlgActivity"></div>
   <details class="ext" id="dlgExt"><summary>ext (raw)</summary><pre id="dlgExtPre"></pre></details>
 </div></dialog>
+
+<dialog id="logDlg"><div class="body">
+  <h3 id="logTitle">session log <span id="logLive"></span></h3>
+  <div class="logView" id="logView"></div>
+  <div style="margin-top:12px;display:flex;justify-content:flex-end">
+    <button id="logClose" class="linkbtn">Close</button>
+  </div>
+</div></dialog>
 <div id="toast"></div>
 
 <script>
 /* Push-fed board: one snapshot per board switch, then SSE deltas. No polling timers. */
-let boardId = null, cursor = 0, es = null, refreshTimer = null, openCardId = null;
+let boardId = null, cursor = 0, es = null, refreshTimer = null, detailRefreshTimer = null, openCardId = null, knownAssignees = [], maxRetries = 5;
 
 const $ = id => document.getElementById(id);
 const api = async (path, opts) => {
@@ -134,6 +186,8 @@ async function loadMeta() {
   const m = await api("/api/meta");
   $("profile").textContent = "profile: " + m.profile;
   $("actor").textContent = "actor: " + m.actor;
+  knownAssignees = m.known_assignees || [];
+  maxRetries = m.max_retries || 5;
 }
 
 async function loadBoards() {
@@ -160,19 +214,82 @@ function cardEl(card) {
   const ext = card.ext || {};
   const chips = [];
   if (ext["kanban_pro.attention"]) chips.push(`<span class="chip" style="border-color:#8a6d1f">⚠️ attention</span>`);
-  for (const a of card.assignees || []) chips.push(`<span class="chip">${esc(a)}</span>`);
+  if (ext._claim) {
+    const hasLog = !!((ext.session || {}).log || (ext.work || {}).log);
+    const who = String(ext._claim.owner).split(":").pop();
+    chips.push(`<span class="chip live" title="claimed by ${esc(ext._claim.owner)}${hasLog ? " · session log linked" : ""}">▶ ${esc(who)}${hasLog ? " 📜" : ""}</span>`);
+  }
+  for (const a of card.assignees || []) {
+    const cls = knownAssignees.includes(a) ? "" : " unknown";
+    chips.push(`<span class="chip${cls}">${esc(a)}</span>`);
+  }
   const prio = (ext.hermes || {}).priority ?? (ext.work || {}).priority;
   if (prio != null && prio !== 0) chips.push(`<span class="chip">p${esc(prio)}</span>`);
   if (ext["kanban_pro.scheme"]) chips.push(`<span class="chip">${esc(ext["kanban_pro.scheme"])}</span>`);
-  const created = age(card.created_at);
+  const work = ext.work || {};
+  const retry = work.retry_at;
+  if (retry) chips.push(`<span class="chip" style="border-color:var(--accent)">📅 ${esc(new Date(retry * 1000).toLocaleString())}</span>`);
+  const created = age(card.updated_at || card.created_at);
   el.innerHTML = `<div class="t">${esc(card.title)}</div>
                   <div class="sub"><span>${esc(card.id.slice(0, 10))}</span>${chips.join("")}
-                  ${created ? `<span style="margin-left:auto">${created}</span>` : ""}</div>`;
+                  ${created ? `<span style="margin-left:auto">${created}</span>` : ""}</div>
+                  ${ext._last_comment ? `<div class="preview">${esc(ext._last_comment)}</div>` : ""}`;
   el.addEventListener("dragstart", ev => ev.dataTransfer.setData("text/plain", card.id));
   el.addEventListener("click", () => openCard(card.id));
   return el;
 }
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+/* Minimal, dependency-free markdown for card descriptions + comments. HTML is escaped
+   FIRST, then a safe subset is applied — headings, bold/italic, inline + fenced code,
+   ordered/unordered lists, [text](url) links and bare URLs (http/https/mailto/relative
+   only). No raw HTML can pass through. Kept small on purpose; not a full CommonMark. */
+function mdInline(s) {                          /* s is already HTML-escaped */
+  const toks = [];
+  const stash = html => `\u0000${toks.push(html) - 1}\u0000`;
+  s = s.replace(/`([^`]+)`/g, (_, c) => stash(`<code class="md-ic">${c}</code>`));
+  s = s.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_, txt, url) =>
+    /^(https?:|mailto:|\/)/.test(url) ? stash(`<a href="${url}" target="_blank" rel="noopener">${txt}</a>`) : `[${txt}](${url})`);
+  s = s.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>").replace(/__([^_]+)__/g, "<strong>$1</strong>");
+  s = s.replace(/(^|[^*])\*([^*\s][^*]*)\*/g, "$1<em>$2</em>").replace(/(^|[^_\w])_([^_\s][^_]*)_/g, "$1<em>$2</em>");
+  s = s.replace(/(^|[\s(])(https?:\/\/[^\s<)]+)/g, (_, pre, url) => pre + stash(`<a href="${url}" target="_blank" rel="noopener">${url}</a>`));
+  return s.replace(/\u0000(\d+)\u0000/g, (_, n) => toks[n]);
+}
+function md(src) {
+  const lines = String(src ?? "").replace(/\r\n?/g, "\n").split("\n");
+  const isBlock = l => /^(#{1,6})\s|^```|^\s*\d+\.\s|^\s*[-*+]\s|^\s*$/.test(l);
+  const out = [];
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    let m;
+    if (/^```/.test(line)) {                    /* fenced code — verbatim, no inline md */
+      const buf = []; i++;
+      while (i < lines.length && !/^```\s*$/.test(lines[i])) buf.push(lines[i++]);
+      i++;                                       /* skip closing fence */
+      out.push(`<pre class="md-code"><code>${esc(buf.join("\n"))}</code></pre>`);
+    } else if ((m = line.match(/^(#{1,6})\s+(.*)$/))) {
+      const n = m[1].length;
+      out.push(`<h${n} class="md-h">${mdInline(esc(m[2]))}</h${n}>`);
+      i++;
+    } else if (/^\s*\d+\.\s+/.test(line)) {
+      const items = [];
+      while (i < lines.length && /^\s*\d+\.\s+/.test(lines[i])) items.push(lines[i++].replace(/^\s*\d+\.\s+/, ""));
+      out.push(`<ol class="md-list">${items.map(t => `<li>${mdInline(esc(t))}</li>`).join("")}</ol>`);
+    } else if (/^\s*[-*+]\s+/.test(line)) {
+      const items = [];
+      while (i < lines.length && /^\s*[-*+]\s+/.test(lines[i])) items.push(lines[i++].replace(/^\s*[-*+]\s+/, ""));
+      out.push(`<ul class="md-list">${items.map(t => `<li>${mdInline(esc(t))}</li>`).join("")}</ul>`);
+    } else if (/^\s*$/.test(line)) {
+      i++;
+    } else {                                     /* paragraph: gather until blank/block */
+      const para = [];
+      while (i < lines.length && !isBlock(lines[i])) para.push(mdInline(esc(lines[i++])));
+      out.push(`<p class="md-p">${para.join("<br>")}</p>`);
+    }
+  }
+  return out.join("");
+}
 
 async function refresh() {
   if (!boardId) return;
@@ -220,6 +337,14 @@ function scheduleRefresh() {           /* debounce bursts of pushed events */
   refreshTimer = setTimeout(refresh, 150);
 }
 
+function scheduleOpenCardRefresh() {    /* keep an already-open detail dialog live */
+  if (!openCardId) return;
+  clearTimeout(detailRefreshTimer);
+  detailRefreshTimer = setTimeout(() => {
+    if (openCardId) openCard(openCardId);
+  }, 150);
+}
+
 function connect() {
   if (es) return;
   es = new EventSource(`/api/events?since=${cursor}`);
@@ -229,9 +354,13 @@ function connect() {
     cursor = Math.max(cursor, Number(msg.lastEventId) || 0);
     const ev = JSON.parse(msg.data);
     /* refresh when the event touches this board — or when we can't tell */
-    if (!ev.board_id || ev.board_id === boardId || ev.entity !== "board") scheduleRefresh();
-    if (openCardId && (ev.entity_id === openCardId || ev.data?.card_id === openCardId))
-      openCard(openCardId);
+    const relevant = !ev.board_id || ev.board_id === boardId || ev.entity !== "board";
+    if (relevant) {
+      scheduleRefresh();
+      scheduleOpenCardRefresh();
+    }
+    /* agent let go of the card we're tailing -> its session is done, stop live polling */
+    if (logCardId && ev.entity_id === logCardId && ev.op === "released") stopLogPolling();
   };
 }
 
@@ -263,22 +392,56 @@ async function openCard(id) {
 
   const fmt = ts => ts ? new Date(ts).toLocaleString() : "—";
   const provenance = (card.ext || {})["kanban_pro.migrated_from"];
+
+  /* assignee picker: dropdown from knownAssignees, saves on change */
+  function assigneeHtml() {
+    const current = (card.assignees || [])[0] || "";
+    if (!knownAssignees.length) return esc(current || "unassigned");
+    const opts = knownAssignees.map(a =>
+      `<option value="${esc(a)}"${a === current ? " selected" : ""}>${esc(a)}</option>`
+    );
+    opts.unshift(`<option value=""${!current ? " selected" : ""}>— unassigned —</option>`);
+    return `<select id="dlgAssignee">${opts.join("")}</select>`;
+  }
+
   const rows = [
-    ["assignees", (card.assignees || []).join(", ") || "unassigned"],
+    ["assignees", assigneeHtml(), true],
     ["column", trans && trans.current_column_id ? trans.current_column_id : (card.placements[0] || {}).column_id],
     ["created", fmt(card.created_at)], ["updated", fmt(card.updated_at)],
   ];
   if (provenance) rows.push(["migrated from", provenance]);
   const work = (card.ext || {}).work;
-  if (work && work.attempts) rows.push(["dispatch attempts", String(work.attempts)]);
-  if (work && work.log)
-    rows.push(["worker log", `<a href="/api/cards/${esc(id)}/worker-log" target="_blank">view ↗</a>`, true]);
+  if (work && work.attempts) {
+    const exhausted = work.attempts >= maxRetries;
+    const warn = exhausted ? ` <span style="color:var(--danger);font-weight:600">⚠️ exhausted (${work.attempts}/${maxRetries})</span>` : "";
+    rows.push(["dispatch attempts", String(work.attempts) + warn, true]);
+  }
+  if (work && work.retry_at) rows.push(["retry at", new Date(work.retry_at * 1000).toLocaleString()]);
+  const sess = (card.ext || {}).session || {};
+  const running = !!d.claim;   // a live claim == an agent is working it right now
+  if (d.claim) rows.push(["claimed by", `${d.claim.owner} · lease until ${fmt(d.claim.expires_at)}`]);
+  if (sess.log || (work && work.log))
+    rows.push(["session log",
+      `<button class="linkbtn" onclick="openLog('${esc(id)}', ${running})">${running ? "▶ watch live" : "view log"} ↗</button>`, true]);
   const hermes = (card.ext || {}).hermes;
   if (hermes && hermes.priority != null) rows.push(["priority", String(hermes.priority)]);
   $("dlgGrid").innerHTML = rows.map(([k, v, raw]) =>
     `<dt>${esc(k)}</dt><dd>${raw ? v : esc(v)}</dd>`).join("");
+  /* wire up assignee dropdown (only present when knownAssignees is non-empty) */
+  const dlgAssign = $("dlgAssignee");
+  if (dlgAssign) dlgAssign.onchange = async () => {
+    const assignees = dlgAssign.value ? [dlgAssign.value] : [];
+    try {
+      await api(`/api/cards/${id}`, {
+        method: "PATCH", headers: {"content-type": "application/json"},
+        body: JSON.stringify({assignees}),
+      });
+      toast("assignee saved");
+    } catch (e) { toast(e.message); }
+  };
 
   $("dlgMoves").innerHTML = "";
+  document.querySelectorAll("#cardDlg .buildInfo").forEach(el => el.remove());
   for (const opt of (trans ? trans.options : [])) {
     const b = document.createElement("button");
     b.textContent = opt.name;
@@ -298,7 +461,22 @@ async function openCard(id) {
     $("dlgMoves").appendChild(n);
   }
 
-  $("dlgDesc").textContent = card.description || "";
+  $("dlgDesc").innerHTML = md(card.description || "");
+
+  /* Build info (surfaced from ext — visible without opening raw ext) */
+  const ext = card.ext || {};
+  const buildRows = [];
+  if (ext.verify) buildRows.push(`<dt>verify</dt><dd>${esc(ext.verify)}</dd>`);
+  if (ext.branch) buildRows.push(`<dt>branch</dt><dd>${esc(ext.branch)}</dd>`);
+  if (ext.diffstat) buildRows.push(`<dt>diffstat</dt><dd style="white-space:pre-wrap">${esc(ext.diffstat)}</dd>`);
+  if (ext.changes && Array.isArray(ext.changes)) buildRows.push(`<dt>changes</dt><dd>${esc(ext.changes.join("; "))}</dd>`);
+  if (ext.notes) buildRows.push(`<dt style="color:var(--danger)">notes</dt><dd style="color:var(--danger)">${esc(ext.notes)}</dd>`);
+  if (buildRows.length) {
+    const sec = document.createElement("div");
+    sec.className = "buildInfo";
+    sec.innerHTML = `<h4>Build</h4><dl class="metaGrid">${buildRows.join("")}</dl>`;
+    $("dlgMoves").after(sec);
+  }
 
   $("dlgRelations").innerHTML = (d.relations || []).length
     ? `<h4>Relations</h4>` + d.relations.map(r =>
@@ -307,7 +485,7 @@ async function openCard(id) {
     : "";
 
   $("dlgComments").innerHTML = d.comments.map(c =>
-    `<div class="comment"><div class="who">${esc(c.author)} · ${c.created_at ? new Date(c.created_at).toLocaleString() : ""}</div>${esc(c.body)}</div>`
+    `<div class="comment"><div class="who">${esc(c.author)} · ${c.created_at ? new Date(c.created_at).toLocaleString() : ""}</div>${md(c.body)}</div>`
   ).join("") || `<div class="comment" style="color:var(--dim)">no comments</div>`;
 
   $("dlgActivity").innerHTML = [...activity].reverse().map(e => {
@@ -319,14 +497,69 @@ async function openCard(id) {
             <span class="who">${esc(e.actor)}</span><span>${what}</span></div>`;
   }).join("") || `<div style="color:var(--dim)">no recorded activity</div>`;
 
-  const ext = card.ext || {};
   $("dlgExt").style.display = Object.keys(ext).length ? "" : "none";
   $("dlgExtPre").textContent = JSON.stringify(ext, null, 2);
 
   const dlg = $("cardDlg");
   if (!dlg.open) dlg.showModal();
 }
-$("cardDlg").addEventListener("close", () => { openCardId = null; });
+$("cardDlg").addEventListener("close", () => {
+  openCardId = null;
+  clearTimeout(detailRefreshTimer);
+  detailRefreshTimer = null;
+});
+
+/* --- session-log viewer: tail an agent's log; live-poll while its claim is held --- */
+let logCardId = null, logOffset = 0, logTimer = null;
+
+function logEntryEl(e) {
+  const div = document.createElement("div");
+  div.className = "le " + (e.kind || "") + " " + (e.role || "");
+  /* plain .log lines carry no useful role — label call/result, drop the rest;
+     transcript entries keep role (+ kind suffix for tool/thinking). */
+  let label;
+  if (e.role === "log") label = { tool_use: "→ call", tool_result: "← result" }[e.kind] || "";
+  else label = e.role + (e.kind && e.kind !== "text" && e.kind !== "line" ? "/" + e.kind : "");
+  div.innerHTML = (label ? `<span class="role">${esc(label)}</span>` : "") + esc(e.text || "");
+  return div;
+}
+function setLogLive(running) {
+  const b = $("logLive");
+  b.textContent = running ? "LIVE" : "done";
+  b.className = running ? "live" : "done";
+}
+function stopLogPolling() { clearInterval(logTimer); logTimer = null; setLogLive(false); }
+
+async function pollLog(initial) {
+  if (!logCardId) return;
+  let data;
+  try {
+    data = await api(`/api/cards/${logCardId}/session-log?after=${initial ? -1 : logOffset}`);
+  } catch (e) {
+    stopLogPolling();
+    if (initial) $("logView").innerHTML = `<div class="le">could not load log — ${esc(e.message)}</div>`;
+    return;
+  }
+  const view = $("logView");
+  const atBottom = view.scrollHeight - view.scrollTop - view.clientHeight < 40;
+  for (const e of data.entries) view.appendChild(logEntryEl(e));
+  logOffset = data.eof_offset;
+  if (initial && !data.entries.length) view.innerHTML = `<div class="le">log is empty</div>`;
+  if (atBottom || initial) view.scrollTop = view.scrollHeight;
+}
+
+async function openLog(id, running) {
+  logCardId = id; logOffset = 0;
+  clearInterval(logTimer); logTimer = null;
+  $("logView").innerHTML = "";
+  setLogLive(running);
+  const dlg = $("logDlg");
+  if (!dlg.open) dlg.showModal();
+  await pollLog(true);
+  if (running) logTimer = setInterval(() => pollLog(false), 2000);
+}
+$("logClose").onclick = () => $("logDlg").close();
+$("logDlg").addEventListener("close", () => { clearInterval(logTimer); logTimer = null; logCardId = null; });
 $("commentForm").addEventListener("submit", async ev => {
   ev.preventDefault();
   const body = $("commentBody").value.trim();

@@ -10,7 +10,7 @@ import httpx
 from kanban_pro.adapters.memory import MemoryBackend
 from kanban_pro.api import create_app
 from kanban_pro.core import AugmentingBackend, ChangeLog, RecordingBackend
-from kanban_pro.domain import Board, Card, Column, Placement
+from kanban_pro.domain import Board, Card, CardPatch, Column, Placement
 from kanban_pro.ports import KanbanBackend
 
 
@@ -162,34 +162,154 @@ async def _card_detail_endpoints() -> None:
         assert missing.status_code == 404
 
 
-def test_worker_log_endpoint(tmp_path) -> None:  # type: ignore[no-untyped-def]
-    asyncio.run(_worker_log(tmp_path))
+def test_session_log_endpoint(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    asyncio.run(_session_log(tmp_path))
 
 
-async def _worker_log(tmp_path) -> None:  # type: ignore[no-untyped-def]
+async def _session_log(tmp_path) -> None:  # type: ignore[no-untyped-def]
     backend = _stack()
     board, card = await _seed(backend)
-    log = tmp_path / f"{card.id}.log"
-    log.write_text("worker says hi\nline two\n")
     async with _client(backend) as client:
-        missing = await client.get(f"/api/cards/{card.id}/worker-log")
+        missing = await client.get(f"/api/cards/{card.id}/session-log")
         assert missing.status_code == 404  # nothing linked yet
 
-        await backend.update_card(
-            card.id,
-            __import__("kanban_pro.domain", fromlist=["CardPatch"]).CardPatch(
-                ext={"work": {"log": str(log)}}
-            ),
-        )
-        served = await client.get(f"/api/cards/{card.id}/worker-log")
-        assert served.status_code == 200 and "worker says hi" in served.text
+        # dispatcher ext.work.log fallback: a plain .log is served line-wise
+        wlog = tmp_path / f"{card.id}.log"
+        wlog.write_text("worker says hi\nline two\n")
+        await backend.update_card(card.id, CardPatch(ext={"work": {"log": str(wlog)}}))
+        served = (await client.get(f"/api/cards/{card.id}/session-log")).json()
+        assert served["kind"] == "log"
+        assert [e["text"] for e in served["entries"]] == ["worker says hi", "line two"]
 
-        # a linked path outside home/tmp or non-.log is refused
-        await backend.update_card(
-            card.id,
-            __import__("kanban_pro.domain", fromlist=["CardPatch"]).CardPatch(
-                ext={"work": {"log": "/etc/passwd"}}
-            ),
+        # ext.session with a Claude Code transcript takes precedence and is normalised
+        tlog = tmp_path / f"{card.id}.jsonl"
+        tlog.write_text(
+            json.dumps(
+                {
+                    "type": "user",
+                    "message": {"role": "user", "content": "do it"},
+                    "timestamp": "2026-07-08T10:00:00Z",
+                }
+            )
+            + "\n"
+            + json.dumps(
+                {
+                    "type": "assistant",
+                    "message": {
+                        "role": "assistant",
+                        "content": [
+                            {"type": "text", "text": "on it"},
+                            {"type": "tool_use", "name": "Bash", "input": {"command": "ls -la"}},
+                        ],
+                    },
+                    "timestamp": "2026-07-08T10:00:01Z",
+                }
+            )
+            + "\n"
+            + json.dumps(
+                {
+                    "type": "user",
+                    "message": {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "tool_result",
+                                "content": [{"type": "text", "text": "file1 file2"}],
+                            }
+                        ],
+                    },
+                    "timestamp": "2026-07-08T10:00:02Z",
+                }
+            )
+            + "\n"
         )
-        refused = await client.get(f"/api/cards/{card.id}/worker-log")
+        await backend.update_card(
+            card.id, CardPatch(ext={"session": {"log": str(tlog), "kind": "transcript"}})
+        )
+        got = (await client.get(f"/api/cards/{card.id}/session-log")).json()
+        assert got["kind"] == "transcript"
+        kinds = [(e["role"], e["kind"], e["text"]) for e in got["entries"]]
+        assert kinds == [
+            ("user", "text", "do it"),
+            ("assistant", "text", "on it"),
+            ("assistant", "tool_use", "Bash(ls -la)"),
+            ("user", "tool_result", "file1 file2"),
+        ]
+
+        # incremental live-tail: ?after=<eof_offset> returns only what was appended
+        eof = got["eof_offset"]
+        with tlog.open("a") as fh:
+            fh.write(
+                json.dumps(
+                    {
+                        "type": "assistant",
+                        "message": {
+                            "role": "assistant",
+                            "content": [{"type": "text", "text": "done"}],
+                        },
+                        "timestamp": "2026-07-08T10:00:03Z",
+                    }
+                )
+                + "\n"
+            )
+        delta = (await client.get(f"/api/cards/{card.id}/session-log?after={eof}")).json()
+        assert [e["text"] for e in delta["entries"]] == ["done"]
+        assert delta["eof_offset"] > eof
+
+        # a linked path outside home/tmp (or a non-log suffix) is refused
+        await backend.update_card(card.id, CardPatch(ext={"session": {"log": "/etc/passwd"}}))
+        refused = await client.get(f"/api/cards/{card.id}/session-log")
         assert refused.status_code == 404
+
+
+def test_claim_exposed_in_api() -> None:
+    asyncio.run(_claim_exposed())
+
+
+async def _claim_exposed() -> None:
+    backend = _stack()
+    board, card = await _seed(backend)
+    async with _client(backend) as client:
+        # unclaimed: no _claim on the tile, null claim in detail
+        snap = (await client.get(f"/api/boards/{board.id}")).json()
+        assert "_claim" not in (snap["cards"][0]["ext"] or {})
+        assert (await client.get(f"/api/cards/{card.id}")).json()["claim"] is None
+
+        await backend.claim_card(card.id, ttl_seconds=3600, owner="agent:worker")
+
+        snap = (await client.get(f"/api/boards/{board.id}")).json()
+        assert snap["cards"][0]["ext"]["_claim"]["owner"] == "agent:worker"
+        assert (await client.get(f"/api/cards/{card.id}")).json()["claim"][
+            "owner"
+        ] == "agent:worker"
+
+        await backend.release_claim(card.id, owner="agent:worker")
+        assert (await client.get(f"/api/cards/{card.id}")).json()["claim"] is None
+
+
+def test_worker_log_readability(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    asyncio.run(_worker_log_readability(tmp_path))
+
+
+async def _worker_log_readability(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    # A dispatcher .log where each line is JSON-serialized agent I/O: the viewer must
+    # de-escape \n/\" so it reads as text, and tag call/result lines for colouring.
+    backend = _stack()
+    board, card = await _seed(backend)
+    wlog = tmp_path / f"{card.id}.log"
+    wlog.write_text(
+        '[called terminal({"command":"git commit -m \\"x\\"\\nline2"})]\n'
+        'Tool result (terminal): {"output": "ok\\ndone"}\n'
+        "plain narration line\n"
+    )
+    await backend.update_card(
+        card.id, CardPatch(ext={"session": {"log": str(wlog), "kind": "log"}})
+    )
+    async with _client(backend) as client:
+        got = (await client.get(f"/api/cards/{card.id}/session-log")).json()
+    entries = got["entries"]
+    assert entries[0]["kind"] == "tool_use"
+    assert "\n" in entries[0]["text"] and "\\n" not in entries[0]["text"]  # de-escaped
+    assert '"x"' in entries[0]["text"]  # \" unescaped
+    assert entries[1]["kind"] == "tool_result"
+    assert entries[2] == {"ts": None, "role": "log", "kind": "line", "text": "plain narration line"}

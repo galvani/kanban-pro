@@ -30,7 +30,7 @@ from kanban_pro.ports import Capability, Fulfilment, KanbanBackend, NotSupported
 from .augment import AugmentingBackend
 from .augment import fulfilments as _fulfilments
 from .dedupe import DedupeStore
-from .flow import FlowConfig, TransitionInfo
+from .flow import FlowConfig, SCHEME_EXT_KEY, TransitionInfo
 from .work import Claim, ClaimStore, WorkItem, WorkQueue
 
 #: ext key for the attention signal (methods.md "Card ext conventions")
@@ -75,22 +75,30 @@ class RecordingBackend:
 
     # --- work distribution (claim/lease + queue; see core/work.py) ---
 
-    async def claim_card(self, card_id: str, ttl_seconds: int = 900) -> Claim:
-        """Atomically lease a card for this actor (CAS; expired claims are takeable)."""
+    async def claim_card(
+        self, card_id: str, ttl_seconds: int = 3600, owner: str | None = None
+    ) -> Claim:
+        """Atomically lease a card for this actor (CAS; expired claims are takeable).
+        `owner` overrides the default actor (claim on behalf of a worker)."""
         await self._inner.get_card(card_id)  # not_found before claiming ghosts
-        claim = await self.claims.claim(card_id, self.actor, ttl_seconds)
-        await self._record("card", card_id, "claimed", expires_at=claim.expires_at.isoformat())
+        actor = owner or self.actor
+        claim = await self.claims.claim(card_id, actor, ttl_seconds)
+        await self._record(
+            "card", card_id, "claimed", actor=actor, expires_at=claim.expires_at.isoformat()
+        )
         return claim
 
-    async def heartbeat_claim(self, card_id: str, ttl_seconds: int = 900) -> Claim:
-        """Extend this actor's live claim (not recorded — heartbeats are noise)."""
-        return await self.claims.renew(card_id, self.actor, ttl_seconds)
+    async def heartbeat_claim(
+        self, card_id: str, ttl_seconds: int = 3600, owner: str | None = None
+    ) -> Claim:
+        return await self.claims.renew(card_id, owner or self.actor, ttl_seconds)
 
-    async def release_claim(self, card_id: str) -> None:
+    async def release_claim(self, card_id: str, owner: str | None = None) -> None:
         had = await self.claims.get(card_id)
-        await self.claims.release(card_id, self.actor)
+        actor = owner or self.actor
+        await self.claims.release(card_id, actor)
         if had is not None and not had.expired:
-            await self._record("card", card_id, "released")
+            await self._record("card", card_id, "released", actor=actor)
 
     # --- attention signal (card-level "needs a decision", ruled 2026-07-05) ---
 
@@ -172,11 +180,12 @@ class RecordingBackend:
         entity_id: str,
         op: str,
         board_id: str | None = None,
+        actor: str | None = None,
         **data: object,
     ) -> None:
         await self.changelog.append(
             ChangeEvent(
-                actor=self.actor,
+                actor=actor or self.actor,
                 entity=entity,
                 entity_id=entity_id,
                 op=op,
@@ -238,6 +247,24 @@ class RecordingBackend:
         await self._inner.delete_column(column_id)
         await self._record("column", column_id, "deleted")
 
+    async def _maybe_decrement_attempts(self, card_id: str, old: Card) -> None:
+        """Decrement ext.work.attempts by 1 if the card's flow allows auto-reset."""
+        flows: FlowConfig | None = getattr(self._inner, "flows", None)
+        if flows is None:
+            return
+        ext = old.ext if isinstance(old.ext, dict) else {}
+        requested = ext.get(SCHEME_EXT_KEY)
+        resolution = flows.resolve(str(requested) if requested is not None else None)
+        flow = resolution.flow
+        if flow is None or not flow.auto_reset_attempts_on_reassign:
+            return
+        work = dict(ext.get("work") or {})
+        attempts = work.get("attempts", 0)
+        if attempts <= 0:
+            return
+        work["attempts"] = attempts - 1
+        await self._inner.update_card(card_id, CardPatch(ext={"work": work}))
+
     # --- cards ---
 
     async def list_cards(self, board_id: str, include_archived: bool = False) -> list[Card]:
@@ -265,9 +292,13 @@ class RecordingBackend:
         return created
 
     async def update_card(self, card_id: str, patch: CardPatch) -> Card:
+        old = await self._inner.get_card(card_id)
         updated = await self._inner.update_card(card_id, patch)
         fields = sorted(patch.model_dump(exclude_unset=True))
         await self._record("card", card_id, "updated", fields=fields)
+        # auto-decrement attempts when assignee changes (per-card flow opt-in)
+        if patch.assignees is not None and patch.assignees != old.assignees:
+            await self._maybe_decrement_attempts(card_id, old)
         return updated
 
     async def move_card(
@@ -279,6 +310,8 @@ class RecordingBackend:
         *,
         force: bool = False,
     ) -> Card:
+        old = await self._inner.get_card(card_id)
+        old_col = old.placements[0].column_id if old.placements else None
         if force and isinstance(self._inner, AugmentingBackend):
             moved = await self._inner.move_card(
                 card_id, to_board_id, to_column_id, position, force=True
@@ -290,6 +323,17 @@ class RecordingBackend:
             "card", card_id, "moved", to_board_id,
             column_id=to_column_id, position=position, forced=force or None,
         )  # fmt: skip
+        # ── auto-clear attention on certain columns (per-board config) ──────
+        try:
+            board = await self._inner.get_board(to_board_id)
+            auto_cols: list[str] | None = (board.ext or {}).get("auto_clear_attention_columns")
+            if auto_cols and to_column_id in auto_cols and ATTENTION_EXT_KEY in (moved.ext or {}):
+                await self.clear_attention(card_id, resolution=f"moved to {to_column_id}")
+        except Exception:
+            pass  # best-effort; never fail a move because auto-clear broke
+        # auto-decrement attempts when lane changes (per-card flow opt-in)
+        if old_col is not None and old_col != to_column_id:
+            await self._maybe_decrement_attempts(card_id, old)
         return moved
 
     async def add_placement(self, card_id: str, placement: Placement) -> Card:

@@ -12,6 +12,7 @@
 
 flows:
   default:
+    auto_reset_attempts_on_reassign: true  # decrement attempts on assignee/lane change
     states: [triage, todo, scheduled, ready, running, blocked, review, done]
     transitions:
       - { from: triage,    to: [todo, ready] }            # spec fleshed out -> queue

@@ -44,6 +44,7 @@ class _FlowSpec(BaseModel):
     model_config = ConfigDict(extra="allow")  # hooks/wip_limits reserved, ignored for now
     states: list[str]
     transitions: list[_TransitionRule] = Field(default_factory=list)
+    auto_reset_attempts_on_reassign: bool = True
 
 
 class _FlowsFile(BaseModel):
@@ -58,6 +59,7 @@ class Flow(BaseModel):
     name: str
     states: list[str]
     allowed: dict[str, list[str]]  # from-state -> to-states
+    auto_reset_attempts_on_reassign: bool = True
 
     def permits(self, from_state: str, to_state: str) -> bool:
         return to_state in self.allowed.get(from_state, [])
@@ -113,7 +115,10 @@ def _build_flow(name: str, spec: _FlowSpec) -> Flow:
         allowed.setdefault(source, []).extend(
             t for t in targets if t not in allowed.get(source, [])
         )
-    return Flow(name=name, states=states, allowed=allowed)
+    return Flow(
+        name=name, states=states, allowed=allowed,
+        auto_reset_attempts_on_reassign=spec.auto_reset_attempts_on_reassign,
+    )
 
 
 def parse_inline_flow(raw: object) -> Flow | None:

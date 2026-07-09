@@ -56,7 +56,7 @@ yourself implementing, stop and create a card instead.
 - `add_placement(card_id, placement)` — Put a card on an additional board (one placement per board; errors if already on it).
 - `add_relation(relation, idempotency_key?)` — Link two cards with a typed relation. Subtask = kind 'child' from parent card.
 - `archive_card(card_id)` — Archive a card (soft, recoverable — the default way to remove one).
-- `claim_card(card_id, ttl_seconds?)` — Atomically lease a card so no other agent picks it up (visible in list_work).
+- `claim_card(card_id, ttl_seconds?, owner?)` — Atomically lease a card so no other agent picks it up (visible in list_work).
 - `clear_attention(card_id, resolution?)` — Clear a card's attention flag (question answered / decision made). Put the
 - `create_board(board, idempotency_key?)` — Create a board. Omit `id` to have one generated; columns/labels may be inlined.
 - `create_card(card, idempotency_key?)` — Create a card. `placements` must have >=1 entry (board_id, column_id, position).
@@ -68,7 +68,7 @@ yourself implementing, stop and create a card instead.
 - `delete_relation(relation_id)` — Delete a relation permanently.
 - `get_board(board_id)` — Get one board (includes its columns and label registry).
 - `get_card(card_id)` — Get one card (works for archived cards too).
-- `heartbeat_claim(card_id, ttl_seconds?)` — Renew your live lease on a card while still working it.
+- `heartbeat_claim(card_id, ttl_seconds?, owner?)` — Renew your live lease on a card while still working it. `owner` must match
 - `list_boards()` — List all boards.
 - `list_cards(board_id, include_archived?)` — List a board's cards. Archived cards are hidden unless include_archived=true
 - `list_changes(since?, limit?)` — Change feed: every recorded write after cursor `since` (audit trail + sync).
@@ -80,7 +80,7 @@ yourself implementing, stop and create a card instead.
 - `list_work(assignee?, include_unassigned?)` — What should I work on? Workable cards for `assignee` (default: YOU, this
 - `move_card(card_id, to_board_id, to_column_id, position?, force?)` — Move a card within a board it's already on (re-column / re-position).
 - `raise_attention(card_id, reason, for_actor?)` — Flag a card as needing a decision or input (e.g. a question only a human or a
-- `release_claim(card_id)` — Release your lease (done or giving up). Idempotent.
+- `release_claim(card_id, owner?)` — Release your lease (done or giving up). `owner` overrides the actor
 - `remove_placement(card_id, board_id)` — Take a card off one board (its other placements stay). The last placement can't
 - `unarchive_card(card_id)` — Restore an archived card.
 - `update_board(board_id, patch)` — Partially update a board — only the fields set in `patch` are applied.

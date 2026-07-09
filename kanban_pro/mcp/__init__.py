@@ -353,24 +353,32 @@ async def list_work(assignee: str | None = None, include_unassigned: bool = True
 
 
 @mcp.tool(annotations=_WRITE)
-async def claim_card(card_id: str, ttl_seconds: int = 900) -> core.Claim:
+async def claim_card(card_id: str, ttl_seconds: int = 3600, owner: str | None = None) -> core.Claim:
     """Atomically lease a card so no other agent picks it up (visible in list_work).
     The lease expires after ttl_seconds unless renewed via heartbeat_claim — a crashed
-    agent's card becomes claimable again automatically. Convention: after claiming,
-    assign yourself and move the card to a started column."""
-    return await _call(_recording(await _get_backend()).claim_card(card_id, ttl_seconds))
+    agent's card becomes claimable again automatically. `owner` overrides the actor
+    (claim on behalf of a specific worker); defaults to the connection's own actor.
+    Convention: after claiming, assign yourself and move the card to a started column."""
+    return await _call(_recording(await _get_backend()).claim_card(card_id, ttl_seconds, owner))
 
 
 @mcp.tool(annotations=_WRITE)
-async def heartbeat_claim(card_id: str, ttl_seconds: int = 900) -> core.Claim:
-    """Renew your live lease on a card while still working it."""
-    return await _call(_recording(await _get_backend()).heartbeat_claim(card_id, ttl_seconds))
+async def heartbeat_claim(
+    card_id: str, ttl_seconds: int = 3600, owner: str | None = None
+) -> core.Claim:
+    """Renew your live lease on a card while still working it. `owner` must match
+    the one the claim was taken with (claims held on a worker's behalf renew on
+    that worker's behalf); defaults to the connection's own actor."""
+    return await _call(
+        _recording(await _get_backend()).heartbeat_claim(card_id, ttl_seconds, owner)
+    )
 
 
 @mcp.tool(annotations=_WRITE)
-async def release_claim(card_id: str) -> str:
-    """Release your lease (done or giving up). Idempotent."""
-    await _call(_recording(await _get_backend()).release_claim(card_id))
+async def release_claim(card_id: str, owner: str | None = None) -> str:
+    """Release your lease (done or giving up). `owner` overrides the actor
+    (release on behalf of the claimed worker); defaults to the connection's own actor."""
+    await _call(_recording(await _get_backend()).release_claim(card_id, owner))
     return f"claim on {card_id} released"
 
 
@@ -667,6 +675,7 @@ async def domain_resource() -> str:
     | ``kanban_pro.migrated_from`` | migration | provenance ``\"<profile>/<board-id>\"`` |
     | ``hermes`` | hermes adapter | backend-specific fields |
     | ``work`` | kanban-dispatcher | ``{log, attempts, quota_hits, retry_at}`` |
+    | ``session`` | the working agent | ``{actor, log, kind}`` — session log the UI tails live |
 
     Patches (``CardPatch``, ``BoardPatch``, …) are PARTIAL UPDATES: only set fields
     apply.  ``ext`` is a SHALLOW MERGE: patch keys → stored dict; a key set to None
@@ -724,6 +733,7 @@ async def domain_resource() -> str:
                 "kanban_pro.*": "reserved for kanban-pro features — never set by app code",
                 "hermes": "hermes adapter backend fields",
                 "work": "kanban-dispatcher runtime state (log, attempts, quota_hits, retry_at)",
+                "session": "working agent's session log for the UI to tail (actor, log, kind)",
                 "<backend>": "each adapter gets its own namespace",
             },
         },

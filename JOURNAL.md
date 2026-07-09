@@ -1,5 +1,27 @@
 # kanban-pro — Journal
 
+## 2026-07-08 — watch an agent work a card: live session-log link on every claim
+
+- **Every claimed card now carries a link to its agent's session log**, tailed live in a
+  modal (like the old Hermes origin board). The board tile gets a `▶ <owner>` chip when a
+  live claim exists (+ 📜 when a log is linked); the card modal has a **session log**
+  button that opens a viewer — LIVE-polling every 2s while the claim is held, static once
+  released.
+- **One convention, both agent kinds (`ext.session`):** `{actor, log, kind}` where `log`
+  is a `*.jsonl`/`*.log` path under `$HOME`/tmp. Interactive Claude Code workers stamp
+  their transcript path (kanban-worker skill documents the derivation); dispatcher-run
+  cards keep working via the older `ext.work.log`, used as an automatic fallback source.
+- **Running-vs-done is DERIVED from the live claim, not a stored flag** — a crashed lease
+  correctly reads as "done" once it expires, no stale "running" state to clean up. This is
+  why the log pointer lives on card `ext` (persists for the done-log) while liveness comes
+  from the claim (`ext._claim`, injected into the snapshot like `_last_comment`).
+- **API:** `/api/cards/{id}/worker-log` generalised to `/session-log` (single endpoint, no
+  parallel path) — normalises a Claude Code transcript into compact `{ts, role, kind,
+  text}` entries so the browser needn't know the transcript schema, and supports
+  `?after=<eof_offset>` incremental reads (only whole lines consumed, so a half-written
+  last line waits for the next poll). Same path guard as before, extended to `.jsonl`.
+  Card detail + board snapshot now expose the live claim.
+
 ## 2026-07-06 — move_card validates columns; foreign MCP doc resources reviewed; notifier example
 
 - **`move_card` now rejects a nonexistent target column (NotFound)** in both adapters +

@@ -119,6 +119,32 @@ async def _claim_events() -> None:
     assert ops == [("claimed", "agent:alice"), ("released", "agent:alice")]
 
 
+def test_claim_on_behalf_of_worker() -> None:
+    asyncio.run(_claim_on_behalf())
+
+
+async def _claim_on_behalf() -> None:
+    # a dispatcher claims/renews/releases on the WORKER's behalf via owner=;
+    # without owner= the renew must CAS-fail (regression: heartbeats silently
+    # conflicting until the lease expired mid-run, 2026-07-06)
+    alice, bob, _ = _two_actors()
+    board = await _seed_board(alice)
+    card = await alice.create_card(_card(board, "ready"))
+
+    claim = await alice.claim_card(card.id, owner="agent:worker")
+    assert claim.owner == "agent:worker"
+    with pytest.raises(Conflict):  # renewing as yourself is not renewing the worker's
+        await alice.heartbeat_claim(card.id)
+    renewed = await alice.heartbeat_claim(card.id, owner="agent:worker")
+    assert renewed.owner == "agent:worker"
+    with pytest.raises(Conflict):  # same CAS on release
+        await alice.release_claim(card.id)
+    await alice.release_claim(card.id, owner="agent:worker")
+    # the card is free again after the on-behalf release
+    reclaim = await bob.claim_card(card.id)
+    assert reclaim.owner == "agent:bob"
+
+
 def test_list_work_queue() -> None:
     asyncio.run(_list_work())
 

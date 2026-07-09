@@ -21,6 +21,10 @@ if your moves are being watched, because they are.
    the same claim in a loop.
 3. **Make your intent visible:** `update_card` to assign yourself (if unassigned) and
    `move_card` to a started-category column. Now the board shows who is doing what.
+   **Link your session log** so a watcher can follow you live from the card: stamp
+   `update_card(ext={"session": {...}})` (shallow-merged, won't clobber other ext) with
+   your transcript path — the board tails it in a modal (live while your claim is held,
+   final log once released). See *Linking your session log* below.
 4. **Work it.** While running long: `heartbeat_claim` every few minutes — a silent
    lease expires and the card becomes claimable by others (that's the crash-recovery
    feature, don't fight it). Sub-steps worth tracking? Create subcards
@@ -47,6 +51,34 @@ if your moves are being watched, because they are.
 - Comments are the durable record; your final session output is not. If a human should
   know it tomorrow, it goes in a comment.
 
+## Linking your session log
+
+The board can show a live view of the agent working a card — every claimed card gets a
+▶ badge, and its detail modal has a **session log** button that tails your log (live
+while your claim is held, final log once you release). To feed it, stamp `ext.session`
+right after you claim:
+
+```
+update_card(card_id, {"ext": {"session": {
+    "actor": "<your actor, e.g. agent:claude-code>",
+    "log":   "<absolute path to your session log>",
+    "kind":  "transcript"   # "transcript" for a Claude Code .jsonl, "log" for a plain .log
+}}})
+```
+
+- **Path guard (why it may not show):** the server only serves `*.jsonl` / `*.log` files
+  under `$HOME` or the tmp dir. A path outside that is silently refused — nothing
+  sensitive is exposed by a mistyped `log`.
+- **Claude Code transcript path** is best-effort derivable: it's
+  `~/.claude/projects/<cwd-with-/-and-.-turned-to-->/<your-session-id>.jsonl`. If you
+  can't determine your session id, skip the stamp — the card still shows the ▶ claim
+  badge, just without a log link.
+- **Optional:** on release you may set `ext.session.ended_at`; it's cosmetic — the board
+  derives running-vs-done from whether your claim is still live, not from a stored flag,
+  so a crashed lease correctly reads as "done" once it expires.
+- **Dispatcher-run cards** don't need this: their `ext.work.log` is used as a fallback
+  source automatically.
+
 ## Tool reference
 
 <!-- generated:tool-reference — regenerate: uv run python -m tests.toolref --write -->
@@ -55,7 +87,7 @@ if your moves are being watched, because they are.
 - `add_placement(card_id, placement)` — Put a card on an additional board (one placement per board; errors if already on it).
 - `add_relation(relation, idempotency_key?)` — Link two cards with a typed relation. Subtask = kind 'child' from parent card.
 - `archive_card(card_id)` — Archive a card (soft, recoverable — the default way to remove one).
-- `claim_card(card_id, ttl_seconds?)` — Atomically lease a card so no other agent picks it up (visible in list_work).
+- `claim_card(card_id, ttl_seconds?, owner?)` — Atomically lease a card so no other agent picks it up (visible in list_work).
 - `clear_attention(card_id, resolution?)` — Clear a card's attention flag (question answered / decision made). Put the
 - `create_board(board, idempotency_key?)` — Create a board. Omit `id` to have one generated; columns/labels may be inlined.
 - `create_card(card, idempotency_key?)` — Create a card. `placements` must have >=1 entry (board_id, column_id, position).
@@ -67,7 +99,7 @@ if your moves are being watched, because they are.
 - `delete_relation(relation_id)` — Delete a relation permanently.
 - `get_board(board_id)` — Get one board (includes its columns and label registry).
 - `get_card(card_id)` — Get one card (works for archived cards too).
-- `heartbeat_claim(card_id, ttl_seconds?)` — Renew your live lease on a card while still working it.
+- `heartbeat_claim(card_id, ttl_seconds?, owner?)` — Renew your live lease on a card while still working it. `owner` must match
 - `list_boards()` — List all boards.
 - `list_cards(board_id, include_archived?)` — List a board's cards. Archived cards are hidden unless include_archived=true
 - `list_changes(since?, limit?)` — Change feed: every recorded write after cursor `since` (audit trail + sync).
@@ -79,7 +111,7 @@ if your moves are being watched, because they are.
 - `list_work(assignee?, include_unassigned?)` — What should I work on? Workable cards for `assignee` (default: YOU, this
 - `move_card(card_id, to_board_id, to_column_id, position?, force?)` — Move a card within a board it's already on (re-column / re-position).
 - `raise_attention(card_id, reason, for_actor?)` — Flag a card as needing a decision or input (e.g. a question only a human or a
-- `release_claim(card_id)` — Release your lease (done or giving up). Idempotent.
+- `release_claim(card_id, owner?)` — Release your lease (done or giving up). `owner` overrides the actor
 - `remove_placement(card_id, board_id)` — Take a card off one board (its other placements stay). The last placement can't
 - `unarchive_card(card_id)` — Restore an archived card.
 - `update_board(board_id, patch)` — Partially update a board — only the fields set in `patch` are applied.

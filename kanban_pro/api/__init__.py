@@ -12,17 +12,19 @@ Thin like every interface: all behavior lives in core; routes just translate HTT
 from __future__ import annotations
 
 import argparse
+import json
 import logging
+import tempfile
 from collections.abc import AsyncIterator
 from pathlib import Path
 
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
 from kanban_pro import core
 from kanban_pro.config import ACTOR_ENV, PROFILE_ENV, build_backend
-from kanban_pro.domain import Board, Card, Comment
+from kanban_pro.domain import Board, Card, CardPatch, Comment
 from kanban_pro.ports import KanbanBackend, KanbanError, NotFound, NotSupported
 
 logger = logging.getLogger("kanban_pro.api")
@@ -37,6 +39,141 @@ _STATUS = {
 }
 
 _UI_FILE = Path(__file__).parent / "board.html"
+
+# --- session-log serving (the "watch an agent work a card" feature) ---
+#
+# A card points at its agent's session log via ext.session.log (any agent kind may
+# stamp it) or, for dispatcher-run cards, the older ext.work.log. The path is card
+# data (agent-writable ext), so serving is guarded: only *.log / *.jsonl files under
+# $HOME or the tmp dir — good enough for a localhost-only personal tool. A Claude Code
+# transcript (.jsonl) is normalised into compact {ts, role, kind, text} entries so the
+# browser doesn't have to know the transcript schema; a plain .log is served line-wise.
+
+_LOG_SUFFIXES = (".log", ".jsonl")
+
+
+def _brief(value: object, limit: int = 140) -> str:
+    """One-line gist of a tool input / arbitrary value for the transcript view."""
+    if isinstance(value, dict):
+        # surface the fields that identify the action, else compact JSON
+        for key in ("command", "file_path", "path", "pattern", "query", "url", "description"):
+            field = value.get(key)
+            if isinstance(field, str):
+                return field[:limit]
+        text = json.dumps(value, ensure_ascii=False)
+    else:
+        text = str(value)
+    return text[:limit]
+
+
+def _brief_result(content: object, limit: int = 240) -> str:
+    """Flatten a tool_result content (str | list[block]) to a short preview."""
+    if isinstance(content, list):
+        parts = [
+            b.get("text", "") for b in content if isinstance(b, dict) and b.get("type") == "text"
+        ]
+        content = " ".join(p for p in parts if p) or json.dumps(content, ensure_ascii=False)
+    return str(content).strip()[:limit]
+
+
+def _summarize_transcript_obj(obj: object) -> list[dict[str, object]]:
+    """One Claude Code transcript line -> zero or more display entries."""
+    if not isinstance(obj, dict):
+        return []
+    ts = obj.get("timestamp")
+    if obj.get("type") == "summary":
+        return [{"ts": ts, "role": "summary", "kind": "meta", "text": str(obj.get("summary", ""))}]
+    msg = obj.get("message")
+    if not isinstance(msg, dict):
+        return []
+    role = str(msg.get("role") or obj.get("type") or "?")
+    content = msg.get("content")
+    if isinstance(content, str):
+        return (
+            [{"ts": ts, "role": role, "kind": "text", "text": content[:4000]}]
+            if content.strip()
+            else []
+        )
+    out: list[dict[str, object]] = []
+    for block in content if isinstance(content, list) else []:
+        if not isinstance(block, dict):
+            continue
+        bt = block.get("type")
+        if bt == "text" and str(block.get("text", "")).strip():
+            out.append({"ts": ts, "role": role, "kind": "text", "text": block["text"][:4000]})
+        elif bt == "thinking" and str(block.get("thinking", "")).strip():
+            out.append(
+                {"ts": ts, "role": role, "kind": "thinking", "text": block["thinking"][:2000]}
+            )
+        elif bt == "tool_use":
+            out.append(
+                {
+                    "ts": ts,
+                    "role": role,
+                    "kind": "tool_use",
+                    "text": f"{block.get('name', 'tool')}({_brief(block.get('input'))})",
+                }
+            )
+        elif bt == "tool_result":
+            out.append(
+                {
+                    "ts": ts,
+                    "role": role,
+                    "kind": "tool_result",
+                    "text": _brief_result(block.get("content")),
+                }
+            )
+    return out
+
+
+def _log_line_entry(ln: str) -> dict[str, object]:
+    """A plain .log line (e.g. a dispatcher worker log): the content is often
+    JSON-serialized agent I/O, so de-escape \\n/\\t/\\" to render real line breaks
+    instead of a wall of literal escapes, and tag call/result lines so the viewer
+    can colour them like transcript tool calls."""
+    text = ln.replace("\\n", "\n").replace("\\t", "\t").replace('\\"', '"')
+    head = ln.lstrip()
+    if head.startswith("[called "):
+        kind = "tool_use"
+    elif head.startswith(("Tool result", "Tool error")):
+        kind = "tool_result"
+    else:
+        kind = "line"
+    return {"ts": None, "role": "log", "kind": kind, "text": text}
+
+
+def _parse_session_lines(lines: list[str], kind: str) -> list[dict[str, object]]:
+    if kind != "transcript":
+        return [_log_line_entry(ln) for ln in lines if ln.strip()]
+    out: list[dict[str, object]] = []
+    for ln in lines:
+        ln = ln.strip()
+        if not ln:
+            continue
+        try:
+            out.extend(_summarize_transcript_obj(json.loads(ln)))
+        except (ValueError, TypeError):
+            out.append({"ts": None, "role": "raw", "kind": "text", "text": ln[:500]})
+    return out
+
+
+def _read_session_log(path: Path, kind: str, after: int, tail: int) -> dict[str, object]:
+    """Read new bytes since `after` (or the tail when after<0) and parse them.
+
+    Only whole lines (up to the last newline) are consumed, so a half-written last
+    line on a live transcript is left for the next poll instead of failing to parse.
+    """
+    data = path.read_bytes()
+    size = len(data)
+    start = 0 if after < 0 else min(after, size)
+    chunk = data[start:]
+    nl = chunk.rfind(b"\n")
+    consumed = nl + 1 if nl != -1 else 0
+    lines = chunk[:consumed].decode("utf-8", "replace").splitlines()
+    entries = _parse_session_lines(lines, kind)
+    if after < 0 and tail > 0:
+        entries = entries[-tail:]
+    return {"kind": kind, "entries": entries, "eof_offset": start + consumed, "size": size}
 
 
 class MoveRequest(BaseModel):
@@ -76,6 +213,10 @@ def create_app(
         be = state.get("backend")
         return be.changelog if isinstance(be, core.RecordingBackend) else None
 
+    def _claims() -> core.ClaimStore | None:
+        be = state.get("backend")
+        return be.claims if isinstance(be, core.RecordingBackend) else None
+
     @app.exception_handler(KanbanError)
     async def _kanban_error(_request: Request, exc: KanbanError) -> JSONResponse:
         return JSONResponse(
@@ -94,9 +235,27 @@ def create_app(
     @app.get("/api/meta")
     async def meta() -> dict[str, object]:
         be = await _backend()
+        # known assignees from the dispatcher routing table
+        routing_path = Path.home() / "workspace" / "kanban-dispatcher" / "routing.yaml"
+        known_assignees: list[str] = []
+        max_retries = 5
+        if routing_path.exists():
+            try:
+                import yaml as _yaml
+
+                raw = _yaml.safe_load(routing_path.read_text()) or {}
+                for route in raw.get("routes") or []:
+                    ma = (route.get("match") or {}).get("assignee")
+                    if ma:
+                        known_assignees.append(ma)
+                max_retries = raw.get("defaults", {}).get("max_retries", 5)
+            except Exception:
+                pass
         return {
             "profile": profile or "default",
             "actor": actor or "unknown",
+            "known_assignees": known_assignees,
+            "max_retries": max_retries,
             "capabilities": {
                 cap.name.lower(): f.name.lower() for cap, f in core.fulfilments(be).items()
             },
@@ -110,9 +269,28 @@ def create_app(
     async def board_snapshot(board_id: str) -> BoardSnapshot:
         be = await _backend()
         log = _changelog()
+        claims = _claims()
+        live = await claims.live() if claims else {}
+        cards = await be.list_cards(board_id)
+        # attach live preview state as reserved _-prefixed ext keys (never persisted):
+        # latest comment, and the live claim so tiles can badge the agent at work.
+        for card in cards:
+            try:
+                comments = await be.list_comments(card.id)
+                if comments:
+                    last = max(comments, key=lambda c: c.created_at or "")
+                    card.ext["_last_comment"] = last.body[:120]
+            except Exception:
+                pass
+            claim = live.get(card.id)
+            if claim is not None:
+                card.ext["_claim"] = {
+                    "owner": claim.owner,
+                    "expires_at": claim.expires_at.isoformat(),
+                }
         return BoardSnapshot(
             board=await be.get_board(board_id),
-            cards=await be.list_cards(board_id),
+            cards=cards,
             cursor=await log.head() if log else 0,
         )
 
@@ -146,7 +324,19 @@ def create_app(
                 )
         except NotSupported:
             pass
-        return {"card": card, "comments": comments, "relations": relations}
+        claims = _claims()
+        claim = await claims.get(card_id) if claims else None
+        claim_out = (
+            {"owner": claim.owner, "expires_at": claim.expires_at.isoformat()}
+            if claim is not None and not claim.expired
+            else None
+        )
+        return {"card": card, "comments": comments, "relations": relations, "claim": claim_out}
+
+    @app.patch("/api/cards/{card_id}")
+    async def update_card_api(card_id: str, patch: CardPatch) -> Card:
+        be = await _backend()
+        return await be.update_card(card_id, patch)
 
     @app.get("/api/cards/{card_id}/transitions")
     async def card_transitions(card_id: str) -> core.TransitionInfo:
@@ -155,28 +345,37 @@ def create_app(
             raise NotSupported("transitions query needs the core stack")
         return await be.transitions(card_id)
 
-    @app.get("/api/cards/{card_id}/worker-log", response_class=PlainTextResponse)
-    async def worker_log(card_id: str) -> str:
-        """Tail of the dispatcher-linked worker log (card ext.work.log).
+    @app.get("/api/cards/{card_id}/session-log")
+    async def session_log(card_id: str, after: int = -1, tail: int = 400) -> dict[str, object]:
+        """The agent's session log for this card, normalised for the viewer.
 
-        The path is card data (any agent can write ext), so serving is constrained:
-        only *.log files under $HOME or the tmp dir — good enough for a
-        localhost-only personal tool, and nothing sensitive matches that shape.
+        Source: ext.session.log (any agent kind stamps it), else the older
+        dispatcher ext.work.log. `after<0` returns the tail; `after=<eof_offset>`
+        returns only what was appended since — the live-tail poll the UI runs while
+        the card's claim is still held. See the module-level notes for the path guard.
         """
-        import tempfile
-
         be = await _backend()
         card = await be.get_card(card_id)
-        raw = (card.ext.get("work") or {}).get("log") if isinstance(card.ext, dict) else None
+        ext = card.ext if isinstance(card.ext, dict) else {}
+        sess = ext.get("session")
+        if not isinstance(sess, dict):
+            sess = {}
+        raw = sess.get("log")
+        kind = sess.get("kind")
+        if not raw:  # fallback: dispatcher-run cards predate ext.session
+            raw = (ext.get("work") or {}).get("log")
+            kind = kind or "log"
         if not raw:
-            raise NotFound(f"card {card_id!r} has no linked worker log")
-        path = Path(str(raw)).resolve()
+            raise NotFound(f"card {card_id!r} has no linked session log")
+        path = Path(str(raw)).expanduser().resolve()
         allowed = (Path.home().resolve(), Path(tempfile.gettempdir()).resolve())
-        if path.suffix != ".log" or not any(path.is_relative_to(b) for b in allowed):
+        if path.suffix not in _LOG_SUFFIXES or not any(path.is_relative_to(b) for b in allowed):
             raise NotFound("linked log path refused")
         if not path.exists():
             raise NotFound(f"log file missing: {path}")
-        return "\n".join(path.read_text(errors="replace").splitlines()[-500:])
+        if kind not in ("transcript", "log"):
+            kind = "transcript" if path.suffix == ".jsonl" else "log"
+        return _read_session_log(path, str(kind), after, tail)
 
     @app.get("/api/cards/{card_id}/activity")
     async def card_activity(card_id: str) -> list[core.ChangeEvent]:
