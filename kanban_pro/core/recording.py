@@ -30,7 +30,7 @@ from kanban_pro.ports import Capability, Fulfilment, KanbanBackend, NotSupported
 from .augment import AugmentingBackend
 from .augment import fulfilments as _fulfilments
 from .dedupe import DedupeStore
-from .flow import FlowConfig, SCHEME_EXT_KEY, TransitionInfo
+from .flow import SCHEME_EXT_KEY, FlowConfig, TransitionInfo
 from .work import Claim, ClaimStore, WorkItem, WorkQueue
 
 #: ext key for the attention signal (methods.md "Card ext conventions")

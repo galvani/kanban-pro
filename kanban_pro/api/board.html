@@ -68,6 +68,15 @@
   .moveBtns button:hover { border-color: var(--accent); color: var(--accent); }
   .relRow { font-size: 13px; padding: 3px 0; }
   .relRow a { color: var(--accent); cursor: pointer; text-decoration: none; }
+  .reportSec { border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px;
+               margin: 8px 0; background: #1a1d23; }
+  .reportSec h4 { margin-top: 0; }
+  .reportItem { border-top: 1px solid #252a33; padding: 7px 0; }
+  .reportItem:first-of-type { border-top: 0; }
+  .reportItem .rid { color: var(--dim); font-size: 11px; font-family: ui-monospace, monospace; }
+  .reportItem.open { border-left: 3px solid #8a6d1f; padding-left: 8px; }
+  .answerBox { display: flex; gap: 6px; margin-top: 6px; }
+  .answerBox input { min-width: 0; }
   .activity { font-size: 12px; max-height: 220px; overflow-y: auto; }
   .activity .ev { display: flex; gap: 8px; padding: 2px 0; border-top: 1px solid #22262e; }
   .activity .t { color: var(--dim); white-space: nowrap; }
@@ -142,6 +151,7 @@
   <h4>Move to</h4>
   <div class="moveBtns" id="dlgMoves"></div>
   <div class="desc" id="dlgDesc"></div>
+  <div id="dlgWorkReport"></div>
   <div id="dlgRelations"></div>
   <h4>Comments</h4>
   <div id="dlgComments"></div>
@@ -371,6 +381,64 @@ function relLabel(r, id) {
   return r.kind.replace("_", " ");
 }
 
+function reportText(v) {
+  if (v == null) return "";
+  if (typeof v === "string") return v;
+  if (typeof v === "object") {
+    return v.text || v.summary || v.result || v.verdict || JSON.stringify(v);
+  }
+  return String(v);
+}
+
+function renderReportList(title, rows, cardId, kind) {
+  if (!Array.isArray(rows) || !rows.length) return "";
+  return `<section class="reportSec"><h4>${esc(title)}</h4>` + rows.map(r => {
+    const status = r.status ? `<span class="chip">${esc(r.status)}</span>` : "";
+    const sev = r.severity ? `<span class="chip">${esc(r.severity)}</span>` : "";
+    const open = kind === "questions" && r.status !== "answered" && r.status !== "canceled";
+    const evidence = r.evidence ? `<div style="color:var(--dim);margin-top:4px">${md(r.evidence)}</div>` : "";
+    const answer = r.answer ? `<div style="margin-top:5px"><b>Answer:</b> ${md(r.answer)}</div>` : "";
+    const answerBox = open ? `<div class="answerBox">
+      <input type="text" id="ans-${esc(r.id)}" placeholder="answer ${esc(r.id)}">
+      <button type="button" onclick="answerQuestion('${esc(cardId)}','${esc(r.id)}')">Answer</button>
+    </div>` : "";
+    return `<div class="reportItem${open ? " open" : ""}">
+      <div><span class="rid">${esc(r.id || "")}</span> ${status} ${sev}</div>
+      <div>${md(reportText(r))}</div>${evidence}${answer}${answerBox}
+    </div>`;
+  }).join("") + `</section>`;
+}
+
+function renderWorkReport(report, cardId) {
+  if (!report || typeof report !== "object" || !Object.keys(report).length) return "";
+  const parts = [];
+  if (report.about) parts.push(`<section class="reportSec"><h4>About</h4>${md(reportText(report.about))}</section>`);
+  parts.push(renderReportList("Questions", report.questions, cardId, "questions"));
+  parts.push(renderReportList("Findings", report.findings, cardId, "findings"));
+  parts.push(renderReportList("Plan", report.plan, cardId, "plan"));
+  parts.push(renderReportList("Needs", report.needs, cardId, "needs"));
+  parts.push(renderReportList("Checks", report.checks, cardId, "checks"));
+  parts.push(renderReportList("Analysis", report.analysis_log, cardId, "analysis_log"));
+  if (report.verdict) parts.push(`<section class="reportSec"><h4>Verdict</h4>${md(reportText(report.verdict))}</section>`);
+  if (report.handoff) parts.push(`<section class="reportSec"><h4>Handoff</h4>${md(reportText(report.handoff))}</section>`);
+  const html = parts.filter(Boolean).join("");
+  return html ? `<h4>Work report</h4>${html}` : "";
+}
+
+async function answerQuestion(cardId, questionId) {
+  const input = $("ans-" + questionId);
+  const answer = input ? input.value.trim() : "";
+  if (!answer) return;
+  try {
+    await api(`/api/cards/${cardId}/work-report/questions/${questionId}/answer`, {
+      method: "POST", headers: {"content-type": "application/json"},
+      body: JSON.stringify({answer}),
+    });
+    toast("answer saved");
+    await openCard(cardId);
+  } catch (e) { toast(e.message); }
+}
+
 async function openCard(id) {
   openCardId = id;
   const [d, trans, activity] = await Promise.all([
@@ -462,6 +530,7 @@ async function openCard(id) {
   }
 
   $("dlgDesc").innerHTML = md(card.description || "");
+  $("dlgWorkReport").innerHTML = renderWorkReport((card.ext || {}).work_report, id);
 
   /* Build info (surfaced from ext — visible without opening raw ext) */
   const ext = card.ext || {};

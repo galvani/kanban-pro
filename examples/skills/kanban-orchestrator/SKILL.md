@@ -39,6 +39,9 @@ yourself implementing, stop and create a card instead.
   comment saying why.
 - WIP-limit conflicts on a column mean the team is overloaded there — rebalance
   (move something out) instead of forcing in.
+- Use the `kanban-pro-work-reporting` skill when you summarize a card, answer or route
+  questions, or check whether a worker left enough structured state for the next actor.
+  Do not infer current truth only from a comment thread when `work_report` exists.
 
 ## Discipline
 
@@ -55,6 +58,7 @@ yourself implementing, stop and create a card instead.
 - `add_comment(comment, idempotency_key?)` — Add a comment to a card (`card_id`, `author` = User id, `body`).
 - `add_placement(card_id, placement)` — Put a card on an additional board (one placement per board; errors if already on it).
 - `add_relation(relation, idempotency_key?)` — Link two cards with a typed relation. Subtask = kind 'child' from parent card.
+- `answer_work_report_question(card_id, question_id, answer)` — Answer one work_report question and mirror the answer as a normal comment.
 - `archive_card(card_id)` — Archive a card (soft, recoverable — the default way to remove one).
 - `claim_card(card_id, ttl_seconds?, owner?)` — Atomically lease a card so no other agent picks it up (visible in list_work).
 - `clear_attention(card_id, resolution?)` — Clear a card's attention flag (question answered / decision made). Put the
@@ -80,6 +84,7 @@ yourself implementing, stop and create a card instead.
 - `list_work(assignee?, include_unassigned?)` — What should I work on? Workable cards for `assignee` (default: YOU, this
 - `move_card(card_id, to_board_id, to_column_id, position?, force?)` — Move a card within a board it's already on (re-column / re-position).
 - `raise_attention(card_id, reason, for_actor?)` — Flag a card as needing a decision or input (e.g. a question only a human or a
+- `record_work_report(card_id, section, item, op?, idempotency_key?)` — Update one structured work_report section/item on a card.
 - `release_claim(card_id, owner?)` — Release your lease (done or giving up). `owner` overrides the actor
 - `remove_placement(card_id, board_id)` — Take a card off one board (its other placements stay). The last placement can't
 - `unarchive_card(card_id)` — Restore an archived card.

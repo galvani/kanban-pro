@@ -45,6 +45,7 @@ def test_tools_registered_match_methods_doc() -> None:
         "list_boards", "get_board", "create_board", "update_board", "delete_board",
         "list_columns", "create_column", "update_column", "delete_column",
         "list_cards", "get_card", "create_card", "update_card", "move_card",
+        "record_work_report", "answer_work_report_question",
         "add_placement", "remove_placement",
         "archive_card", "unarchive_card", "delete_card",
         "list_comments", "add_comment", "delete_comment",
@@ -113,6 +114,67 @@ async def _change_feed_records_actor() -> None:
 
 def test_change_feed_records_actor() -> None:
     asyncio.run(_change_feed_records_actor())
+
+
+async def _record_work_report_updates_current_state_and_changelog() -> None:
+    _, card = await _make_board_with_card()
+    await kmcp.record_work_report(
+        card.id,
+        "questions",
+        {"id": "q1", "text": "Which database?", "status": "open"},
+        idempotency_key="prep:q1",
+    )
+    await kmcp.record_work_report(
+        card.id,
+        "questions",
+        {"id": "q1", "status": "answered", "answer": "Postgres"},
+    )
+    updated = await kmcp.get_card(card.id)
+    assert updated.ext["work_report"]["questions"] == [
+        {
+            "id": "q1",
+            "text": "Which database?",
+            "status": "answered",
+            "answer": "Postgres",
+        }
+    ]
+    events = await kmcp.list_changes(since=0)
+    assert [e.kind for e in events][-4:] == [
+        "card.updated",
+        "work_report.updated",
+        "card.updated",
+        "work_report.updated",
+    ]
+    assert events[-1].data == {
+        "card_id": card.id,
+        "section": "questions",
+        "op": "upsert",
+        "item_id": "q1",
+    }
+
+
+def test_record_work_report_updates_current_state_and_changelog() -> None:
+    asyncio.run(_record_work_report_updates_current_state_and_changelog())
+
+
+async def _answer_work_report_question_mirrors_comment() -> None:
+    _, card = await _make_board_with_card()
+    await kmcp.record_work_report(
+        card.id,
+        "questions",
+        {"id": "q2", "text": "Which slug?", "status": "open"},
+    )
+    await kmcp.answer_work_report_question(card.id, "q2", "Use the existing estimate slug.")
+    updated = await kmcp.get_card(card.id)
+    (question,) = updated.ext["work_report"]["questions"]
+    assert question["status"] == "answered"
+    assert question["answer"] == "Use the existing estimate slug."
+    comments = await kmcp.list_comments(card.id)
+    assert comments[-1].body == "Answer to q2: Use the existing estimate slug."
+
+
+def test_answer_work_report_question_mirrors_comment() -> None:
+    asyncio.run(_answer_work_report_question_mirrors_comment())
 
 
 async def _capabilities_resource_reports_fulfilment() -> None:

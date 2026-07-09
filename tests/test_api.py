@@ -166,6 +166,34 @@ def test_session_log_endpoint(tmp_path) -> None:  # type: ignore[no-untyped-def]
     asyncio.run(_session_log(tmp_path))
 
 
+def test_answer_work_report_question_endpoint() -> None:
+    asyncio.run(_answer_work_report_question())
+
+
+async def _answer_work_report_question() -> None:
+    backend = _stack()
+    _, card = await _seed(backend)
+    from kanban_pro.core.work_report import record_work_report
+
+    await record_work_report(
+        backend,
+        card.id,
+        "questions",
+        {"id": "q1", "text": "Which database?", "status": "open"},
+    )
+    async with _client(backend) as client:
+        res = await client.post(
+            f"/api/cards/{card.id}/work-report/questions/q1/answer",
+            json={"answer": "Postgres"},
+        )
+        assert res.status_code == 200
+        detail = (await client.get(f"/api/cards/{card.id}")).json()
+        (question,) = detail["card"]["ext"]["work_report"]["questions"]
+        assert question["status"] == "answered"
+        assert question["answer"] == "Postgres"
+        assert detail["comments"][-1]["body"] == "Answer to q1: Postgres"
+
+
 async def _session_log(tmp_path) -> None:  # type: ignore[no-untyped-def]
     backend = _stack()
     board, card = await _seed(backend)

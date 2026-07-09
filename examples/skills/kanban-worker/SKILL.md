@@ -30,9 +30,12 @@ if your moves are being watched, because they are.
    feature, don't fight it). Sub-steps worth tracking? Create subcards
    (`create_card` + `add_relation` kind `parent`) instead of a private todo list.
 5. **Land the outcome:**
-   - done → `add_comment` a short result summary, then `move_card` to the done column.
-   - stuck → `add_comment` WHY (typed: `blocked: <kind> — <reason>`), then `move_card`
-     to the blocked column.
+   - Keep the structured card report current with the `kanban-pro-work-reporting`
+     skill (`record_work_report`) before moving or raising attention.
+   - done → `record_work_report` the handoff, `add_comment` a short result summary,
+     then `move_card` to the done column.
+   - stuck → `record_work_report` the open question/need/finding, `add_comment` WHY
+     (typed: `blocked: <kind> — <reason>`), then `move_card` to the blocked column.
    - Always check `list_transitions(card_id)` if a move is refused — the card's flow
      scheme decides what's legal, and the error names the allowed targets.
 6. **`release_claim(card_id)`** — always, done or stuck.
@@ -50,6 +53,8 @@ if your moves are being watched, because they are.
   live cards remain. Don't fight the guards — they're for your own crashes.
 - Comments are the durable record; your final session output is not. If a human should
   know it tomorrow, it goes in a comment.
+- `work_report` is the current structured state. Use the `kanban-pro-work-reporting`
+  skill whenever you ask questions, record findings, update a plan, or hand off.
 
 ## Linking your session log
 
@@ -86,6 +91,7 @@ update_card(card_id, {"ext": {"session": {
 - `add_comment(comment, idempotency_key?)` — Add a comment to a card (`card_id`, `author` = User id, `body`).
 - `add_placement(card_id, placement)` — Put a card on an additional board (one placement per board; errors if already on it).
 - `add_relation(relation, idempotency_key?)` — Link two cards with a typed relation. Subtask = kind 'child' from parent card.
+- `answer_work_report_question(card_id, question_id, answer)` — Answer one work_report question and mirror the answer as a normal comment.
 - `archive_card(card_id)` — Archive a card (soft, recoverable — the default way to remove one).
 - `claim_card(card_id, ttl_seconds?, owner?)` — Atomically lease a card so no other agent picks it up (visible in list_work).
 - `clear_attention(card_id, resolution?)` — Clear a card's attention flag (question answered / decision made). Put the
@@ -111,6 +117,7 @@ update_card(card_id, {"ext": {"session": {
 - `list_work(assignee?, include_unassigned?)` — What should I work on? Workable cards for `assignee` (default: YOU, this
 - `move_card(card_id, to_board_id, to_column_id, position?, force?)` — Move a card within a board it's already on (re-column / re-position).
 - `raise_attention(card_id, reason, for_actor?)` — Flag a card as needing a decision or input (e.g. a question only a human or a
+- `record_work_report(card_id, section, item, op?, idempotency_key?)` — Update one structured work_report section/item on a card.
 - `release_claim(card_id, owner?)` — Release your lease (done or giving up). `owner` overrides the actor
 - `remove_placement(card_id, board_id)` — Take a card off one board (its other placements stay). The last placement can't
 - `unarchive_card(card_id)` — Restore an archived card.

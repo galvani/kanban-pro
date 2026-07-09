@@ -101,16 +101,25 @@ def _write_cursor(cursor: int) -> None:
 # ── Event → message ─────────────────────────────────────────────────────
 
 
-def _card_title(event: dict[str, Any]) -> str:
-    data = event.get("data", {})
-    return data.get("title", event.get("entity_id", "?"))
+def _short_id(card_id: str) -> str:
+    return card_id[:8]
+
+
+def _card_label(card: dict[str, Any] | None, event: dict[str, Any]) -> str:
+    card_id = str(event.get("entity_id") or "?")
+    title = (card or {}).get("title") or event.get("data", {}).get("title") or "card"
+    return f"{title} · {_short_id(card_id)}"
 
 
 def _column_short(col_id: str) -> str:
     return col_id.split(":", 1)[-1] if ":" in col_id else col_id
 
 
-def _message_for(event: dict[str, Any]) -> str | None:
+def _is_human_ui_actor(actor: str) -> bool:
+    return actor.startswith("human:") or actor in {"ui", "unknown"}
+
+
+async def _message_for(event: dict[str, Any], board: _NotifierClient) -> str | None:
     """Return a Slack message line for a Jan-relevant event, or None."""
     actor = event.get("actor", "?")
     entity = event.get("entity", "")
@@ -119,29 +128,37 @@ def _message_for(event: dict[str, Any]) -> str | None:
 
     if actor.startswith("migration:"):
         return None  # import noise
+    if _is_human_ui_actor(actor):
+        return None  # Jan's own UI moves/comments/retries are not notification-worthy
 
-    title = _card_title(event)
+    card: dict[str, Any] | None = None
+    if entity in {"card", "attention"}:
+        try:
+            card = await board.get_card(str(event.get("entity_id")))
+        except Exception:
+            card = None
+    label = _card_label(card, event)
 
     if entity == "card" and op == "created":
         col = _column_short(data.get("column_id", "?"))
-        return f"🆕 *{title}*  ({col})"
+        return f"🆕 *{label}*  ({col})"
 
     if entity == "card" and op == "moved":
         col = _column_short(data.get("column_id", "?"))
         forced = "⚠️ forced " if data.get("forced") else ""
         actor_short = actor.split(":", 1)[-1] if ":" in actor else actor
         emoji = "✅" if col == "done" else "🔀"
-        return f"{emoji}{forced}*{title}* → _{col}_  (by {actor_short})"
+        return f"{emoji}{forced}*{label}* → _{col}_  (by {actor_short})"
 
     if entity == "attention" and op == "raised":
         reason = data.get("reason", "?")
-        for_actor = data.get("for", "")
+        for_actor = data.get("for_actor", "")
         if for_actor != "human:jan":
             return None
-        return f"❓ *{title}* — needs input: {reason}"
+        return f"❓ *{label}* — needs input: {reason}"
 
     if entity == "card" and op == "archived":
-        return f"🗑️ *{title}*  (archived)"
+        return f"🗑️ *{label}*  (archived)"
 
     return None  # comments, relations, claims, updates — ignore
 
@@ -225,6 +242,9 @@ class _NotifierClient:
             {"since": since, "timeout_seconds": timeout_seconds, "limit": 200},
         )
 
+    async def get_card(self, card_id: str) -> dict[str, Any]:
+        return await self.call("get_card", {"card_id": card_id})
+
 
 async def _amain(once: bool = False, dry_run: bool = False) -> None:
     token, channel = _load_env()
@@ -269,7 +289,7 @@ async def _amain(once: bool = False, dry_run: bool = False) -> None:
                 # Filter → collect messages → send ONE DM per tick
                 messages: list[str] = []
                 for event in events:
-                    msg = _message_for(event)
+                    msg = await _message_for(event, board)
                     if msg:
                         messages.append(msg)
                         logger.debug("event → DM: %s", msg[:120])

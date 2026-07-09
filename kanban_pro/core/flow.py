@@ -116,7 +116,9 @@ def _build_flow(name: str, spec: _FlowSpec) -> Flow:
             t for t in targets if t not in allowed.get(source, [])
         )
     return Flow(
-        name=name, states=states, allowed=allowed,
+        name=name,
+        states=states,
+        allowed=allowed,
         auto_reset_attempts_on_reassign=spec.auto_reset_attempts_on_reassign,
     )
 

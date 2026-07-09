@@ -24,6 +24,7 @@ from pydantic import BaseModel
 
 from kanban_pro import core
 from kanban_pro.config import ACTOR_ENV, PROFILE_ENV, build_backend
+from kanban_pro.core.work_report import answer_work_report_question
 from kanban_pro.domain import Board, Card, CardPatch, Comment
 from kanban_pro.ports import KanbanBackend, KanbanError, NotFound, NotSupported
 
@@ -185,6 +186,11 @@ class MoveRequest(BaseModel):
 class CommentRequest(BaseModel):
     body: str
     author: str | None = None  # defaults to the server's actor
+
+
+class AnswerQuestionRequest(BaseModel):
+    answer: str
+    author: str | None = None
 
 
 class BoardSnapshot(BaseModel):
@@ -396,6 +402,16 @@ def create_app(
         be = await _backend()
         return await be.add_comment(
             Comment(card_id=card_id, author=body.author or actor or "unknown", body=body.body)
+        )
+
+    @app.post("/api/cards/{card_id}/work-report/questions/{question_id}/answer")
+    async def answer_question(card_id: str, question_id: str, body: AnswerQuestionRequest) -> Card:
+        return await answer_work_report_question(
+            await _backend(),
+            card_id,
+            question_id,
+            body.answer,
+            author=body.author or actor or "unknown",
         )
 
     # --- change feed: pull + SSE push ---

@@ -27,6 +27,15 @@ from mcp.types import ToolAnnotations
 
 from kanban_pro import core
 from kanban_pro.config import ACTOR_ENV, PROFILE_ENV, build_backend
+from kanban_pro.core.work_report import (
+    WORK_REPORT_SCHEMA,
+)
+from kanban_pro.core.work_report import (
+    answer_work_report_question as _answer_work_report_question,
+)
+from kanban_pro.core.work_report import (
+    record_work_report as _record_work_report,
+)
 from kanban_pro.domain import (
     Board,
     BoardPatch,
@@ -187,6 +196,41 @@ async def create_card(card: Card, idempotency_key: str | None = None) -> Card:
 async def update_card(card_id: str, patch: CardPatch) -> Card:
     """Partially update a card — only the fields set in `patch` are applied."""
     return await _call((await _get_backend()).update_card(card_id, patch))
+
+
+@mcp.tool(annotations=_IDEMPOTENT)
+async def record_work_report(
+    card_id: str,
+    section: str,
+    item: dict[str, object],
+    op: str = "upsert",
+    idempotency_key: str | None = None,
+) -> Card:
+    """Update one structured work_report section/item on a card.
+
+    Current state lives in card.ext["work_report"]; every successful call also emits a
+    work_report.updated changelog event. Use this instead of rewriting the whole ext
+    blob. List sections require item.id and are upserted by that id; singleton
+    sections are replaced.
+    """
+    return await _call(
+        _record_work_report(
+            await _get_backend(),
+            card_id,
+            section,
+            item,
+            op=op,
+            idempotency_key=idempotency_key,
+        )
+    )
+
+
+@mcp.tool(annotations=_WRITE)
+async def answer_work_report_question(card_id: str, question_id: str, answer: str) -> Card:
+    """Answer one work_report question and mirror the answer as a normal comment."""
+    return await _call(
+        _answer_work_report_question(await _get_backend(), card_id, question_id, answer)
+    )
 
 
 @mcp.tool(annotations=_IDEMPOTENT)
@@ -733,12 +777,19 @@ async def domain_resource() -> str:
                 "kanban_pro.*": "reserved for kanban-pro features — never set by app code",
                 "hermes": "hermes adapter backend fields",
                 "work": "kanban-dispatcher runtime state (log, attempts, quota_hits, retry_at)",
+                "work_report": "structured current card state; write via record_work_report",
                 "session": "working agent's session log for the UI to tail (actor, log, kind)",
                 "<backend>": "each adapter gets its own namespace",
             },
         },
         indent=2,
     )
+
+
+@mcp.resource("kanban://work-report-schema")
+async def work_report_schema_resource() -> str:
+    """Structured card report schema and write rules."""
+    return json.dumps(WORK_REPORT_SCHEMA, indent=2)
 
 
 def _launch_command() -> list[str]:
