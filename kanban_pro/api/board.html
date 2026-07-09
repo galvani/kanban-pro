@@ -46,7 +46,7 @@
   .chip.unknown { background: #3a1f1f; border-color: var(--danger); color: #e5534b; }
   .chip.unknown::before { content: "⚠️"; margin-right: 2px; }
   dialog { background: var(--panel); color: var(--text); border: 1px solid var(--border);
-           border-radius: 12px; width: min(760px, 94vw); max-height: 88vh; overflow-y: auto; }
+           border-radius: 12px; width: min(1026px, 94vw); max-height: 88vh; overflow-y: auto; }
   dialog::backdrop { background: rgba(0,0,0,.55); }
   dialog .body { padding: 18px 20px; }
   dialog h3 { margin: 0 0 4px; }
@@ -480,6 +480,18 @@ async function answerQuestion(cardId, questionId) {
   } catch (e) { toast(e.message); }
 }
 
+async function retryCard(cardId) {
+  try {
+    await api(`/api/cards/${cardId}/retry`, {
+      method: "POST", headers: {"content-type": "application/json"},
+      body: JSON.stringify({resolution: "retry requested from UI"}),
+    });
+    toast("moved to ready");
+    await refresh();
+    await openCard(cardId);
+  } catch (e) { toast(e.message); }
+}
+
 async function openCard(id) {
   openCardId = id;
   const [d, trans, activity] = await Promise.all([
@@ -496,7 +508,8 @@ async function openCard(id) {
   const att = (card.ext || {})["kanban_pro.attention"];
   $("dlgAttention").innerHTML = att
     ? `<div class="attention">⚠️ <b>needs attention</b> — ${esc(att.reason)}<br>
-       <span style="color:var(--dim)">raised by ${esc(att.raised_by || "?")}${att.for ? " · for " + esc(att.for) : ""}</span></div>`
+       <span style="color:var(--dim)">raised by ${esc(att.raised_by || "?")}${att.for ? " · for " + esc(att.for) : ""}</span>
+       <div style="margin-top:8px"><button type="button" onclick="retryCard('${esc(id)}')">Retry</button></div></div>`
     : "";
 
   const fmt = ts => ts ? new Date(ts).toLocaleString() : "—";

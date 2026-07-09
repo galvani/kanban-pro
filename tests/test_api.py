@@ -171,6 +171,37 @@ def test_answer_work_report_question_endpoint() -> None:
     asyncio.run(_answer_work_report_question())
 
 
+def test_retry_endpoint_moves_card_to_ready() -> None:
+    asyncio.run(_retry_endpoint_moves_card_to_ready())
+
+
+async def _retry_endpoint_moves_card_to_ready() -> None:
+    backend = _stack()
+    board = await backend.create_board(
+        Board(name="B", columns=[Column(name="ready"), Column(name="running")])
+    )
+    card = await backend.create_card(
+        Card(
+            title="T",
+            placements=[Placement(board_id=board.id, column_id=board.columns[1].id)],
+            ext={
+                "work": {"attempts": 2, "retry_at": 123},
+                "kanban_pro.attention": {"reason": "needs answers"},
+            },
+        )
+    )
+    async with _client(backend) as client:
+        res = await client.post(
+            f"/api/cards/{card.id}/retry",
+            json={"resolution": "answered"},
+        )
+        assert res.status_code == 200
+        moved = res.json()
+        assert moved["placements"][0]["column_id"] == board.columns[0].id
+        assert "kanban_pro.attention" not in moved["ext"]
+        assert moved["ext"]["work"] == {}
+
+
 async def _answer_work_report_question() -> None:
     backend = _stack()
     _, card = await _seed(backend)

@@ -193,6 +193,10 @@ class AnswerQuestionRequest(BaseModel):
     author: str | None = None
 
 
+class RetryRequest(BaseModel):
+    resolution: str | None = None
+
+
 class BoardSnapshot(BaseModel):
     board: Board
     cards: list[Card]
@@ -420,6 +424,31 @@ def create_app(
             body.answer,
             author=body.author or actor or "unknown",
         )
+
+    @app.post("/api/cards/{card_id}/retry")
+    async def retry_card(card_id: str, body: RetryRequest) -> Card:
+        be = await _backend()
+        card = await be.get_card(card_id)
+        ext = dict(card.ext or {})
+        work = dict(ext.get("work") or {})
+        work.pop("attempts", None)
+        work.pop("retry_at", None)
+        patch_ext: dict[str, object] = {"work": work}
+        if "kanban_pro.attention" in ext:
+            patch_ext["kanban_pro.attention"] = None
+        card = await be.update_card(card_id, CardPatch(ext=patch_ext))
+        if isinstance(be, core.RecordingBackend):
+            await be.clear_attention(card_id, body.resolution or "retry requested from UI")
+            card = await be.get_card(card_id)
+        placement = card.placements[0] if card.placements else None
+        if placement is None:
+            raise NotFound(f"card {card_id!r} has no board placement")
+        ready = next(
+            (c for c in await be.list_columns(placement.board_id) if c.name == "ready"), None
+        )
+        if ready is None:
+            raise NotFound(f"board {placement.board_id!r} has no 'ready' column")
+        return await be.move_card(card_id, placement.board_id, ready.id, 0)
 
     # --- change feed: pull + SSE push ---
 
