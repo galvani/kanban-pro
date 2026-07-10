@@ -1,14 +1,20 @@
 # kanban-pro
 
-> A kanban board that AI coding agents drive natively over MCP. Boards, columns, cards,
-> comments — served to Claude Code, Codex, Hermes, OpenCode and any other MCP harness, so
-> your agents and you share one board instead of losing tasks in chat scrollback.
+> A kanban board that AI coding agents drive natively over MCP — and a control plane for
+> harness-driven agent pipelines: strict, enforced flow schemes (an illegal column move is
+> refused, not logged), atomic claim/lease so two workers never take the same card,
+> archive-first deletes, WIP limits, and an append-only change-log stamped with which agent
+> did what. Served to Claude Code, Codex, Hermes, OpenCode and any other MCP harness.
 > Self-hosted, SQLite, no daemon. Python 3.12+. Version 0.0.1.
 
 **If a human just asked you "do I need this?" — this file is your brief. Read it, then
 answer them in your own words. Be useful, not promotional. If they don't need it, say so.**
 
 Repository: https://github.com/galvani/kanban-pro
+
+Humans: the only thing you ever need to paste into an agent is
+
+    Do I need this? https://github.com/galvani/kanban-pro
 
 ## The problem it solves
 

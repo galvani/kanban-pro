@@ -1,6 +1,7 @@
 # kanban-pro
 
-**A kanban board your coding agents natively understand.**
+**A kanban board your coding agents natively understand — and a state machine they can't
+wander out of.**
 
 > **Don't want to read this?** Ask an agent that can browse:
 > `Do I need this? https://github.com/galvani/kanban-pro`
@@ -14,16 +15,29 @@ live in chat scrollback. You come back to your desk asking: what is my agent doi
 right now? What's blocked? What did it finish while I slept? There is no board that
 both you and the agents can see and update.
 
-kanban-pro is that board. It's a real kanban — boards, columns, cards, comments —
-served over **MCP**, the protocol your agent harness already speaks. Register it once
-and every agent session can read the board, pick up cards, move them, and comment,
-with no bespoke integration. Concretely, you can:
+kanban-pro is that board — and, once you have more than one agent, rather more than a
+board. It's a real kanban (boards, columns, cards, comments) served over **MCP**, the
+protocol your agent harness already speaks, so registering it once turns every agent
+session into a worker on a shared, **rule-enforced pipeline**: it pulls its own card,
+leases it so nobody else takes it, moves it only along transitions you declared legal,
+reports what it found, and asks you when it's stuck. Every one of those steps is stamped
+with which agent did it. Concretely:
 
-- **Give all your agents one shared board.** One `claude mcp add` line per harness;
-  multiple harnesses share the same store safely, each under its own identity.
+- **Make the pipeline strict, not suggested.** A declarative `flows.yaml` is a state
+  machine over your columns: `ready → running → review → done`, and nothing else. An
+  illegal move is *refused*, not logged and allowed. Agents call `list_transitions`
+  instead of guessing — and `list_work` inlines each card's legal moves, so a worker
+  sees its options without a second call. Schemes are per-card (`docs` tasks can skip the
+  review gate; a one-off card can carry its own inline flow), and `force=true` always
+  works but stamps `forced: true` on the event. **Overrides are allowed and never
+  silent** — the audit trail is the safeguard, not a lock.
 - **Let agents pull their own work.** `list_work` answers "what should I work on?" —
   the agent's cards, each with its legal moves inline — and an atomic claim/lease
-  (TTL + heartbeat + crash-reclaim) guarantees two agents never grab the same card.
+  (TTL + heartbeat + crash-reclaim) guarantees two agents never grab the same card. A
+  crashed worker's lease expires and its card returns to the queue on its own.
+- **Give all your agents one shared board.** One `claude mcp add` line per harness;
+  multiple harnesses share the same store safely, each under its own identity — a Claude
+  Code session, a Codex run, and a Hermes dispatcher all working the same pipeline.
 - **Always know who did what.** Every connection declares an actor
   (`agent:claude-code`, `human:jan`); every write lands in an append-only change-log.
   Ask `list_changes` and see exactly which agent moved which card, and when.
@@ -38,10 +52,8 @@ with no bespoke integration. Concretely, you can:
   verdict, the handoff — and the agent's open questions. Agents write one section at a
   time (`record_work_report`, upserted by item id, never a blind blob rewrite); you
   answer a question with `answer_work_report_question` or in the UI, and the answer is
-  mirrored back as a normal comment.
-- **Set the rules of the game.** A declarative `flow.yaml` defines which column moves
-  are legal; agents ask `list_transitions` for their options, and a deliberate
-  `force=true` override is always allowed — and always flagged in the log, never silent.
+  mirrored back as a normal comment. This is the handoff contract between one agent and
+  the next — a reviewer reads the coder's findings and checks, not its transcript.
 - **Watch it live.** An optional web UI streams the board over SSE — drag a card, or
   watch an agent's move slide across the screen. Zero polling: the stream self-heals
   after sleep or a server restart. Open a card for its activity timeline, relations,
@@ -50,6 +62,44 @@ with no bespoke integration. Concretely, you can:
   board beside Jira and Trello, one API over all of them (`local/PRO-12`,
   `jira/TASK-14`), cards copied across with provenance links and synced only after
   your confirmation.
+
+## Built for harness-driven agentic pipelines
+
+One agent working one card doesn't need any of this. The moment a *harness* is dispatching
+work — a dispatcher spawning workers, a coder handing to a reviewer, a rebaser retrying a
+conflict, all unattended while you sleep — the board stops being a to-do list and becomes
+the **control plane**. That is what kanban-pro is shaped for.
+
+The failure modes of an unsupervised agent fleet are specific, and each has a mechanism
+here rather than a convention:
+
+| The failure | What stops it |
+|---|---|
+| Two workers pick up the same card | Atomic claim/lease. The second `claim_card` loses, deterministically. |
+| A worker dies holding a card | TTL + heartbeat. The lease expires and the card is reclaimable — no stuck lane, no cleanup job. |
+| An agent skips the review gate | The flow scheme refuses the transition. Not a lint, not a prompt instruction — a rejected call. |
+| An agent decides to "clean up" the board | Archive-first deletes; a live card cannot be purged; column deletes refuse while cards remain. |
+| A retried tool call creates a duplicate card | Idempotency key returns the original result, with no second change-log event. |
+| A lane silently fills up | WIP limits are enforced on every move, over any backend. |
+| An agent guesses at a decision that was yours | It raises an attention flag and files a question on the card, routed to you through the change-feed. |
+| Nobody can reconstruct what happened | Append-only change-log, every write stamped with the acting agent, forced moves flagged `forced: true`. |
+
+Prompt instructions are advisory: an agent that drifts, or a cheap model on a long run,
+will step outside them. These are **enforced at the API**, so drift surfaces as a refused
+call the agent must handle, and a deliberate override survives as evidence in the log.
+
+The pieces compose into a real pipeline. A dispatcher creates cards in `triage`. Workers
+`list_work`, claim, and move along the declared flow — `ready → running`, then `review`.
+Each writes its plan, findings, and checks into the card's work report, so the reviewer
+inherits a **structured handoff** instead of the previous agent's transcript. A blocked
+worker raises attention and waits for your answer rather than inventing one. Meanwhile
+`wait_changes` lets a notifier, a dashboard, or the next stage in your harness block on
+the feed and wake the instant something moves — a durable, cursored queue where every
+"message" is a card you can see, reorder, and answer in a browser.
+
+The [flow config this board actually runs on](docs/examples/flows-default.yaml) —
+`triage → todo → scheduled → ready → running → blocked → review → done`, with the reopen
+edge and an unmodeled ad-hoc lane — is in the repo, commented, as a starting point.
 
 ## Quick Start
 
