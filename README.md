@@ -45,8 +45,12 @@ with which agent did it. Concretely:
   deletes are archive-first (purge only what's already archived), board/column deletes
   refuse while cards remain, WIP limits are enforced on every move, and retried
   creates with an idempotency key return the original instead of a duplicate. When an
-  agent hits a question only you can answer, it **raises an attention flag** routed
+  agent hits a decision it isn't entitled to make, it **raises an attention flag** routed
   through the change-feed — instead of guessing or dying silently.
+- **Let the fleet escalate within itself.** An attention flag names *who* should answer,
+  and that target is any actor — `agent:architect` as readily as `human:jan`. A coder that
+  finds the ticket ambiguous bounces the decision to the agent whose call it is, files the
+  question in its work report, and moves on; only what no agent may decide reaches you.
 - **Read a status report, not scrollback.** Each card carries a structured
   **work report**: what it's about, the plan, findings, verification checks, the
   verdict, the handoff — and the agent's open questions. Agents write one section at a

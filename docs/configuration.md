@@ -173,29 +173,77 @@ attempt counter when it changes assignee or lane, so a retried card starts fresh
 
 ---
 
-## 4. The attention flag — how an agent asks you a question
+## 4. The attention flag — asking for a decision instead of guessing
 
-An agent that hits a decision only you can make should neither guess nor die quietly. It
-raises an attention flag:
+An agent that hits a decision it isn't entitled to make should neither guess nor die
+quietly. It raises an attention flag, naming **who** should answer:
 
 ```
-agent> raise_attention PRO-12, reason: "Staging or prod credentials?", for_actor: "human:jan"
+raise_attention(card_id, reason, for_actor=None)
+clear_attention(card_id, resolution=None)
 ```
 
-Three things happen. The card gets `ext["kanban_pro.attention"] = {reason, raised_by,
-for}`, the board tile shows the flag, and an `attention.raised` event lands on the
-change-feed carrying both the reason and the target. That last part is what makes it
-*routable*: a listener (below) reads the target and delivers the question wherever you
-actually are.
+Three things happen on a raise. The card gets
+`ext["kanban_pro.attention"] = {reason, raised_by, for}`. The board tile shows the flag.
+And an `attention.raised` event lands on the change-feed carrying the reason **and the
+target**. That last part is what makes it *routable* — a listener reads the target and
+delivers the question wherever the answerer actually is.
 
-You answer, then `clear_attention(card_id, resolution?)` removes the flag and emits
-`attention.cleared`.
+### It is not only for humans
 
-**Attention is the signal, not the content.** The question itself belongs in the card's
-work report, in `questions[]` — that's what `answer_work_report_question` resolves, and
-what the UI renders as an answerable prompt. Raise attention *because* a question is
-waiting; don't smuggle the question into the reason string. See
+`for_actor` is a free-form actor string, exactly like the identity a connection declares.
+So it addresses anyone in the system:
+
+| `for_actor` | Meaning |
+|---|---|
+| `human:jan` | a person must decide — a listener DMs them |
+| `agent:architect` | **another agent** must decide — a design call the coder shouldn't make |
+| `agent:reviewer` | hand a question up the pipeline: "is this scope creep?" |
+| `None` | anyone watching; nobody in particular is on the hook |
+
+Agent-to-agent attention is the point of the `for_actor` field, not an afterthought. A
+worker that discovers the ticket is ambiguous can bounce the decision to the agent whose
+job that is, keep its card, and go on doing something else — instead of inventing an
+answer that a reviewer discovers three steps later. Combined with `questions[]` in the
+work report, this is how a fleet escalates within itself and only reaches you when no
+agent is entitled to decide.
+
+### How the target finds out
+
+This matters, and it's easy to get wrong:
+
+- **The change-feed is the delivery mechanism.** Watch it (§5) and filter for
+  `attention.raised` events whose `for_actor` is you. That is how an agent — or a
+  notifier acting for a human — learns a question is waiting. `wait_changes` blocks until
+  one arrives.
+- **`list_work` does NOT surface attention.** An agent that only calls `list_work` will
+  never see a question raised for it. The work queue answers "what may I work on"; the
+  feed answers "who needs me". A long-running worker should watch both.
+- **`clear_attention` is not access-controlled.** Any actor may clear any flag; the
+  clearing actor is recorded in the change-log, so this is auditable rather than
+  prevented. Don't clear a flag raised for someone else.
+
+### Attention is the signal, not the content
+
+The question itself belongs in the card's work report under `questions[]` — that's what
+`answer_work_report_question` resolves (mirroring the answer as a comment), and what the
+UI renders as an answerable prompt. Raise attention *because* a question is waiting;
+don't smuggle the question into the reason string, where nothing can resolve it and
+nothing can tell whether it was ever answered. See
 [methods.md](methods.md#work-reports-core-convenience--not-port-ops).
+
+The intended shape of an escalation:
+
+```python
+await record_work_report(card_id, "questions", {          # the content, resolvable
+    "id": "q1", "status": "open",
+    "text": "Ticket says 'cache it' — per-request or per-user? Affects the schema.",
+})
+await raise_attention(card_id, "blocked on q1 (cache scope)", "agent:architect")
+# ... the architect's listener wakes on attention.raised, answers, clears the flag:
+await answer_work_report_question(card_id, "q1", "Per-user. Key on session id.")
+await clear_attention(card_id, "answered q1")
+```
 
 ---
 

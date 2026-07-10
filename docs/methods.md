@@ -86,6 +86,18 @@ Subtasks = child cards via `PARENT`/`CHILD` relations (`SUBTASKS`).
 - Label-registry ops, assignee attach/detach, checklist item add/toggle, attachment
   add/remove — currently these ride on `Card`/`Board` at **create time only**
   (`CardPatch` doesn't cover them); dedicated ops land in the next port expansion.
+
+  **Checklists are therefore write-once.** `Card.checklists[]` (a "definition of done":
+  `{title, items: [{text, done, order}]}`) is accepted at `create_card`, is persisted, and
+  round-trips on read — but **no API can tick an item afterwards**, because `CardPatch`
+  has no `checklists` field and no `checklist_*` tool exists. Treat them as a static
+  acceptance-criteria list until the port expands.
+
+  For a **live, updatable to-do list on a card, use the work report** instead:
+  `plan[]` items carry `status: todo|doing|done|blocked`, and `checks[]` carry
+  reviewer/verification gates — both upserted by item id through `record_work_report`,
+  and each write emits a `work_report.updated` event. That is the mechanism agents should
+  use to track their own steps.
 - **User lookup** — `list_users()` / `get_user(user_id)`. Without it a caller can't
   discover valid ids for `assignees[]` / `Comment.author`.
 
