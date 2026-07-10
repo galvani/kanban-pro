@@ -188,3 +188,12 @@ async def _capabilities_resource_reports_fulfilment() -> None:
 
 def test_capabilities_resource_reports_fulfilment() -> None:
     asyncio.run(_capabilities_resource_reports_fulfilment())
+
+
+def test_server_ships_orientation_instructions() -> None:
+    """The `initialize` result must carry the agent's operating rules — a connecting
+    harness reads these before its first call. Guards against the instructions being
+    dropped when FastMCP is reconfigured."""
+    assert kmcp.mcp.instructions == kmcp.INSTRUCTIONS
+    for rule in ("claim_card", "archive", "force=true", "raise_attention", "wait_changes"):
+        assert rule in kmcp.INSTRUCTIONS

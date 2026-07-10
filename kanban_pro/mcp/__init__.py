@@ -51,7 +51,51 @@ from kanban_pro.ports import KanbanBackend, KanbanError
 
 logger = logging.getLogger("kanban_pro.mcp")
 
-mcp = FastMCP("kanban_pro")
+# Sent to the client in the MCP `initialize` result, so an agent is oriented BEFORE its
+# first call rather than after its first rejected one. Keep it short and behavioural:
+# only the rules whose violation the server actually punishes (a conflict, a lost lease,
+# an unanswerable question), not a feature tour. Tool docstrings carry the per-op detail.
+INSTRUCTIONS = """\
+kanban-pro: a shared kanban board for agents and humans. Cards are the unit of work;
+every write you make is stamped with this connection's actor and is permanently visible
+in an append-only change-log.
+
+Working a card:
+1. `list_work` answers "what should I work on?" — your cards, each carrying its legal
+   moves inline. Prefer it over `list_cards`.
+2. `claim_card` BEFORE you touch anything. The lease is atomic: if it fails, another
+   agent owns the card — pick a different one. Renew with `heartbeat_claim` on long work;
+   an expired lease means your card can be taken. `release_claim` when you stop.
+3. Move only along legal transitions. `list_transitions` tells you which; an illegal move
+   is refused. `force=true` overrides but stamps `forced: true` on the event forever —
+   it is allowed, it is never silent, and a human will see it.
+
+Reporting, and asking:
+- Put your current state in the card's work report via `record_work_report`: `plan`,
+  `findings`, `checks`, `verdict`, `handoff`. It is CURRENT TRUTH, not a log — sections
+  are upserted by item id. Never rewrite `ext["work_report"]` by hand through
+  `update_card`. The next agent reads this, not your transcript.
+- Blocked on a decision you are not entitled to make? Do NOT guess. File it as a
+  `questions[]` item in the work report, then `raise_attention(card_id, reason,
+  for_actor)`. `for_actor` is any actor — `agent:architect` as readily as `human:jan` —
+  so escalate to the agent whose call it is, and only involve a human when no agent may
+  decide. Answers arrive via `answer_work_report_question`.
+- `list_work` does NOT surface attention raised for you. Watch `wait_changes` for
+  `attention.raised` events targeting your actor.
+
+Destructive things are guarded, deliberately:
+- Deletes are archive-first. `delete_card` on a live card is refused; `archive_card`
+  first. Board/column deletes refuse while cards remain.
+- WIP limits are enforced on every move. A refused move is the board working, not a bug.
+- Retried creates: pass the same `idempotency_key` and you get the original back instead
+  of a duplicate.
+
+Reading the world: `kanban://capabilities` says what this backend can actually do
+(native / polyfilled / unavailable). `list_changes(since)` and `wait_changes(since)` are
+the event feed — `since=-1` probes the current cursor without replaying history.
+"""
+
+mcp = FastMCP("kanban_pro", instructions=INSTRUCTIONS)
 
 # Annotation presets (harness UX hints).
 _RO = ToolAnnotations(readOnlyHint=True)
