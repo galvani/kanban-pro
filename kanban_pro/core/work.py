@@ -42,7 +42,12 @@ class Claim(BaseModel):
 
     @property
     def expired(self) -> bool:
-        return self.expires_at <= _now()
+        expires = self.expires_at
+        if expires.tzinfo is None:
+            # Some stored claims have no timezone info (legacy).
+            # Assume UTC so comparison with aware _now() doesn't crash.
+            expires = expires.replace(tzinfo=UTC)
+        return expires <= _now()
 
 
 class WorkItem(BaseModel):

@@ -495,15 +495,25 @@ def create_app(
         async def stream() -> AsyncIterator[str]:
             cursor = start
             yield "retry: 2000\n\n"
+            idle_ticks = 0
             while not await request.is_disconnected():
                 batch = await log.since(cursor, 200)
                 if batch:
                     for event in batch:
                         yield f"id: {event.seq}\ndata: {event.model_dump_json()}\n\n"
                     cursor = batch[-1].seq
+                    idle_ticks = 0
                 else:
                     # instant wake on same-process writes; 2s re-check for foreign ones
                     await log.wait_for_change(2.0)
+                    # Heartbeat comment (~every 16s idle): keeps intermediaries from
+                    # buffering/timing out an event-less stream, and lets a dead
+                    # connection surface as a write error instead of hanging silent —
+                    # the client relies on that to trigger its reconnect.
+                    idle_ticks += 1
+                    if idle_ticks >= 8:
+                        idle_ticks = 0
+                        yield ": ping\n\n"
 
         return StreamingResponse(stream(), media_type="text/event-stream")
 

@@ -43,8 +43,29 @@
                    border-left: 2px solid var(--border); padding-left: 6px;
                    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .chip { background: #1a1d23; border: 1px solid var(--border); border-radius: 10px; padding: 0 7px; }
+  .chip svg { margin-right: 2px; }
+  .chip.prepare          { border-color: #e8a838; color: #e8a838; }
+  .chip.builder-coder    { border-color: #4a9eff; color: #4a9eff; }
+  .chip.builder-architect { border-color: #ab7df0; color: #ab7df0; }
+  .chip.reviewer         { border-color: #f075aa; color: #f075aa; }
+  .chip.rebaser          { border-color: #4ae8a0; color: #4ae8a0; }
+  .chip.scribe           { border-color: #f0c040; color: #f0c040; }
+  .chip.analytics        { border-color: #60c0f0; color: #60c0f0; }
+  .chip.status-audit     { border-color: #e8a040; color: #e8a040; }
+  .chip.discovery        { border-color: #70d0a0; color: #70d0a0; }
+  .chip.builder-sonnet   { border-color: #f08080; color: #f08080; }
+  .chip.dispatcher       { border-color: #80b0f0; color: #80b0f0; }
+  .chip.hermes-engineer  { border-color: #d0a0f0; color: #d0a0f0; }
   .chip.unknown { background: #3a1f1f; border-color: var(--danger); color: #e5534b; }
   .chip.unknown::before { content: "⚠️"; margin-right: 2px; }
+  .chip.ready { border-color: #4a9eff; color: #4a9eff; }
+  .chip.running { border-color: #e8a838; color: #e8a838; }
+  .chip.done { border-color: #4ae8a0; color: #4ae8a0; }
+  .chip.blocked { border-color: #e5534b; color: #e5534b; }
+  .chip.triage { border-color: #888; color: #888; }
+  .chip.review { border-color: #ab7df0; color: #ab7df0; }
+  .chip.todo { border-color: #f0c040; color: #f0c040; }
+  .chip.canceled { border-color: #666; color: #666; text-decoration: line-through; }
   dialog { background: var(--panel); color: var(--text); border: 1px solid var(--border);
            border-radius: 12px; width: min(1026px, 94vw); max-height: 88vh; overflow-y: auto; }
   dialog::backdrop { background: rgba(0,0,0,.55); }
@@ -56,15 +77,23 @@
               color: var(--dim); margin: 16px 0 6px; }
   .comment { border-top: 1px solid var(--border); padding: 8px 0; }
   .comment .who { font-size: 11px; color: var(--dim); }
+  .badge { display: inline-block; font-size: 10px; font-weight: 600; padding: 1px 6px;
+           border-radius: 4px; margin-right: 4px; text-transform: uppercase; }
+  .badge-summary    { background: #2d3d1f; color: #b0e090; }
+  .badge-escalate   { background: #3d1f1f; color: #f09090; }
+  .badge-coder-findings { background: #1f2d3d; color: #90c0f0; }
+  .gateLabel { display: inline-block; font-size: 11px; font-weight: 600; color: var(--dim);
+               min-width: 120px; }
+  .gateVal { color: var(--text); }
   .attention { background: #3a2b12; border: 1px solid #8a6d1f; border-radius: 8px;
                padding: 8px 12px; margin: 10px 0; font-size: 13px; }
-  .metaGrid { display: flex; align-items: center; gap: 12px; font-size: 12px;
-              margin: 8px 0; overflow: hidden; white-space: nowrap; }
-  .metaGrid .mi { display: inline-flex; align-items: center; gap: 5px; min-width: 0; }
-  .metaGrid .mk { color: var(--dim); flex: none; }
-  .metaGrid .mv { min-width: 0; max-width: 170px; overflow: hidden; text-overflow: ellipsis; }
-  .metaGrid .mi.wide .mv { max-width: 230px; }
-  .metaGrid button { padding: 3px 9px; font-size: 12px; }
+  .metaGrid { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 12px;
+               align-items: center; }
+  .metaGrid .mi { display: inline-flex; align-items: center; gap: 5px;
+                  min-width: calc(50% - 8px); flex: 1 0 calc(50% - 8px); }
+  .metaGrid .mi:only-child { min-width: auto; flex: none; }
+  .metaGrid .mk { color: var(--dim); white-space: nowrap; flex: none; }
+  .metaGrid .mv { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   .moveBtns { display: flex; gap: 6px; flex-wrap: wrap; }
   .moveBtns button { background: var(--card); border: 1px solid var(--border);
                      color: var(--text); font-size: 12px; padding: 4px 10px; }
@@ -73,11 +102,32 @@
   .relRow a { color: var(--accent); cursor: pointer; text-decoration: none; }
   .reportSec { border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px;
                margin: 8px 0; background: #1a1d23; }
-  .reportSec h4 { margin-top: 0; }
+  .reportSec h4 { margin: -8px -10px 8px; padding: 6px 10px; border-radius: 8px 8px 0 0;
+                 font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .hdr-findings    { background: #3d1f2a; color: #f0a0b0; }
+  .hdr-checks      { background: #1f2d3d; color: #90c0f0; }
+  .hdr-verdict     { background: #2d3d1f; color: #b0e090; }
+  .hdr-handoff     { background: #3d2d1f; color: #f0c090; }
+  .hdr-about       { background: #2a1f3d; color: #c0a0f0; }
+  .hdr-plan        { background: #1f3d3d; color: #90e0e0; }
+  .hdr-analysis_log,
+  .hdr-analysis    { background: #3d1f2a; color: #f0a0b0; }
+  .hdr-needs       { background: #3d2d2d; color: #f0b0b0; }
+  .hdr-questions   { background: #2d2d3d; color: #c0c0f0; }
+  .hdr-unknown     { background: #2d323e; color: #d4d7de; }
   .reportItem { border-top: 1px solid #252a33; padding: 7px 0; }
   .reportItem:first-of-type { border-top: 0; }
   .reportItem .rid { color: var(--dim); font-size: 11px; font-family: ui-monospace, monospace; }
   .reportItem.open { border-left: 3px solid #8a6d1f; padding-left: 8px; }
+  .objGrid { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; font-size: 13px; }
+  .objRow { display: contents; }
+  .objKey { color: var(--dim); font-family: ui-monospace, monospace; font-size: 11px;
+            text-align: right; white-space: nowrap; padding-top: 1px; }
+  .objVal { word-break: break-word; }
+  .objVal code { font-size: 11px; background: #1a1d23; padding: 1px 5px; border-radius: 3px; }
+  .mrLink { display: inline-block; font-size: 12px; font-weight: 600; padding: 3px 12px;
+            border-radius: 6px; background: #1f3d2f; color: #4ae8a0; text-decoration: none;
+            border: 1px solid #2a6b3f; }
   .answerBox { display: flex; gap: 6px; margin-top: 6px; }
   .answerBox input { min-width: 0; }
   .activity { font-size: 12px; max-height: 220px; overflow-y: auto; }
@@ -178,7 +228,23 @@
 
 <script>
 /* Push-fed board: one snapshot per board switch, then SSE deltas. No polling timers. */
-let boardId = null, cursor = 0, es = null, refreshTimer = null, detailRefreshTimer = null, openCardId = null, knownAssignees = [], reportRequiredByAssignee = {}, reportSectionOrder = [], reportSectionOrderByAssignee = {}, maxRetries = 5;
+let boardId = null, cursor = 0, es = null, refreshTimer = null, reconnectTimer = null, detailRefreshTimer = null, openCardId = null, knownAssignees = [], reportRequiredByAssignee = {}, reportSectionOrder = [], reportSectionOrderByAssignee = {}, maxRetries = 5;
+
+const A = (paths) => `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${paths}</svg> `;
+const ASSIGNEE_GLYPHS = {
+  "prepare": A(`<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>`),
+  "builder-coder": A(`<polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>`),
+  "builder-architect": A(`<polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/>`),
+  "reviewer": A(`<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>`),
+  "rebaser": A(`<polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>`),
+  "scribe": A(`<path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>`),
+  "analytics": A(`<line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>`),
+  "status-audit": A(`<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>`),
+  "discovery": A(`<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>`),
+  "builder-sonnet": A(`<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>`),
+  "dispatcher": A(`<line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>`),
+  "hermes-engineer": A(`<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>`),
+};
 
 const $ = id => document.getElementById(id);
 const api = async (path, opts) => {
@@ -233,11 +299,12 @@ function cardEl(card) {
   if (ext._claim) {
     const hasLog = !!((ext.session || {}).log || (ext.work || {}).log);
     const who = String(ext._claim.owner).split(":").pop();
-    chips.push(`<span class="chip live" title="claimed by ${esc(ext._claim.owner)}${hasLog ? " · session log linked" : ""}">▶ ${esc(who)}${hasLog ? " 📜" : ""}</span>`);
+    chips.push(`<span class="chip live" title="claimed by ${esc(ext._claim.owner)}${hasLog ? " · session log linked" : ""}">▶ ${boldAgent(who)}${hasLog ? " 📜" : ""}</span>`);
   }
   for (const a of card.assignees || []) {
     const cls = knownAssignees.includes(a) ? "" : " unknown";
-    chips.push(`<span class="chip${cls}">${esc(a)}</span>`);
+    const glyph = ASSIGNEE_GLYPHS[a] || "";
+    chips.push(`<span class="chip ${esc(a)}${cls}">${glyph}${esc(a)}</span>`);
   }
   const prio = (ext.hermes || {}).priority ?? (ext.work || {}).priority;
   if (prio != null && prio !== 0) chips.push(`<span class="chip">p${esc(prio)}</span>`);
@@ -362,10 +429,26 @@ function scheduleOpenCardRefresh() {    /* keep an already-open detail dialog li
 }
 
 function connect() {
-  if (es) return;
+  /* A live/connecting stream is fine; a CLOSED one (e.g. died silently on sleep,
+     with no onerror) must be replaced or the board stays frozen. */
+  if (es && es.readyState !== EventSource.CLOSED) return;
+  if (es) { try { es.close(); } catch {} es = null; }
   es = new EventSource(`/api/events?since=${cursor}`);
   es.onopen = () => $("liveDot").classList.add("live");
-  es.onerror = () => $("liveDot").classList.remove("live");
+  /* EventSource auto-retries only while CONNECTING; a CLOSED stream (HTTP error
+     during a server restart, laptop sleep, a dropped connection) is terminal and
+     never revives itself. Since the board is push-only with no polling fallback,
+     that silently freezes it. Tear the dead stream down and reconnect with a short
+     backoff, then refresh() to catch any moves missed while we were dark. */
+  es.onerror = () => {
+    $("liveDot").classList.remove("live");
+    if (es && es.readyState === EventSource.CLOSED) {
+      try { es.close(); } catch {}
+      es = null;
+      clearTimeout(reconnectTimer);
+      reconnectTimer = setTimeout(() => { connect(); refresh(); }, 2000);
+    }
+  };
   es.onmessage = msg => {
     cursor = Math.max(cursor, Number(msg.lastEventId) || 0);
     const ev = JSON.parse(msg.data);
@@ -391,28 +474,46 @@ function reportText(v) {
   if (v == null) return "";
   if (typeof v === "string") return v;
   if (typeof v === "object") {
-    return v.text || v.summary || v.result || v.verdict || JSON.stringify(v);
+    return v.text || v.summary || v.result || v.verdict || "";
   }
   return String(v);
 }
 
 function renderReportList(title, rows, cardId, kind) {
   if (!Array.isArray(rows) || !rows.length) return "";
-  return `<section class="reportSec"><h4>${esc(title)}</h4>` + rows.map(r => {
+  return `<section class="reportSec"><h4 class="hdr-${esc(kind || "unknown")}">${esc(title)}</h4>` + rows.map(r => {
     const status = r.status ? `<span class="chip">${esc(r.status)}</span>` : "";
     const sev = r.severity ? `<span class="chip">${esc(r.severity)}</span>` : "";
-    const open = kind === "questions" && r.status !== "answered" && r.status !== "canceled";
+    const open = kind === "questions" && (r.title || r.text) && r.status !== "answered" && r.status !== "canceled";
     const evidence = r.evidence ? `<div style="color:var(--dim);margin-top:4px">${md(r.evidence)}</div>` : "";
     const answer = r.answer ? `<div style="margin-top:5px"><b>Answer:</b> ${md(r.answer)}</div>` : "";
     const answerBox = open ? `<div class="answerBox">
       <input type="text" id="ans-${esc(r.id)}" placeholder="answer ${esc(r.id)}">
       <button type="button" onclick="answerQuestion('${esc(cardId)}','${esc(r.id)}')">Answer</button>
     </div>` : "";
+    // Render extra fields (beyond id/status/severity/evidence/answer) as mini key-value grid
+    const known = new Set(["id", "status", "severity", "evidence", "answer", "text", "summary", "result", "verdict"]);
+    const extras = Object.entries(r).filter(([k, v]) => !known.has(k) && v != null && v !== "" && !(Array.isArray(v) && v.length === 0));
+    const extraHtml = extras.length
+      ? `<div class="objGrid" style="margin-top:4px">${extras.map(([k, v]) => {
+          const label = esc(k.replace(/_/g, " "));
+          const val = typeof v === "string" ? md(v) : Array.isArray(v)
+            ? v.map(i => typeof i === "string" ? esc(i) : renderInlineItem(i)).join("<br>")
+            : esc(JSON.stringify(v, null, 1).slice(0, 200));
+          return `<span class="objKey">${label}</span><span class="objVal">${val}</span>`;
+        }).join("")}</div>`
+      : "";
     return `<div class="reportItem${open ? " open" : ""}">
       <div><span class="rid">${esc(r.id || "")}</span> ${status} ${sev}</div>
-      <div>${md(reportText(r))}</div>${evidence}${answer}${answerBox}
+      <div>${md(reportText(r))}</div>${evidence}${answer}${answerBox}${extraHtml}
     </div>`;
   }).join("") + `</section>`;
+}
+
+function renderInlineItem(v) {
+  if (typeof v === "string") return esc(v);
+  const txt = v.text || v.note || v.title || JSON.stringify(v).slice(0, 120);
+  return esc(txt);
 }
 
 const REPORT_SECTION_LABELS = {
@@ -437,7 +538,23 @@ function isReportSectionEmpty(value) {
 function renderReportValue(title, value, cardId, kind) {
   if (isReportSectionEmpty(value)) return "";
   if (Array.isArray(value)) return renderReportList(title, value, cardId, kind);
-  return `<section class="reportSec"><h4>${esc(title)}</h4>${md(reportText(value))}</section>`;
+  if (typeof value === "object" && value !== null)
+    return renderReportObject(title, value, kind);
+  return `<section class="reportSec"><h4 class="hdr-${esc(kind || "unknown")}">${esc(title)}</h4>${md(reportText(value))}</section>`;
+}
+
+function renderReportObject(title, obj, kind) {
+  const rows = Object.entries(obj).map(([k, v]) => {
+    const label = esc(k.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()));
+    const isLink = k.endsWith("_link") || k.endsWith("_url");
+    const val = typeof v === "string"
+      ? (isLink
+        ? `<a href="${esc(v)}" target="_blank" rel="noopener" class="mrLink">Open MR →</a>`
+        : linkify(md(v)))
+      : esc(JSON.stringify(v, null, 2));
+    return `<div class="objRow"><span class="objKey">${label}</span><span class="objVal">${val}</span></div>`;
+  }).join("");
+  return `<section class="reportSec"><h4 class="hdr-${esc(kind || "unknown")}">${esc(title)}</h4><div class="objGrid">${rows}</div></section>`;
 }
 
 function reportRequiredFor(card) {
@@ -510,6 +627,40 @@ async function retryCard(cardId) {
   } catch (e) { toast(e.message); }
 }
 
+function boldAgent(name) {
+  return name.replace(/(agent:[\w-]+)/g, (m) => {
+    const w = m.replace("agent:", "");
+    const glyph = ASSIGNEE_GLYPHS[w] || "";
+    return `${glyph}<b>${m}</b>`;
+  });
+}
+
+function linkify(text) {
+  return text.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>');
+}
+
+function formatComment(body) {
+  const lines = body.split("\n");
+  let inJson = false;
+  return lines.map(line => {
+    const trimmed = line.trim();
+    // Hide fenced JSON blocks (review_checklist, handoff etc)
+    if (trimmed === "```json" || trimmed === "```") { inJson = !inJson; return ""; }
+    if (inJson) return "";
+    // JSON on a single line (legacy format)
+    if (trimmed.startsWith("{") && trimmed.endsWith("}")) return "";
+    // §keyword lines
+    if (trimmed.startsWith("§")) {
+      const m = trimmed.match(/^§(\w+)\s*(.*)/);
+      if (m) return `<span class="badge badge-${esc(m[1])}">${esc(m[1])}</span> ${linkify(esc(m[2]))}`;
+    }
+    // [gate] lines
+    const gate = trimmed.match(/^\[(\S+)\]\s+(.*)/);
+    if (gate) return `<span class="gateLabel">${esc(gate[1])}</span><span class="gateVal">${linkify(esc(gate[2]))}</span>`;
+    return linkify(esc(line));
+  }).filter(l => l !== "").join("<br>");
+}
+
 async function openCard(id) {
   openCardId = id;
   const [d, trans, activity] = await Promise.all([
@@ -537,15 +688,19 @@ async function openCard(id) {
     const current = (card.assignees || [])[0] || "";
     if (!knownAssignees.length) return esc(current || "unassigned");
     const opts = knownAssignees.map(a =>
-      `<option value="${esc(a)}"${a === current ? " selected" : ""}>${esc(a)}</option>`
+      `<option value="${esc(a)}"${a === current ? " selected" : ""}>${ASSIGNEE_GLYPHS[a] || ""}${esc(a)}</option>`
     );
     opts.unshift(`<option value=""${!current ? " selected" : ""}>— unassigned —</option>`);
     return `<select id="dlgAssignee">${opts.join("")}</select>`;
   }
 
+  const colId = (trans && trans.current_column_id ? trans.current_column_id : (card.placements[0] || {}).column_id) || "";
+  const colName = colId.includes(":") ? colId.split(":").pop() : colId;
+  const colCat = trans ? trans.current_column_category : "";
+  const colChipClass = colCat === "started" ? "running" : colCat === "done" ? "done" : colCat === "canceled" ? "canceled" : colName;
   const rows = [
     ["assignees", assigneeHtml(), true],
-    ["column", trans && trans.current_column_id ? trans.current_column_id : (card.placements[0] || {}).column_id],
+    ["column", `<span class="chip ${esc(colChipClass)}">${esc(colName)}</span>`, true],
     ["created", fmt(card.created_at)], ["updated", fmt(card.updated_at)],
   ];
   if (provenance) rows.push(["migrated from", provenance]);
@@ -601,7 +756,9 @@ async function openCard(id) {
     $("dlgMoves").appendChild(n);
   }
 
-  $("dlgDesc").innerHTML = md(card.description || "");
+  const desc = card.description || "";
+  $("dlgDesc").innerHTML = desc.trim().startsWith("```json") ? "" : md(desc);
+  $("dlgDesc").style.display = $("dlgDesc").innerHTML ? "" : "none";
   $("dlgWorkReport").innerHTML = renderWorkReport((card.ext || {}).work_report, id, reportRequiredFor(card), reportSectionOrderFor(card));
 
   /* Build info (surfaced from ext — visible without opening raw ext) */
@@ -626,7 +783,7 @@ async function openCard(id) {
     : "";
 
   $("dlgComments").innerHTML = d.comments.map(c =>
-    `<div class="comment"><div class="who">${esc(c.author)} · ${c.created_at ? new Date(c.created_at).toLocaleString() : ""}</div>${md(c.body)}</div>`
+    `<div class="comment"><div class="who">${boldAgent(esc(c.author))} · ${c.created_at ? new Date(c.created_at).toLocaleString() : ""}</div>${formatComment(c.body)}</div>`
   ).join("") || `<div class="comment" style="color:var(--dim)">no comments</div>`;
 
   $("dlgActivity").innerHTML = [...activity].reverse().map(e => {
@@ -635,7 +792,7 @@ async function openCard(id) {
       : `${esc(e.entity)}.${esc(e.op)}` + (e.data && e.data.column_id ? ` → ${esc(String(e.data.column_id).split(":").pop())}` : "")
         + (e.data && e.data.reason ? ` — ${esc(e.data.reason)}` : "");
     return `<div class="ev"><span class="t">${new Date(e.ts).toLocaleString()}</span>
-            <span class="who">${esc(e.actor)}</span><span>${what}</span></div>`;
+            <span class="who">${boldAgent(esc(e.actor))}</span><span>${what}</span></div>`;
   }).join("") || `<div style="color:var(--dim)">no recorded activity</div>`;
 
   $("dlgExt").style.display = Object.keys(ext).length ? "" : "none";
@@ -713,6 +870,13 @@ $("commentForm").addEventListener("submit", async ev => {
     $("commentBody").value = "";
   } catch (e) { toast(e.message); }
 });
+
+/* Heal a stale board after the common freeze triggers — a backgrounded tab or a
+   laptop that slept often kills the EventSource without a clean onerror. On regaining
+   focus / connectivity, refresh() re-fetches the snapshot and (via connect()) revives
+   a dead stream, so the board can't silently sit frozen on old lanes. */
+document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
+window.addEventListener("online", refresh);
 
 (async () => {
   try { await loadMeta(); await loadBoards(); await refresh(); }
