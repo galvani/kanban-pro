@@ -237,8 +237,11 @@ def create_app(
     # --- UI (one self-contained page) ---
 
     @app.get("/", response_class=HTMLResponse)
-    async def ui() -> str:
-        return _UI_FILE.read_text()
+    async def ui() -> HTMLResponse:
+        # no-store: the single-file UI carries its own JS, so a cached copy silently pins
+        # an old client (e.g. missing an SSE-reconnect fix) — a plain reload must always
+        # fetch the current board.html, never a heuristically-cached one.
+        return HTMLResponse(_UI_FILE.read_text(), headers={"Cache-Control": "no-store"})
 
     # --- meta / boards ---
 
