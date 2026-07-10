@@ -401,6 +401,8 @@ interface can bypass the guards or the audit trail. Directory layout:
 - [TODO.md](TODO.md) — open backlog (nothing in it is done)
 - [AGENTS.md](AGENTS.md) — conventions & hard rules for coding agents, incl. how to
   author a new adapter
+- [docs/internals.md](docs/internals.md) — **how it fits together**: the layer stack, the
+  invariants, the event kinds, `ext` versioning, and the traps. Read this before changing code.
 - [docs/methods.md](docs/methods.md) — every operation + its MCP projection
 - [docs/hermes-kanban.md](docs/hermes-kanban.md) — ground truth for the first harness
   adapter & its migration map

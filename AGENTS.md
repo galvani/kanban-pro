@@ -35,8 +35,13 @@ kanban_pro/
 The interface layers are thin and stateless; all behavior lives in `core/`, which wraps
 the active adapter (`RecordingBackend(AugmentingBackend(adapter))`). Interfaces call
 `core/`, **never an adapter directly** — that is what makes the guards and the audit
-trail unbypassable. Details in [SPEC.md](SPEC.md) (authoritative) and
-[docs/adapter-structure.md](docs/adapter-structure.md).
+trail unbypassable.
+
+**Before changing code, read [docs/internals.md](docs/internals.md)** — the layer stack,
+the invariants you must not break, the 23 event kinds, `ext` versioning, and the traps
+(e.g. `flows.yaml`'s `wip_limits:` key is silently ignored; the adapter registry is in
+`config.py`, not `adapters/__init__.py`). Design rationale: [SPEC.md](SPEC.md)
+(authoritative); adapter recipe: [docs/adapter-structure.md](docs/adapter-structure.md).
 
 ## Conventions
 

@@ -116,18 +116,25 @@ Adapters never leak raw backend types across the port; only canonical domain mod
 
 A **profile** (SPEC decision 3) picks one adapter + its settings. Plan:
 
-- `adapters/__init__.py` holds a **registry**: `name -> factory(settings) -> KanbanBackend`
-  (async factory for stores that need `.open()`).
-- `config.py` resolves the active `--profile` to a registry entry + its config-file settings
-  (secrets from env), builds the adapter, and wraps it in `AugmentingBackend`.
+- **`config.py` holds the registry** — `name -> async factory() -> KanbanBackend`. (An
+  earlier draft of this doc put it in `adapters/__init__.py`; it never lived there.)
+- `config.py` resolves the active `--profile` to a registry entry, builds the adapter, and
+  wraps it in the core stack: `RecordingBackend(AugmentingBackend(adapter), …)`.
+
+The real thing, from `kanban_pro/config.py`:
 
 ```python
-REGISTRY = {
-    "native": lambda s: NativeStore.open(s["db_path"]),
-    "memory": lambda s: MemoryBackend(),
-    "hermes": lambda s: HermesAdapter(s["base_url"], token=env("HERMES_TOKEN")),
+REGISTRY: dict[str, Callable[[], Awaitable[KanbanBackend]]] = {
+    "default": _open_native,   # the native store IS the default profile
+    "native": _open_native,
+    "memory": _open_memory,    # ephemeral — tests / scratch boards
+    "hermes": _open_hermes,    # HermesAdapter() — reads ~/.hermes SQLite, writes via CLI
 }
 ```
+
+Note the factories take **no settings argument** today, and `HermesAdapter` takes no
+`base_url`/`token`: its reads are local SQLite and its writes shell out to `hermes kanban`.
+Per-profile settings files arrive with the first genuinely remote adapter (SPEC decision 3).
 
 ## Testing: one shared contract suite
 
