@@ -26,14 +26,21 @@ move, empty-only delete guards, ext shallow-merge) — see JOURNAL 2026-07-05.)*
 
 ## Harness-native interfaces (must-have) — MCP-first, shell-first
 
-- [x] **MCP server** (`kanban_pro/mcp/`) — PRIMARY interface. DONE 2026-07-05 (v0):
-  23 tools + `kanban://capabilities`/`boards`/`board/{id}`/`card/{id}` resources, stdio,
-  `kanban-pro-mcp --profile <name>`. Idempotency keys + notifications follow core (v1/v2).
+- [x] **MCP server** (`kanban_pro/mcp/`) — PRIMARY interface. DONE 2026-07-05 (v0),
+  grown since: **37 tools + 9 `kanban://` resources**, stdio,
+  `kanban-pro-mcp --profile <name>`. Idempotency keys landed (optional param);
+  MCP notifications still pending. Regenerate the skill tool-ref on any change
+  (`uv run python -m tests.toolref --write`).
 - [ ] **CLI** (`kanban_pro/cli/`) — PRIMARY interface. Same ops as subcommands for
-  shell-first harnesses (Codex/Claude Code shelling out) + humans.
-- [ ] **HTTP/REST** (`kanban_pro/api/`) — secondary, for programmatic clients.
+  shell-first harnesses (Codex/Claude Code shelling out) + humans. **The last
+  unbuilt primary interface.**
+- [ ] **HTTP/REST** (`kanban_pro/api/`) — secondary, for programmatic clients. Partially
+  done: `api/` exists and serves the **web UI** (snapshot, SSE, card detail, move,
+  comment, answer-question, retry). The full canonical one-route-per-op surface is
+  still open.
 - [ ] Keep all three thin over `core/` — no drift.
-- [ ] Hermes: also a **backend adapter** (the first), not just a consumer.
+- [x] Hermes: also a **backend adapter** (the first), not just a consumer. DONE
+  2026-07-05 (`adapters/hermes/`).
 
 ## Planned (from SPEC)
 
@@ -307,10 +314,15 @@ scheme badge + drag-highlighting, `scheme=` list filter.
   push-fed, zero browser polling ✓ (same-process writes push instantly via ChangeLog
   wakeup; cross-process within ~2s server-side re-check). Works over any profile —
   verified live on `hermes` (64 cards).
-- [ ] **Richer UI — port the Hermes board plugin** on top of this API (the v1 page is
-  deliberately minimal). Plugin source is readable (no-build IIFE) but needs an SDK
-  shim (React/shadcn host) + data-layer rewrite; prune harness-specific panels
-  (runs/workers/dispatch) until claim/lease lands.
+- [x] **Richer board — DONE 2026-07-06/09**, grown in-place rather than by porting the
+  Hermes plugin: card tiles carry attention/priority/scheme/age; the card modal has an
+  activity timeline, relations, legal moves, and the work report; a live session-log
+  viewer tails the running agent's transcript; cards can be retried; the SSE stream
+  self-heals after sleep/restart (2026-07-10).
+- [ ] **Richer UI — remaining**: the page is still a single self-contained `board.html`
+  (no-build, no SDK). Revisit a React/shadcn host only if it stops scaling; the Hermes
+  plugin's harness-specific panels (runs/workers/dispatch) are not worth porting now
+  that claim/lease + session logs cover the need.
 
 - [ ] **Check the Hermes board plugin we built** — see whether its board UI can be reused
   / easily wired into kanban-pro's own UI (as a front-end consumer of the canonical API).

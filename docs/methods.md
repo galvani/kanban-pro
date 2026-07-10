@@ -3,21 +3,25 @@
 Every operation exists once in `core/` over the `KanbanBackend` port and is projected onto
 three surfaces (SPEC decision 5 + "Consuming kanban-pro"):
 
-- **MCP tools** (primary) — one tool per operation, schema generated from the domain models.
-- **CLI** (primary) — `kanban-pro <resource> <verb> [flags]`.
-- **HTTP/REST** (secondary) — one route per operation.
+- **MCP tools** (primary) — one tool per operation, schema generated from the domain
+  models. **37 tools + 9 resources today.**
+- **CLI** (primary) — `kanban-pro <resource> <verb> [flags]`. _(planned — no `cli/` yet)_
+- **HTTP** (secondary) — `kanban_pro/api/` exists but serves the **web UI** (board
+  snapshot, SSE, card detail, move/comment/answer/retry), not the full canonical
+  surface. One route per operation is _(planned)_.
 
 This doc lists the canonical operations, then their MCP projection. Status: reflects the
-wired port (`kanban_pro/ports`); the MCP projection is **implemented** (`kanban_pro/mcp`,
-v0 — idempotency keys and notifications follow core in v1/v2). Ops marked _(planned)_
-aren't implemented yet.
+wired port (`kanban_pro/ports`) and the implemented MCP projection (`kanban_pro/mcp`).
+Ops marked _(planned)_ aren't implemented yet.
+
+Configuring the behaviour these ops enforce — profiles, actors, flow rules, WIP limits,
+attention, listeners — is in [configuration.md](configuration.md).
 
 Conventions: `Card`/`Board`/… are the [domain models](../SPEC.md#canonical-domain-model).
-`*Patch` = partial update (only set fields apply). **†** = takes an idempotency key
-(create/add ops, SPEC decision 8 — IMPLEMENTED 2026-07-05 as an optional param: same
-key on retry returns the ORIGINAL result, no duplicate, no second change-log event;
-keys become required with the phase-C worker rollout). Each op notes the `Capability`
-that gates it.
+`*Patch` = partial update (only set fields apply). **†** = accepts an idempotency key
+(create/add ops, SPEC decision 8 — implemented 2026-07-05 as an **optional** param: same
+key on retry returns the ORIGINAL result, no duplicate, no second change-log event).
+Each op notes the `Capability` that gates it.
 
 ---
 
@@ -90,18 +94,56 @@ Subtasks = child cards via `PARENT`/`CHILD` relations (`SUBTASKS`).
 | Operation | Signature | Notes |
 |---|---|---|
 | work queue | `list_work(assignee?, include_unassigned=True)` | default assignee = the connection's actor; workable = backlog/unstarted/started, cards leased to others excluded, own leases marked; **each item carries its legal transitions inline** |
-| claim | `claim_card(card_id, ttl_seconds=900)` | atomic CAS lease (competing consumers); expired leases are silently reclaimable; recorded as `card.claimed` |
-| heartbeat | `heartbeat_claim(card_id, ttl_seconds=900)` | renew own live lease (not recorded) |
-| release | `release_claim(card_id)` | idempotent; recorded as `card.released` |
+| claim | `claim_card(card_id, ttl_seconds=3600, owner?)` | atomic CAS lease (competing consumers); expired leases are silently reclaimable; recorded as `card.claimed` |
+| heartbeat | `heartbeat_claim(card_id, ttl_seconds=3600, owner?)` | renew own live lease (not recorded) |
+| release | `release_claim(card_id, owner?)` | idempotent; recorded as `card.released` |
 | raise attention | `raise_attention(card_id, reason, for_actor?)` | sets `ext["kanban_pro.attention"]` + `attention.raised` event (routable: notifiers read reason/target from the feed) |
 | clear attention | `clear_attention(card_id, resolution?)` | removes the flag + `attention.cleared` event |
+
+`owner` defaults to the connection's actor — pass it only when one process holds leases
+on behalf of another identity.
 
 Claiming does NOT move or assign — the convention "claim → assign yourself → move to
 a started column" stays visible in the change-log.
 
-### Bulk (API/MCP convenience — SPEC "Canonical operations")
+### Flow (core convenience — not port ops)
 
-`bulk_create` · `bulk_move` · `bulk_update` · `bulk_archive` — accept a list, run a
+| Operation | Signature | Notes |
+|---|---|---|
+| legal moves | `list_transitions(card_id, board_id?)` | the card's legal target columns *right now* + the resolved scheme and where it came from (inline `ext["kanban_pro.flow"]` → named scheme → backend workflow → free) |
+| list schemes | `list_flows()` | every `flow.yaml` scheme + built-in `free-roam`, with states, transitions, and which is default |
+
+`move_card` enforces the resolved scheme; `force=true` overrides it and stamps
+`forced: true` on the `card.moved` event — never silent.
+
+### Work reports (core convenience — not port ops)
+
+Current structured card state, held in `ext["work_report"]`. The changelog is the audit
+trail; the report itself is **current truth, not an append-only log**.
+
+| Operation | Signature | Notes |
+|---|---|---|
+| record | `record_work_report(card_id, section, item, op="upsert", idempotency_key?)` | one section/item per call; emits a `work_report.updated` event |
+| answer a question | `answer_work_report_question(card_id, question_id, answer)` | resolves the question **and** mirrors the answer as a normal comment |
+
+Sections — **list** (upserted by stable item `id`, `op` ∈ `upsert`/`replace`/`remove`):
+`questions`, `findings`, `plan`, `needs`, `analysis_log`, `checks`.
+**Singleton** (replaced as current state): `about`, `verdict`, `handoff`.
+
+Rules: never rewrite the whole `ext.work_report` blob by hand; `raise_attention` is only
+the *signal* — the actual question belongs in `questions[]`. Machine-readable schema:
+the `kanban://work-report-schema` resource.
+
+### Change feed
+
+| Operation | Signature | Notes |
+|---|---|---|
+| pull | `list_changes(since=0, limit=100)` | every recorded write after cursor `since` |
+| long-poll | `wait_changes(since=-1, timeout_seconds=25, limit=100)` | returns as soon as events exist after `since` (instant for writes through this server, ~2s for other processes), else empty at timeout. `since=-1` probes the current cursor without replaying history — call once, then loop with the returned cursor |
+
+### Bulk _(planned — not implemented)_
+
+`bulk_create` · `bulk_move` · `bulk_update` · `bulk_archive` — will accept a list, run a
 `core/` loop over the single-item ops, and return **per-item results with partial success**
 (each item reports ok/error). The port stays single-item.
 
@@ -119,11 +161,18 @@ patch semantics, Q17):
 | `kanban_pro.attention` | attention signal (queued) | `{reason, raised_by, for}` — needs a decision/input |
 | `kanban_pro.copied_from` | cross-mount copy (queued) | provenance link `"<mount>/<card-id>"` |
 | `kanban_pro.migrated_from` | `kanban-pro-migrate` | import provenance `"<profile>/<board-id>"` |
-| `work` | kanban-dispatcher (agreed 2026-07-05) | executor metadata: `{workspace_kind, branch, skills[], max_runtime}` |
+| `work_report` | work-report ops | current structured card state (sections above) — write via `record_work_report`, never by hand |
+| `session` | worker/harness | `{actor, log, kind}` — pointer to the agent's session transcript (`*.jsonl`/`*.log` under `$HOME`/tmp), tailed by the UI's session-log viewer |
+| `work` | kanban-dispatcher (agreed 2026-07-05) | executor metadata: `{workspace_kind, branch, skills[], max_runtime}`; its `log` is the fallback source for the session-log viewer |
 | `hermes` | hermes adapter | the backend's harness-specific fields, verbatim |
 
 Rule: `kanban_pro.*` is reserved for kanban-pro's own features; adapters use their
 backend's name as the namespace; the dispatcher owns `work`.
+
+Liveness is **derived**, never stored: a card reads as "running" because a live claim
+(`ext._claim`) exists, so a crashed lease correctly reads as done once it expires. The
+log pointer lives on `ext.session` (it must outlive the claim); liveness comes from the
+claim.
 
 ## MCP projection
 
@@ -132,29 +181,35 @@ everything at connect time — no per-backend code.
 
 ### Tools (one per operation)
 
-Snake-case names matching the operations above:
+Snake-case names matching the operations above — **37 tools**, the live surface:
 
 ```
 list_boards, get_board, create_board, update_board, delete_board,
 list_columns, create_column, update_column, delete_column,
-list_cards, get_card, create_card, update_card, move_card,
+list_cards, get_card, create_card, update_card,
+record_work_report, answer_work_report_question,
+move_card, list_transitions, list_flows,
 add_placement, remove_placement, archive_card, unarchive_card, delete_card,
 list_comments, add_comment, delete_comment,
 list_relations, add_relation, delete_relation,
-list_changes,
-bulk_create, bulk_move, bulk_update, bulk_archive
+list_work, claim_card, heartbeat_claim, release_claim,
+raise_attention, clear_attention,
+list_changes, wait_changes
 ```
 
-`list_changes(since=0, limit=100)` — the decision-9 pull feed: every recorded write
-after cursor `since`, each event carrying `seq` (next cursor), `ts`, `actor`
-(decision 10), `entity.op` (e.g. `card.moved`), and a slim payload.
+Each event on the feed carries `seq` (next cursor), `ts`, `actor` (decision 10),
+`entity.op` (e.g. `card.moved`), and a slim payload.
+
+The generated tool reference embedded in `examples/skills/*/SKILL.md` is the machine
+source of truth — regenerate it with `uv run python -m tests.toolref --write` after any
+change here, or `tests/test_toolref.py` fails.
 
 - **Input schema** for each tool is generated from the domain / `*Patch` model (or the
   path params). Example — `create_card`:
 
   ```jsonc
   {
-    "idempotency_key": "string (required — create/add ops, decision 8)",
+    "idempotency_key": "string (optional — create/add ops, decision 8)",
     "card": {                       // the Card model
       "title": "string (required)",
       "description": "string|null",
@@ -175,17 +230,26 @@ after cursor `since`, each event carrying `seq` (next cursor), `ts`, `actor`
 
 ### Resources
 
+All under the `kanban://` scheme — **9 today**:
+
 | Resource | Purpose |
 |---|---|
-| `capabilities` | Active provider's `Capability` set, each with its `Fulfilment` (`native` / `polyfilled` / `unavailable`) — **how a harness learns what this kanban can do.** |
-| `boards` / `board/{id}` / `card/{id}` | Read-through canonical data. |
-| `changes?since=<cursor>` | Pull change-feed (decision 9). |
+| `kanban://capabilities` | Active provider's `Capability` set, each with its `Fulfilment` (`native` / `polyfilled` / `unavailable`) — **how a harness learns what this kanban can do.** |
+| `kanban://boards` / `board/{board_id}` / `card/{card_id}` | Read-through canonical data. |
+| `kanban://domain` | The canonical domain model. |
+| `kanban://workflow` | Flow schemes, states, transitions. |
+| `kanban://work-distribution` | How work is claimed and routed. |
+| `kanban://work-report-schema` | Sections + write rules for `record_work_report`. |
+| `kanban://event-schema` | Change-log event shape. |
 
-### Notifications (decision 9)
+The change feed is a **tool** (`list_changes` / `wait_changes`), not a resource.
 
-A subscribed MCP client receives push events for card/column/board
-`create·update·move·archive·delete`, fed by the core change-log. (kanban-pro webhooks +
-the pull change-feed are the non-MCP equivalents.)
+### Notifications (decision 9) _(planned)_
+
+A subscribed MCP client will receive push events for card/column/board
+`create·update·move·archive·delete`, fed by the core change-log. Not implemented — today
+the push story is `wait_changes` (long-poll) for harnesses and SSE for the web UI;
+kanban-pro webhooks are the future non-MCP equivalent.
 
 ### Capability gating in practice
 

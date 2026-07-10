@@ -20,20 +20,22 @@ Python 3.12+ · FastAPI · Pydantic v2 · httpx · uv · ruff · mypy (strict) �
 
 ```
 kanban_pro/
-  domain/    # canonical Pydantic models (the ONLY types that cross the port)
-  ports/     # KanbanBackend Protocol + Capability/Fulfilment + canonical error taxonomy
-  adapters/  # one module per backend, each implements the port
-  core/      # the one service: augmenting dispatch (adapter + overlay), dedupe, events
-  mcp/       # MCP server (PRIMARY interface)
-  cli/       # shell CLI (PRIMARY interface)
-  api/       # FastAPI routes (secondary interface)
-  config.py  # profile selection + per-profile settings
-  app.py     # app factory / entrypoint
+  domain/     # canonical Pydantic models (the ONLY types that cross the port)
+  ports/      # KanbanBackend Protocol + Capability/Fulfilment + canonical error taxonomy
+  adapters/   # one module per backend, each implements the port
+  core/       # the one service: augmenting dispatch (adapter + overlay), dedupe,
+              # change-log, flow engine, work reports
+  mcp/        # MCP server (PRIMARY interface) — 37 tools + 9 resources
+  api/        # FastAPI: serves the web UI (snapshot + SSE + card detail). Secondary.
+  migrate.py  # kanban-pro-migrate — copy any profile into any other
+  config.py   # profile selection + per-profile settings
+  cli/        # shell CLI (PRIMARY interface) — 🔜 not built yet
 ```
 
-The three interface layers are thin and stateless; all behavior lives in `core/`,
-which wraps the active adapter (`AugmentingBackend`). Interfaces call `core/`,
-**never an adapter directly**. Details in [SPEC.md](SPEC.md) (authoritative) and
+The interface layers are thin and stateless; all behavior lives in `core/`, which wraps
+the active adapter (`RecordingBackend(AugmentingBackend(adapter))`). Interfaces call
+`core/`, **never an adapter directly** — that is what makes the guards and the audit
+trail unbypassable. Details in [SPEC.md](SPEC.md) (authoritative) and
 [docs/adapter-structure.md](docs/adapter-structure.md).
 
 ## Conventions
@@ -44,7 +46,10 @@ which wraps the active adapter (`AugmentingBackend`). Interfaces call `core/`,
 - **Only canonical models cross the boundary.** Adapters translate backend JSON to/
   from `domain/` models internally; raw backend types must never escape an adapter.
 - **Backend-specific fields go in `ext`,** not the core model. A field joins the core
-  only when ≥2 backends need it.
+  only when ≥2 backends need it. Reserved namespaces are pinned in
+  [docs/methods.md](docs/methods.md#card-ext-conventions-reserved-namespaces) — notably
+  `ext["work_report"]`, which is written only through `record_work_report` (never as a
+  whole-blob `ext` patch) so each write emits its `work_report.updated` event.
 - **Async everywhere** for I/O (httpx, FastAPI handlers).
 - **Type-complete.** mypy strict must pass; no bare `Any` except inside `ext`.
 - **Match existing style** — read a sibling module before adding one.

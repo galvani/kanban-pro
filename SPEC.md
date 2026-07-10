@@ -3,7 +3,7 @@
 ## Identity
 
 - **Name:** kanban-pro
-- **Type:** Backend-agnostic kanban proxy (HTTP service + importable library)
+- **Type:** Backend-agnostic kanban proxy (MCP server + importable library; optional web UI)
 - **Language:** Python 3.12+ (FastAPI, Pydantic, httpx)
 - **Created:** 2026-07-03
 
@@ -80,17 +80,25 @@ CRUD + movement, expressed backend-neutrally:
   decision 7), **move** (within-board: column + position),
   **add_placement / remove_placement** (put a card on / take it off a board — Q15)
 - Labels / assignees / comments: attach, detach, list
-- **Bulk** (API/MCP surface): batch `create` / `move` / `update` / `archive` — e.g.
-  move many cards at once (agents reorganizing a board).
+- **Bulk** (API/MCP surface, *planned*): batch `create` / `move` / `update` / `archive` —
+  e.g. move many cards at once (agents reorganizing a board).
+
+Beyond the port, `core/` adds convenience surfaces the backend never sees: the change
+feed (`list_changes` / `wait_changes`), work distribution (`list_work`, claim/lease,
+attention), the flow engine (`list_transitions` / `list_flows`), and structured **work
+reports** (`record_work_report` / `answer_work_report_question` over `ext["work_report"]`
+— current task state for humans and workers, with the change-log as its audit trail).
+Full list: [docs/methods.md](docs/methods.md).
 
 The authoritative interface lives in code as a `Protocol` in
 `kanban_pro/ports/` — that Protocol IS the contract every adapter implements.
 
-**Bulk is a core convenience, not part of the port.** The port stays single-item; the
-`core/` service implements bulk by looping over single-item port methods and returning
-**per-item results with partial-success** (some succeed, some fail — each reported).
-Adapters MAY later override a bulk op with a native batch endpoint for efficiency, but
-none is required to. This keeps the adapter contract simple while giving clients batching.
+**Bulk will be a core convenience, not part of the port** (not yet implemented). The port
+stays single-item; the `core/` service will implement bulk by looping over single-item
+port methods and returning **per-item results with partial-success** (some succeed, some
+fail — each reported). Adapters MAY later override a bulk op with a native batch endpoint
+for efficiency, but none is required to. This keeps the adapter contract simple while
+giving clients batching.
 
 ## Key Design Decisions
 
@@ -204,7 +212,8 @@ lineage is metadata).
 **Config location.** Profile *definitions* (adapter + non-secret settings) live in a
 **config file**; **secrets** (backend tokens) come from **env / secret store**, never a
 committed file (matches the credential-holder pattern — keys out of committed configs);
-env also selects the active profile.
+env also selects the active profile. User-facing guide:
+[docs/configuration.md](docs/configuration.md).
 
 ### 4. Card placement is a set, not a single column
 
@@ -273,11 +282,14 @@ failure mode, not an edge case. Design:
 
 - **Naturally-idempotent ops need no key** — `update`, `move`, `archive`, set-field.
   Repeating them converges to the same state (move-to-C twice = still in C).
-- **Create/add ops REQUIRE a client-supplied idempotency key** — every create/add
+- **Create/add ops take a client-supplied idempotency key** — every create/add
   (board, column, card, comment, checklist item, relation, attachment). `core/` keeps a short-TTL
   key→result cache; a retry with the same key returns the original result instead of
   appending a duplicate. A harness generates one key per logical action and reuses it on
-  retry — the only thing that actually dedupes.
+  retry — the only thing that actually dedupes. *(Shipped 2026-07-05 as an **optional**
+  param, not required as originally specified: making it mandatory would break every
+  existing caller, and the no-key fallback below covers the accidental double-fire.
+  Revisit if duplicates show up in practice.)*
 - **No server-generated random key as a dedupe substitute.** A key generated when absent
   differs on each retry → no dedupe (a false comfort); it's only useful for tracing.
 - **No-key create fallback:** derive a **content-hash** key (endpoint + normalized
@@ -300,12 +312,13 @@ kanban-pro is the **single live event source** over all backends. Two halves:
   - **Pull change-feed** — `changes since <cursor>` for clients that prefer polling.
 
   All three are fed by one **core change-log (append-only, cursored)** covering
-  card/column/board create·update·move·archive·delete. The change-log is the single
-  source; MCP/webhook/feed are thin projections of it (same no-drift principle as the
-  interface layers). *Delivery is phased (see Roadmap): the change-log core + pull
-  feed (`list_changes` tool, actor-stamped — decision 10) are IMPLEMENTED
-  (2026-07-05); WS/SSE + MCP notifications land with the UI; the persistent webhook
-  registry comes later.*
+  card/column/board create·update·move·archive·delete (plus `work_report.updated`,
+  claim/release, and attention events). The change-log is the single source;
+  MCP/webhook/feed are thin projections of it (same no-drift principle as the interface
+  layers). *Delivery is phased (see Roadmap). SHIPPED: the change-log core, the pull feed
+  (`list_changes`, actor-stamped — decision 10), the `wait_changes` long-poll (push
+  semantics without a polling loop), and SSE to the web UI. PENDING: MCP notifications
+  and the persistent webhook registry.*
 
 **Listener registry.** Push delivery is driven by registered listeners:
 
@@ -367,8 +380,8 @@ the domain models** — which is why the port and interfaces are thin over `doma
 
 - **Python 3.12+**
 - **MCP server** (Python MCP SDK) — the primary, harness-native interface (`kanban_pro/mcp/`)
-- **CLI** (typer/click) — the primary shell interface (`kanban_pro/cli/`)
-- **FastAPI** — secondary HTTP API layer (`kanban_pro/api/`)
+- **CLI** (typer/click) — the primary shell interface (`kanban_pro/cli/`) — *planned*
+- **FastAPI** — secondary HTTP layer (`kanban_pro/api/`); today it serves the web UI
 - **Pydantic v2** — canonical model + validation (`kanban_pro/domain/`)
 - **httpx** — async HTTP client for adapters that call remote backends
 - **uv** — dependency & environment management
@@ -380,18 +393,21 @@ the domain models** — which is why the port and interfaces are thin over `doma
 kanban_pro/
   domain/      # canonical Pydantic models: Board, Column, Card, Label, Comment, Relation
   ports/       # KanbanBackend Protocol (the contract) + Capabilities + Fulfilment + errors
-  adapters/    # one module per backend (native.py = own store + overlay; hermes.py first)
-  core/        # the one service: augmenting dispatch, retry/dedupe, reconciliation
+  adapters/    # one module per backend (native.py = own store + overlay; hermes/ first)
+  core/        # the one service: augmenting dispatch, dedupe, change-log (recording),
+               # flow engine, work reports
   mcp/         # MCP server — ops as tools, capabilities as a resource (PRIMARY interface)
-  cli/         # shell CLI — ops as subcommands (PRIMARY interface)
-  api/         # FastAPI routes (secondary interface)
+  api/         # FastAPI — serves the web UI (snapshot + SSE) (secondary interface)
+  migrate.py   # kanban-pro-migrate — profile-to-profile board copy
   config.py    # profile selection + per-profile settings
-  app.py       # entrypoint wiring core -> interfaces
+  cli/         # shell CLI — ops as subcommands (PRIMARY interface) — PLANNED
 tests/
 ```
 
-The three interface layers (`mcp/`, `cli/`, `api/`) are thin and stateless — all behavior
-lives in `core/` over the `ports/` contract.
+The interface layers (`mcp/`, `api/`, and the planned `cli/`) are thin and stateless — all
+behavior lives in `core/` over the `ports/` contract. Entry points are declared in
+`pyproject.toml` (`kanban-pro-mcp`, `kanban-pro-ui`, `kanban-pro-migrate`); there is no
+`app.py`.
 
 ## Constraints
 
@@ -433,23 +449,30 @@ keepalive/refresh (Jira webhooks expire at 30 days; Asana monitors an 8h heartbe
 Milestones, deliberately thin-first — every decision above stands, but the expensive
 halves are phased so a usable tool exists before the plumbing:
 
-- **v0 — usable skeleton** *(next)*. MCP server (tools + `capabilities` resource)
-  directly over the **native store**. No events, no dedupe, no augmenting layer —
-  the native store is full-capability, so nothing needs polyfilling yet. Result:
-  any MCP harness can drive a real kanban.
-- **v1 — Hermes parity.** `core/` augmenting layer (Tier 1: workflow + WIP
-  enforcement) + `BaseAdapter` + shared contract suite + `hermes` adapter +
-  `--profile` selection + idempotency keys (decision 8, key-required part) + CLI.
-- **v2 — events.** Core append-only change-log + pull change-feed + MCP
-  notifications + reconciliation polling (decision 9, minus the webhook registry).
-- **Later.** Persistent webhook listener registry (HMAC, retries, per-listener
-  cursors); content-hash dedupe fallback; Tier-2 write-through polyfills; workflow
-  engine hooks (flow YAML — see TODO); additional profiles (Jira, Trello, …);
-  multi-mount.
+- **v0 — usable skeleton.** ✅ *Done 2026-07-05.* MCP server (tools + `capabilities`
+  resource) directly over the **native store**. Any MCP harness can drive a real kanban.
+- **v1 — Hermes parity.** ✅ *Done 2026-07-05, except the CLI.* `core/` augmenting layer
+  (Tier 1: workflow + WIP enforcement) + `BaseAdapter` + shared contract suite + `hermes`
+  adapter + `--profile` selection + idempotency keys (optional, not required — see
+  decision 8). **CLI still outstanding.**
+- **v2 — events.** ✅ *Mostly done 2026-07-05/06.* Core append-only change-log + pull
+  change-feed + the `wait_changes` long-poll + SSE to the web UI. **MCP notifications and
+  reconciliation polling still outstanding.**
+- **v3 — the human's half.** ✅ *Done 2026-07-06/09.* Push-fed web board, rich card
+  detail (activity, relations, legal moves), live session-log tail, card retry, and
+  structured **work reports** with human-answerable questions.
+- **Later.** CLI; full canonical HTTP surface; bulk ops; persistent webhook listener
+  registry (HMAC, retries, per-listener cursors); content-hash dedupe fallback; Tier-2
+  write-through polyfills; flow hooks/validators; human-readable card keys; additional
+  profiles (Jira, Trello, …); multi-mount + confirmation-gated sync.
 
 ## What This Project Is NOT
 
-- Not a kanban **UI** — it's the API/proxy layer; a frontend is a separate consumer.
+- Not a kanban **UI** — it's the API/proxy layer. *(Nuance since 2026-07-06: `api/` ships
+  an optional, on-demand web board so a human can watch and steer the agents. It is a
+  thin **consumer** of `core/` like any other interface — it holds no logic and starts
+  only when you run `kanban-pro-ui`. The product is still the API; the board is not a
+  general-purpose kanban frontend.)*
 - Not a **sync engine** — it proxies to one active backend at a time, it does not
   two-way-replicate between backends (that's a possible future, explicitly out of
   scope for v1).
@@ -459,11 +482,12 @@ halves are phased so a usable tool exists before the plumbing:
 ## Open Questions
 
 Live Q&A (with options and recommendations) is in [QUESTIONS.md](QUESTIONS.md) —
-currently Q13–Q17: delete guards, placement add/remove ops, `move_card` source
-disambiguation, `ext` patch semantics. Besides those:
+**nothing is currently open.** Q1–Q17 are answered and folded into the Key Design
+Decisions above (see JOURNAL 2026-07-05): delete guards, placement add/remove ops,
+`move_card` source disambiguation, and `ext` shallow-merge patch semantics.
 
-- Confirm Hermes kanban's actual API surface (endpoints, auth, data shape) before
-  writing the `hermes` adapter and the canonical↔Hermes mapping.
-
-*(Resolved: ordering = integer positions + periodic rebalancing, not naive floats —
-`Placement.position` is an int. Native store: built — `adapters/native.py`.)*
+*(Also resolved: ordering = integer positions + periodic rebalancing, not naive floats —
+`Placement.position` is an int. Native store: built — `adapters/native.py`. Hermes's
+actual API surface: confirmed and documented in
+[docs/hermes-kanban.md](docs/hermes-kanban.md); the adapter and a 172-card live migration
+are done.)*

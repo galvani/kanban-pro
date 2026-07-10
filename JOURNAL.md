@@ -1,6 +1,75 @@
 # kanban-pro — Journal
 
-## 2026-07-08 — watch an agent work a card: live session-log link on every claim
+## 2026-07-10 — repo went public; docs reconciled against the code
+
+- **Published** to `github.com/galvani/kanban-pro` (public). Pre-flight scan: no secrets,
+  tokens, `.env`/`.db`/`.pem` files, or personal paths in the tree or anywhere in history.
+  README still declares "all rights reserved"; **no `LICENSE` file exists**, so the repo
+  is legally read-only to visitors until one is added.
+- **Why the doc pass:** README/SPEC/AGENTS/methods.md hadn't been touched since 2026-07-05
+  while thirteen commits landed. Public repo ⇒ the docs are now the first thing a reader
+  sees, and several were not merely stale but **wrong** (claiming features that don't
+  exist, and missing ones that do).
+- **Factual errors corrected** (all verified against source, not memory):
+  - Tool count was **28** in README (and 23 in TODO); the server registers **37 tools +
+    9 resources**. Counted from the `@mcp.tool` decorators.
+  - `docs/methods.md` documented `bulk_create/move/update/archive` as the live MCP
+    surface. **`bulk_` appears nowhere in `kanban_pro/`** — never implemented. Marked
+    _(planned)_, likewise in SPEC's canonical-operations list.
+  - `AGENTS.md` and SPEC's project-structure blocks listed **`cli/` and `app.py`**;
+    neither exists. Entry points are the three `pyproject.toml` scripts.
+  - Decision 8 said create/add ops **REQUIRE** an idempotency key; it shipped
+    **optional**. Documented the divergence and the reason (mandatory would break every
+    existing caller) rather than quietly restating the spec.
+  - `list_changes` was described as the only feed and durable push as 🔜; **`wait_changes`
+    (long-poll) has shipped**.
+  - SPEC's "Open Questions" listed Q13–Q17 as live; QUESTIONS.md says all seventeen are
+    resolved. SPEC now agrees with QUESTIONS.md.
+  - "Not a kanban UI" vs. a shipped web board: kept the *NOT* entry but qualified it —
+    the board is a thin on-demand consumer of `core/`, not the product.
+- **Undocumented features written up:** structured **work reports**
+  (`record_work_report` / `answer_work_report_question`, the section taxonomy, the
+  "never rewrite the blob" rule, `kanban://work-report-schema`), the `ext.session`
+  convention + derived liveness, `list_transitions`/`list_flows`, and the UI's real
+  feature set (card detail, session-log tail, retry).
+  Also fixed: `claim_card`/`heartbeat_claim` were documented with `ttl_seconds=900`; the
+  code defaults to **3600**, and both take an `owner` override.
+- **New: [docs/configuration.md](docs/configuration.md)** — the "how do I actually use
+  this" guide the repo lacked, now the first link in the README's doc list. Covers
+  profiles, actors, the three per-profile state DBs, WIP limits (**on the column** —
+  `flows.yaml`'s `wip_limits:` key is reserved and *ignored*, a real trap), the flow file
+  (search order, resolution chain, unmodeled lanes, audited `force`), the attention flag,
+  listeners (`wait_changes` + a stored cursor, with the loop), and where data lives.
+- **Where data lives — written down for the first time.** With a backend attached, the
+  backend is the system of record: cards are never copied into kanban-pro's SQLite, `ext`
+  is passthrough into the backend's own fields, Tier-1 rules (WIP, flow) store nothing at
+  all, and kanban-pro supplies an overlay *only* for data a backend has nowhere to put.
+  Documented with the status split rather than the aspiration: **write-through encoding
+  is designed, not built** — today's Tier-2 comment/relation polyfills sit in the overlay.
+- **Gotcha for future doc edits:** `docs/methods.md`'s MCP tool list is hand-maintained
+  and drifted silently. The *machine* source of truth is the generated block in
+  `examples/skills/*/SKILL.md` (`uv run python -m tests.toolref --write`, guarded by
+  `tests/test_toolref.py`). Nothing guards the prose — so re-count from
+  `grep -c '^@mcp\.tool'` when touching it.
+
+## 2026-07-10 — board went stale on automatic moves: SSE stream made self-healing
+
+- **Symptom (Jan):** a card the dispatcher moves automatically (e.g. `ready → running`)
+  did not appear to move on an open board — not a drag/flow-rejection issue, the live
+  board just wasn't updating for foreign-process writes.
+- **Root cause:** the board is push-only by design ("No polling timers", `board.html`) and
+  had **no SSE recovery**. `es.onerror` only dimmed the live-dot; `connect()` guarded with
+  `if (es) return`, so a permanently-CLOSED `EventSource` — killed by a server restart,
+  laptop sleep, or a dropped connection — was never replaced, silently freezing the board
+  until a manual reload. The server pipeline itself was healthy (verified: dispatcher
+  `moved` events are recorded and the SSE endpoint replays them).
+- **Fix (three parts):** (1) `connect()` now recreates a CLOSED stream instead of bailing,
+  and `es.onerror` schedules a 2s-backoff reconnect + `refresh()` to catch moves missed
+  while dark; (2) `visibilitychange`/`online` handlers `refresh()` on regaining focus or
+  connectivity — heals the common sleep/background freeze; (3) the server's idle SSE loop
+  emits a `: ping` heartbeat (~every 16s) so a dead connection surfaces as a write error
+  (driving the client reconnect) instead of hanging silent, and intermediaries don't buffer
+  an event-less stream. `test_api` green; ruff clean.
 
 - **Every claimed card now carries a link to its agent's session log**, tailed live in a
   modal (like the old Hermes origin board). The board tile gets a `▶ <owner>` chip when a
