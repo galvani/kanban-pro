@@ -15,6 +15,7 @@ from __future__ import annotations
 from kanban_pro.core.changelog import ChangeEvent, ChangeLog
 from kanban_pro.domain import (
     Board,
+    BoardFlow,
     BoardPatch,
     Card,
     CardPatch,
@@ -30,7 +31,7 @@ from kanban_pro.ports import Capability, Fulfilment, KanbanBackend, NotSupported
 from .augment import AugmentingBackend
 from .augment import fulfilments as _fulfilments
 from .dedupe import DedupeStore
-from .flow import SCHEME_EXT_KEY, FlowConfig, TransitionInfo
+from .flow import FREE_ROAM, SCHEME_EXT_KEY, TransitionInfo
 from .work import Claim, ClaimStore, WorkItem, WorkQueue
 
 #: ext key for the attention signal (methods.md "Card ext conventions")
@@ -62,10 +63,6 @@ class RecordingBackend:
 
     def fulfilments(self) -> dict[Capability, Fulfilment]:
         return _fulfilments(self._inner)
-
-    @property
-    def flows(self) -> FlowConfig | None:
-        return self._inner.flows if isinstance(self._inner, AugmentingBackend) else None
 
     async def transitions(self, card_id: str, board_id: str | None = None) -> TransitionInfo:
         """Read-only — delegated to the augmenting layer, never recorded."""
@@ -247,16 +244,24 @@ class RecordingBackend:
         await self._inner.delete_column(column_id)
         await self._record("column", column_id, "deleted")
 
+    # --- flow ---
+
+    async def set_flow(self, board_id: str, flow: BoardFlow) -> Board:
+        updated = await self._inner.set_flow(board_id, flow)
+        # flow lives on the board doc, so a flow edit is a board update (event kind reuse).
+        await self._record("board", board_id, "updated", board_id, fields=["flow"])
+        return updated
+
     async def _maybe_decrement_attempts(self, card_id: str, old: Card) -> None:
-        """Decrement ext.work.attempts by 1 if the card's flow allows auto-reset."""
-        flows: FlowConfig | None = getattr(self._inner, "flows", None)
-        if flows is None:
-            return
+        """Decrement ext.work.attempts by 1 if the card's board flow allows auto-reset."""
         ext = old.ext if isinstance(old.ext, dict) else {}
-        requested = ext.get(SCHEME_EXT_KEY)
-        resolution = flows.resolve(str(requested) if requested is not None else None)
-        flow = resolution.flow
-        if flow is None or not flow.auto_reset_attempts_on_reassign:
+        if ext.get(SCHEME_EXT_KEY) == FREE_ROAM:
+            return  # a free-roam card opts out of flow-governed bookkeeping
+        placement = old.placements[0] if old.placements else None
+        if placement is None:
+            return
+        board = await self._inner.get_board(placement.board_id)
+        if board.flow is None or not board.flow.auto_reset_attempts_on_reassign:
             return
         work = dict(ext.get("work") or {})
         attempts = work.get("attempts", 0)

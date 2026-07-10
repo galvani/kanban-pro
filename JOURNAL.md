@@ -1,5 +1,45 @@
 # kanban-pro — Journal
 
+## 2026-07-10 — flow moves into the DB: transitions become board data, not a config file
+
+- **Why:** working the live `default` board surfaced the category error. Columns live in
+  `boards.doc` and are MCP-administered; transitions live in `flows-default.yaml`, matched
+  to columns *by name* at request time, from a file the store knows nothing about. Two
+  stores for one concept, no link, no validation between them. Result: the board has 11
+  columns but the scheme models 8 — `won't do`, `waiting for mr`, `staging` are real,
+  swarm-used lanes that no scheme governs (silently free in/out, invisible to
+  `list_transitions`). `_build_flow` never checks a declared state against a real column,
+  so a fresh-install YAML would reference lanes that don't exist and won't be created.
+- **Decision (Jan):** move transitions **into the DB, administered over MCP** — reject the
+  "seed the board from the file on first run" half-measure (a seed keeps the file as a
+  special init-only thing; the honest model is one store). Flow lives **on the board**
+  (`board.doc.flow`, out-edges keyed by column **ID**), *not* as reusable store-level named
+  schemes — one document, IDs match by construction, drift becomes structurally impossible.
+  Cross-board scheme reuse is sacrificed; the store has 1 board and 0 per-card scheme
+  overrides / inline flows (verified), so reuse buys nothing today and a preset
+  re-materialises edges if it's ever needed.
+- **Implemented (same day).** Plan in [docs/flow-in-db-plan.md](docs/flow-in-db-plan.md).
+  `domain.BoardFlow` (`{transitions: {col_id: [col_id]}, auto_reset_attempts_on_reassign}`)
+  on `Board.flow`; new port method `set_flow` (base NotSupported → native/memory implement,
+  hermes leaves native); `AugmentingBackend` reads `board.flow` by column id, validates
+  `set_flow` against real columns, and `delete_column` cascades to strip dangling edges;
+  `WORKFLOW` is now `POLYFILLED` (was gated on the YAML). New MCP tools `set_flow` /
+  `set_transitions` / `clear_flow` / `init_board` (presets `blank` / `simple-kanban` /
+  `docs` / `agent-lifecycle` in `core/presets.py`); `list_flows` reports per-board flow.
+  The `flows-*.yaml` runtime + `$KANBAN_PRO_FLOWS` + `load_flows`/`FlowConfig` are gone.
+- **Decisions resolved** (were ⚖️ D1–D3 in the plan): D1 keep "unmodeled lane = free"
+  (`list_transitions` now also OFFERS unmodeled lanes, since they're free to enter — the one
+  deliberate behaviour change vs the old name-based engine); D2 flow edits emit
+  `board.updated` (no 24th event kind); D3 the YAML importer was **dropped**, not kept —
+  onboarding is `init_board` presets + `kanban-pro-migrate` for import; a YAML-file import
+  is a future nicety if ever wanted.
+- **Live `default` board migrated:** all 11 lanes (incl. the former ghost lanes `won't do`,
+  `waiting for mr`, `staging`) written into `board.flow` with real column ids; DB backed up
+  first (`kanban.db.bak-flow-migration-*`). The running MCP server keeps OLD code until it
+  restarts — until then enforcement is inactive AND a column edit via the old server would
+  drop the new `flow` field, so reload before editing columns on `default`. Ships on branch
+  `flow-in-db` (not yet merged). 90 tests green; ruff + mypy strict clean.
+
 ## 2026-07-10 — competitive survey: the "no prior art" claim was overreaching
 
 - **Why:** the README asserted the concept combo "has no direct prior art (web survey,
@@ -138,6 +178,11 @@
   emits a `: ping` heartbeat (~every 16s) so a dead connection surfaces as a write error
   (driving the client reconnect) instead of hanging silent, and intermediaries don't buffer
   an event-less stream. `test_api` green; ruff clean.
+- **Follow-up — `/` now serves `Cache-Control: no-store`:** the single-file UI carries its own
+  JS, and the route returned bare HTML with no cache headers, so a browser could heuristically
+  cache it and silently pin an OLD client past a deploy — the exact "I reloaded but it's still
+  stale (missing the reconnect fix)" trap. `no-store` guarantees a plain reload always fetches
+  the current `board.html`. (Fixing the stream doesn't help a tab still running the pre-fix code.)
 
 - **Every claimed card now carries a link to its agent's session log**, tailed live in a
   modal (like the old Hermes origin board). The board tile gets a `▶ <owner>` chip when a

@@ -13,9 +13,26 @@ you need stability.
 Everything below has landed on `main` but is not tagged. The package still reports
 `0.0.1`.
 
+### Changed
+
+- **Workflow is now board data, not a config file.** Transition rules moved out of
+  `flows-<profile>.yaml` (retired, along with `$KANBAN_PRO_FLOWS`) and onto the board as
+  `board.flow` — allowed moves keyed by **column id**, administered over MCP. New tools:
+  `set_flow`, `set_transitions`, `clear_flow`, and `init_board` (onboard a new board from a
+  preset: `blank` / `simple-kanban` / `docs` / `agent-lifecycle`). `list_flows` now reports
+  each board's flow instead of YAML schemes. Because edges reference the board's own
+  columns, a flow can't dangle: `set_flow` refuses unknown column ids and `delete_column`
+  cascades to strip edges. A per-card inline flow (`ext["kanban_pro.flow"]`) and the
+  `"free-roam"` per-card escape are unchanged. `WORKFLOW` is now reported `polyfilled`
+  wherever the backend doesn't own its own workflow.
+
 ### Added
 
-- **MCP server** over stdio — 37 tools and 9 `kanban://` resources. No daemon, no port;
+- **`kanban-pro-mcp --install-skills [DIR]`** — copy the example agent skills
+  (`kanban-orchestrator`, `kanban-worker`, `kanban-pro-work-reporting`) into a skills dir
+  (default `~/.claude/skills`); never overwrites an existing one. Surfaced by
+  `--print-config claude`.
+- **MCP server** over stdio — 41 tools and 9 `kanban://` resources. No daemon, no port;
   your harness spawns it. `--print-config claude|codex|opencode|hermes` prints the
   registration snippet.
 - **Orientation instructions** in the MCP `initialize` result, so a connecting agent

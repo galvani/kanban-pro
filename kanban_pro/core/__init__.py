@@ -14,9 +14,7 @@ from kanban_pro.core.dedupe import DedupeStore
 from kanban_pro.core.flow import (
     FREE_ROAM,
     SCHEME_EXT_KEY,
-    FlowConfig,
     TransitionInfo,
-    load_flows,
 )
 from kanban_pro.core.recording import ATTENTION_EXT_KEY, RecordingBackend
 from kanban_pro.core.work import Claim, ClaimStore, WorkItem, WorkQueue
@@ -32,14 +30,12 @@ __all__ = [
     "DedupeStore",
     "FREE_ROAM",
     "SCHEME_EXT_KEY",
-    "FlowConfig",
     "RecordingBackend",
     "TransitionInfo",
     "WaitResult",
     "WorkItem",
     "WorkQueue",
     "fulfilments",
-    "load_flows",
     "delete_card_guarded",
     "delete_board_guarded",
     "delete_column_guarded",

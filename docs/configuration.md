@@ -19,7 +19,6 @@ Every setting has a flag, an env var, or both. Flags win over env vars.
 | Which backend | `--profile <name>` | `KANBAN_PRO_PROFILE` | `default` (native store) |
 | Who is writing | `--actor <kind:name>` | `KANBAN_PRO_ACTOR` | `unknown` |
 | Where the board lives | — | `KANBAN_PRO_DB` | `~/.local/share/kanban-pro/kanban.db` |
-| Which flow rules | — | `KANBAN_PRO_FLOWS` | see [§3](#3-workflow-rules-flowsyaml) |
 
 `~/.local/share` follows `XDG_DATA_HOME`, and `~/.config` follows `XDG_CONFIG_HOME`, if
 you set them.
@@ -73,7 +72,7 @@ directory — `changelog-<profile>.db`, `claims-<profile>.db`, and `dedupe-<prof
 
 ## 2. WIP limits
 
-A WIP limit lives **on the column**, not in the flow file. Set it with `update_column`
+A WIP limit lives **on the column**, not in the board flow. Set it with `update_column`
 (or in the UI), and every subsequent move into a full column is rejected:
 
 ```
@@ -84,68 +83,58 @@ agent> move_card PRO-12 → doing
 It's enforced by kanban-pro itself, over any backend — including backends that have no
 concept of a WIP limit. Nothing is stored in the backend to make it work.
 
-> The `wip_limits:` key inside `flows.yaml` is **reserved and currently ignored**. Set
-> limits on columns.
+> A WIP limit is a property of the column, never of the board flow — the flow governs
+> *which moves are legal*, the column governs *how many cards may sit in it*. Set limits
+> on columns.
 
 ---
 
-## 3. Workflow rules (`flows.yaml`)
+## 3. Workflow rules (the board flow)
 
-By default a card can move anywhere. A flow file turns the board into a state machine:
-each **scheme** names the states and which transitions between them are legal.
+By default a card can move anywhere. A **flow** turns the board into a state machine: it
+names which column→column transitions are legal. The flow is **board data**, not a config
+file — it lives on `board.flow` and is administered over MCP. There is no `flows.yaml` and
+no `KANBAN_PRO_FLOWS` env var (both retired); a board carries its own flow, keyed by that
+board's own column ids.
 
-### Where the file goes
+### The shape
 
-The first of these that exists wins:
+`board.flow` is `{transitions: {from_column_id: [to_column_id, …]}, auto_reset_attempts_on_reassign}`.
+Each edge references a real column id **on this same board**, so a flow can never dangle
+(unlike a name-matched external scheme). **No flow, or an empty `transitions` → the whole
+board is free-roam.** The flow engine is opt-in; it never appears uninvited.
 
-1. `$KANBAN_PRO_FLOWS` (an explicit path)
-2. `~/.config/kanban-pro/flows-<profile>.yaml` (per-profile — e.g. `flows-default.yaml`)
-3. `~/.config/kanban-pro/flows.yaml` (shared by all profiles)
+### Administering it (over MCP)
 
-**No file at all → the whole board is free-roam.** The flow engine is opt-in; it never
-appears uninvited.
+| Tool | Effect |
+|---|---|
+| `set_flow(board_id, transitions)` | replace the whole board flow. Every referenced column id must exist on the board — a dangling ref is refused. `{}` clears it. |
+| `set_transitions(board_id, from_column_id, to_column_ids)` | set just one lane's out-edges, leaving the rest. `[]` clears that lane. |
+| `clear_flow(board_id)` | drop the flow entirely → free-roam. |
 
-### A minimal file
+A flow edit emits a `board.updated` event. A **new** board is usually seeded with a flow
+rather than built edge-by-edge: `init_board(board_id, name?, preset=…)` materialises
+columns + a matching flow together (built as one unit, so they can't dangle). Presets:
+`blank` (no columns, free-roam), `simple-kanban` (todo/doing/done), `docs`
+(todo/ready/running/done, no review gate), `agent-lifecycle` (the Hermes swarm lanes —
+`triage/ready/running/blocked/review/…`, the shape the shared board runs today). To
+onboard by IMPORT instead (from Hermes or another store), use the `kanban-pro-migrate`
+CLI, not `init_board`.
 
-```yaml
-flows:
-  default:                       # code tasks: a gated pipeline
-    states: [backlog, todo, doing, review, done]
-    transitions:
-      - { from: todo,   to: doing }
-      - { from: doing,  to: [review, todo] }
-      - { from: review, to: [done, doing] }
-
-  docs:                          # documentation tasks skip the review gate
-    states: [todo, doing, done]
-    transitions:
-      - { from: todo,  to: doing }
-      - { from: doing, to: done }
-
-default_flow: default            # which scheme unmarked cards use
-```
-
-State names are your **column names**. A dangling reference (a transition to a state not
-in `states`) fails at load — loudly, at startup, not on the first move.
-
-A complete, commented example — the real agent lifecycle this board runs on, with
-`triage/ready/running/blocked/review` lanes — is in
-[docs/examples/flows-default.yaml](examples/flows-default.yaml).
-
-### How a card picks its scheme
+### How a card picks its flow
 
 Resolution stops at the first match:
 
-1. **`ext["kanban_pro.flow"]`** — a full inline `{states, transitions}` flow for this one
-   card. Beats everything, and works even with no `flows.yaml` at all. Malformed → falls
-   back to the default scheme with a warning.
-2. **`ext["kanban_pro.scheme"]`** — the name of a scheme in `flows.yaml`, or the reserved
-   `"free-roam"` for unrestricted movement. `free-roam` is built in and can never be
-   defined in YAML.
-3. **The backend's own workflow**, if it has one (Hermes does).
-4. **`default_flow`**, else free movement.
+1. **`ext["kanban_pro.scheme"] == "free-roam"`** — the reserved escape frees this one card,
+   even on a governed board. (Named schemes are gone; `"free-roam"` is the only meaningful
+   value now.)
+2. **`ext["kanban_pro.flow"]`** — a full inline `{states, transitions}` flow (name-based)
+   for this one card. Beats the board flow, and is enforced even on a **flowless** board.
+   Malformed → falls back to the board flow with a warning.
+3. **The board's own `board.flow`** (by column id), if set.
+4. **The backend's own workflow**, if it has one (Hermes does); else free movement.
 
-A column that no scheme mentions is *unmodeled*: moves in and out of it stay free. That's
+A column that appears in no edge is *unmodeled*: moves in and out of it stay free. That's
 deliberate — you can add an ad-hoc lane without rewriting the flow.
 
 ### Asking, and overriding
@@ -167,9 +156,9 @@ agent> move_card PRO-12 → done, force=true
 
 ### Other keys
 
-`auto_reset_attempts_on_reassign: true` (per scheme, default true) clears a card's
-attempt counter when it changes assignee or lane, so a retried card starts fresh.
-`hooks:` and `wip_limits:` are reserved for future use and ignored today.
+`board.flow.auto_reset_attempts_on_reassign: true` (per board, default true) clears a
+card's attempt counter when it changes assignee or lane, so a retried card starts fresh.
+WIP limits live on the column (§2), never on the flow.
 
 ---
 

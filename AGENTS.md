@@ -39,8 +39,9 @@ trail unbypassable.
 
 **Before changing code, read [docs/internals.md](docs/internals.md)** — the layer stack,
 the invariants you must not break, the 23 event kinds, `ext` versioning, and the traps
-(e.g. `flows.yaml`'s `wip_limits:` key is silently ignored; the adapter registry is in
-`config.py`, not `adapters/__init__.py`). Design rationale: [SPEC.md](SPEC.md)
+(e.g. the workflow lives on the board as `board.flow` by column id — set via `set_flow`,
+NOT a config file; the adapter registry is in `config.py`, not `adapters/__init__.py`).
+Design rationale: [SPEC.md](SPEC.md)
 (authoritative); adapter recipe: [docs/adapter-structure.md](docs/adapter-structure.md).
 
 ## Conventions

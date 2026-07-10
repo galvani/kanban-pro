@@ -1,10 +1,10 @@
-"""Flow engine tests — YAML loading, scheme resolution chain, enforcement, force,
-free-roam, list_transitions."""
+"""Flow engine tests — per-board flow (board.flow, by column id): set_flow validation,
+enforcement, force, per-card free-roam, unmodeled lanes, inline one-card flow,
+list_transitions, and the delete_column cascade."""
 
 from __future__ import annotations
 
 import asyncio
-from pathlib import Path
 
 import pytest
 
@@ -14,66 +14,15 @@ from kanban_pro.core import (
     SCHEME_EXT_KEY,
     AugmentingBackend,
     ChangeLog,
-    FlowConfig,
     RecordingBackend,
-    load_flows,
 )
-from kanban_pro.domain import Board, Card, Column, Placement
+from kanban_pro.domain import Board, BoardFlow, Card, Column, Placement
 from kanban_pro.ports import Conflict
 
-_YAML = """
-flows:
-  default:
-    states: [todo, doing, review, done]
-    transitions:
-      - { from: todo,   to: doing }
-      - { from: doing,  to: [review, todo] }
-      - { from: review, to: [done, doing] }
-  docs:
-    states: [todo, doing, done]
-    transitions:
-      - { from: todo,  to: doing }
-      - { from: doing, to: done }
-"""
 
-
-@pytest.fixture
-def flows(tmp_path: Path) -> FlowConfig:
-    path = tmp_path / "flows.yaml"
-    path.write_text(_YAML)
-    return load_flows(path)
-
-
-def test_load_validation(tmp_path: Path, flows: FlowConfig) -> None:
-    assert set(flows.flows) == {"default", "docs"}
-    assert flows.default == "default"
-    assert flows.flows["default"].allowed["doing"] == ["review", "todo"]
-
-    dangling = tmp_path / "bad.yaml"
-    dangling.write_text(
-        "flows:\n  default:\n    states: [a]\n    transitions:\n      - {from: a, to: b}\n"
-    )
-    with pytest.raises(ValueError, match="undeclared state 'b'"):
-        load_flows(dangling)
-
-    reserved = tmp_path / "reserved.yaml"
-    reserved.write_text("flows:\n  free-roam:\n    states: [a]\n")
-    with pytest.raises(ValueError, match="reserved"):
-        load_flows(reserved)
-
-    no_default = tmp_path / "nodefault.yaml"
-    no_default.write_text("flows:\n  docs:\n    states: [a]\n")
-    with pytest.raises(ValueError, match="default"):
-        load_flows(no_default)
-
-
-def test_resolution_chain(flows: FlowConfig) -> None:
-    assert flows.resolve(None).resolved == "default"  # rule 2: unset -> default
-    assert flows.resolve("docs").resolved == "docs"
-    fallback = flows.resolve("nope")  # rule 3: unknown -> default, flagged
-    assert (fallback.resolved, fallback.fell_back) == ("default", True)
-    roam = flows.resolve(FREE_ROAM)  # reserved built-in
-    assert (roam.resolved, roam.flow) == (FREE_ROAM, None)
+def _stack() -> tuple[RecordingBackend, ChangeLog]:
+    log = ChangeLog()
+    return RecordingBackend(AugmentingBackend(MemoryBackend()), log, "agent:t"), log
 
 
 async def _board(be: RecordingBackend, *lanes: str) -> Board:
@@ -87,59 +36,75 @@ def _col(board: Board, name: str) -> str:
 def _card(board: Board, lane: str, scheme: str | None = None) -> Card:
     ext = {SCHEME_EXT_KEY: scheme} if scheme else {}
     return Card(
-        title="T",
-        ext=ext,
-        placements=[Placement(board_id=board.id, column_id=_col(board, lane))],
+        title="T", ext=ext, placements=[Placement(board_id=board.id, column_id=_col(board, lane))]
     )
 
 
-def _stack(flows: FlowConfig | None) -> tuple[RecordingBackend, ChangeLog]:
-    log = ChangeLog()
-    return RecordingBackend(AugmentingBackend(MemoryBackend(), flows=flows), log, "agent:t"), log
+async def _set_default_flow(be: RecordingBackend, board: Board) -> Board:
+    """todo->doing, doing->{review,todo}, review->{done,doing} (staging left unmodeled)."""
+    t = {
+        _col(board, "todo"): [_col(board, "doing")],
+        _col(board, "doing"): [_col(board, "review"), _col(board, "todo")],
+        _col(board, "review"): [_col(board, "done"), _col(board, "doing")],
+    }
+    return await be.set_flow(board.id, BoardFlow(transitions=t))
 
 
-def test_enforcement_force_and_freeroam(flows: FlowConfig) -> None:
-    asyncio.run(_enforcement(flows))
+def test_set_flow_validation() -> None:
+    asyncio.run(_set_flow_validation())
 
 
-async def _enforcement(flows: FlowConfig) -> None:
-    be, log = _stack(flows)
+async def _set_flow_validation() -> None:
+    be, log = _stack()
+    board = await _board(be, "todo", "doing", "done")
+    # a dangling reference (column not on the board) is refused at the write
+    with pytest.raises(Conflict, match="not on board"):
+        await be.set_flow(board.id, BoardFlow(transitions={_col(board, "todo"): ["ghost"]}))
+    # a valid flow persists on the board doc and emits a board.updated event
+    saved = await be.set_flow(
+        board.id, BoardFlow(transitions={_col(board, "todo"): [_col(board, "doing")]})
+    )
+    assert saved.flow is not None and saved.flow.transitions[_col(board, "todo")] == [
+        _col(board, "doing")
+    ]
+    assert (await be.get_board(board.id)).flow is not None
+    assert [e for e in await log.since(0) if e.entity == "board" and e.op == "updated"]
+
+
+def test_enforcement_force_and_freeroam() -> None:
+    asyncio.run(_enforcement())
+
+
+async def _enforcement() -> None:
+    be, log = _stack()
     board = await _board(be, "todo", "doing", "review", "done", "staging")
+    await _set_default_flow(be, board)
 
     card = await be.create_card(_card(board, "todo"))
     await be.move_card(card.id, board.id, _col(board, "doing"), 0)  # todo->doing: allowed
-    with pytest.raises(Conflict, match="does not allow doing -> done"):
-        await be.move_card(card.id, board.id, _col(board, "done"), 0)
+    with pytest.raises(Conflict, match="does not allow"):
+        await be.move_card(card.id, board.id, _col(board, "done"), 0)  # doing->done: denied
 
     # force: goes through AND the event is flagged
     await be.move_card(card.id, board.id, _col(board, "done"), 0, force=True)
     forced = [e for e in await log.since(0) if e.data.get("forced")]
     assert len(forced) == 1 and forced[0].op == "moved"
 
-    # unmodeled endpoint (rule 4): staging is not a flow state -> free both ways
+    # unmodeled endpoint: staging is named in no edge -> free both ways
     await be.move_card(card.id, board.id, _col(board, "staging"), 0)
     await be.move_card(card.id, board.id, _col(board, "todo"), 0)
-
-    # docs scheme: doing -> done IS allowed
-    docs_card = await be.create_card(_card(board, "doing", scheme="docs"))
-    await be.move_card(docs_card.id, board.id, _col(board, "done"), 0)
-
-    # unknown scheme falls back to default (rule 3): doing -> done denied again
-    odd = await be.create_card(_card(board, "doing", scheme="nope"))
-    with pytest.raises(Conflict, match="'default'"):
-        await be.move_card(odd.id, board.id, _col(board, "done"), 0)
 
     # free-roam card ignores the flow entirely
     roam = await be.create_card(_card(board, "todo", scheme=FREE_ROAM))
     await be.move_card(roam.id, board.id, _col(board, "done"), 0)
 
 
-def test_no_flows_means_free(flows: FlowConfig) -> None:
-    asyncio.run(_no_flows())
+def test_no_flow_means_free() -> None:
+    asyncio.run(_no_flow())
 
 
-async def _no_flows() -> None:
-    be, _ = _stack(None)  # rule 1: engine absent -> unrestricted
+async def _no_flow() -> None:
+    be, _ = _stack()  # board has no flow -> unrestricted
     board = await _board(be, "todo", "done")
     card = await be.create_card(_card(board, "todo"))
     await be.move_card(card.id, board.id, _col(board, "done"), 0)
@@ -148,26 +113,36 @@ async def _no_flows() -> None:
     assert [o.name for o in info.options] == ["todo"]
 
 
-def test_list_transitions(flows: FlowConfig) -> None:
-    asyncio.run(_list_transitions(flows))
+def test_clear_flow_frees_the_board() -> None:
+    asyncio.run(_clear_flow())
 
 
-async def _list_transitions(flows: FlowConfig) -> None:
-    be, _ = _stack(flows)
+async def _clear_flow() -> None:
+    be, _ = _stack()
     board = await _board(be, "todo", "doing", "review", "done", "staging")
+    await _set_default_flow(be, board)
+    await be.set_flow(board.id, BoardFlow())  # clear -> free-roam
+    card = await be.create_card(_card(board, "doing"))
+    await be.move_card(card.id, board.id, _col(board, "done"), 0)  # now permitted
+
+
+def test_list_transitions() -> None:
+    asyncio.run(_list_transitions())
+
+
+async def _list_transitions() -> None:
+    be, _ = _stack()
+    board = await _board(be, "todo", "doing", "review", "done", "staging")
+    await _set_default_flow(be, board)
 
     card = await be.create_card(_card(board, "doing"))
     info = await be.transitions(card.id)
-    assert (info.source, info.resolved_scheme) == ("flow", "default")
-    assert sorted(o.name for o in info.options) == ["review", "todo"]
-
-    odd = await be.create_card(_card(board, "doing", scheme="nope"))
-    info = await be.transitions(odd.id)
-    assert info.resolved_scheme == "default"
-    assert info.note is not None and "fallback" in info.note
+    assert (info.source, info.resolved_scheme) == ("flow", "board")
+    # explicit edges (review, todo) PLUS the unmodeled lane (staging, free to enter)
+    assert sorted(o.name for o in info.options) == ["review", "staging", "todo"]
 
     parked = await be.create_card(_card(board, "staging"))
-    info = await be.transitions(parked.id)  # unmodeled current column -> free
+    info = await be.transitions(parked.id)  # unmodeled current column -> all moves free
     assert len(info.options) == 4 and info.note is not None
 
     roam = await be.create_card(_card(board, "todo", scheme=FREE_ROAM))
@@ -178,13 +153,14 @@ async def _list_transitions(flows: FlowConfig) -> None:
 _INLINE = {"states": ["todo", "done"], "transitions": [{"from": "todo", "to": "done"}]}
 
 
-def test_inline_one_card_flow(flows: FlowConfig) -> None:
-    asyncio.run(_inline(flows))
+def test_inline_one_card_flow() -> None:
+    asyncio.run(_inline())
 
 
-async def _inline(flows: FlowConfig) -> None:
-    be, _ = _stack(flows)
+async def _inline() -> None:
+    be, _ = _stack()
     board = await _board(be, "todo", "doing", "review", "done")
+    await _set_default_flow(be, board)
     card = await be.create_card(
         Card(
             title="T",
@@ -192,14 +168,14 @@ async def _inline(flows: FlowConfig) -> None:
             placements=[Placement(board_id=board.id, column_id=_col(board, "todo"))],
         )
     )
-    # inline allows todo->done though the profile default scheme forbids it
+    # inline allows todo->done though the board flow forbids it
     await be.move_card(card.id, board.id, _col(board, "done"), 0)
     info = await be.transitions(card.id)
     assert (info.source, info.resolved_scheme) == ("inline", "inline")
-    with pytest.raises(Conflict, match="'inline'"):  # inline has no done->todo edge
+    with pytest.raises(Conflict, match="inline flow"):  # inline has no done->todo edge
         await be.move_card(card.id, board.id, _col(board, "todo"), 0)
 
-    # malformed inline -> falls back to the default scheme, flagged, never frozen
+    # malformed inline -> falls back to the board flow, flagged, never frozen
     bad = await be.create_card(
         Card(
             title="B",
@@ -208,18 +184,18 @@ async def _inline(flows: FlowConfig) -> None:
         )
     )
     info = await be.transitions(bad.id)
-    assert info.resolved_scheme == "default"
-    assert info.note is not None and "fallback" in info.note
-    with pytest.raises(Conflict, match="'default'"):  # default forbids doing->done
+    assert info.resolved_scheme == "board"
+    assert info.note is not None and "fell back" in info.note
+    with pytest.raises(Conflict, match="board flow"):  # board flow forbids doing->done
         await be.move_card(bad.id, board.id, _col(board, "done"), 0)
 
 
-def test_inline_flow_enforced_without_any_config() -> None:
-    asyncio.run(_inline_no_config())
+def test_inline_flow_enforced_on_flowless_board() -> None:
+    asyncio.run(_inline_no_flow())
 
 
-async def _inline_no_config() -> None:
-    be, _ = _stack(None)  # no flow.yaml: board is free — but an inline flow still binds
+async def _inline_no_flow() -> None:
+    be, _ = _stack()  # board has no flow: free — but an inline flow still binds its card
     board = await _board(be, "todo", "doing", "done")
     card = await be.create_card(
         Card(
@@ -229,10 +205,29 @@ async def _inline_no_config() -> None:
         )
     )
     await be.move_card(card.id, board.id, _col(board, "done"), 0)  # inline permits
-    with pytest.raises(Conflict, match="'inline'"):
+    with pytest.raises(Conflict, match="inline flow"):
         await be.move_card(card.id, board.id, _col(board, "todo"), 0)
-    # a sibling card without an inline flow stays free-roam
+    # a sibling card without an inline flow stays free
     free = await be.create_card(
         Card(title="F", placements=[Placement(board_id=board.id, column_id=_col(board, "done"))])
     )
     await be.move_card(free.id, board.id, _col(board, "todo"), 0)
+
+
+def test_delete_column_cascades_into_flow() -> None:
+    asyncio.run(_delete_column_cascade())
+
+
+async def _delete_column_cascade() -> None:
+    be, _ = _stack()
+    board = await _board(be, "todo", "doing", "review", "done", "staging")
+    await _set_default_flow(be, board)
+    # deleting 'review' must strip it as both an edge source and a target
+    await be.delete_column(_col(board, "review"))
+    flow = (await be.get_board(board.id)).flow
+    assert flow is not None
+    review_id = next((c.id for c in board.columns if c.name == "review"), None)
+    assert review_id not in flow.transitions  # source edge gone
+    assert all(review_id not in tos for tos in flow.transitions.values())  # target refs gone
+    # 'doing' kept its other edge (todo); only the review target was stripped
+    assert flow.transitions[_col(board, "doing")] == [_col(board, "todo")]

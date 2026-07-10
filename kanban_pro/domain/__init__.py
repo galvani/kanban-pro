@@ -139,14 +139,33 @@ class Card(BaseModel):
     ext: dict[str, Any] = Field(default_factory=dict)
 
 
+class BoardFlow(BaseModel):
+    """A board's workflow: allowed column->column moves, keyed by column ID.
+
+    `transitions[from_column_id]` is the list of column IDs a card may move TO from that
+    lane. Edges reference the SAME board's column ids, so a flow can never dangle (unlike
+    a name-matched external scheme). Absent / empty `transitions` ⇒ a free-roam board.
+
+    A column that appears in NO edge (neither a key nor a listed target) is *unmodeled* —
+    moves in and out of it stay free: a flow governs only the columns it names. This is
+    how a board keeps an ad-hoc scratch lane ungoverned while the rest is enforced.
+    """
+
+    transitions: dict[str, list[str]] = Field(default_factory=dict)
+    #: decrement a card's attempt counter when it's reassigned/re-laned (per-board opt-in)
+    auto_reset_attempts_on_reassign: bool = True
+
+
 class Board(BaseModel):
-    """A container of columns + its label registry."""
+    """A container of columns + its label registry + its workflow."""
 
     id: str = Field(default_factory=_new_id)
     name: str
     description: str | None = None
     columns: list[Column] = Field(default_factory=list)
     labels: list[Label] = Field(default_factory=list)  # board-scoped label registry
+    #: the workflow over this board's columns; None / empty ⇒ free-roam (see BoardFlow).
+    flow: BoardFlow | None = None
     ext: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -231,6 +250,7 @@ __all__ = [
     "Column",
     "Card",
     "Board",
+    "BoardFlow",
     "Comment",
     "Relation",
     "BoardPatch",

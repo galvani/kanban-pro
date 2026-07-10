@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from kanban_pro.domain import (
     Board,
+    BoardFlow,
     BoardPatch,
     Card,
     CardPatch,
@@ -62,6 +63,10 @@ class BaseAdapter:
 
     async def delete_column(self, column_id: str) -> None:
         raise self._not_supported("delete_column")
+
+    # --- flow ---
+    async def set_flow(self, board_id: str, flow: BoardFlow) -> Board:
+        raise self._not_supported("set_flow")
 
     # --- cards ---
     async def list_cards(self, board_id: str, include_archived: bool = False) -> list[Card]:

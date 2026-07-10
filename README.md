@@ -35,14 +35,14 @@ leases it so nobody else takes it, moves it only along transitions you declared 
 reports what it found, and asks you when it's stuck. Every one of those steps is stamped
 with which agent did it. Concretely:
 
-- **Make the pipeline strict, not suggested.** A declarative `flows.yaml` is a state
-  machine over your columns: `ready → running → review → done`, and nothing else. An
-  illegal move is *refused*, not logged and allowed. Agents call `list_transitions`
-  instead of guessing — and `list_work` inlines each card's legal moves, so a worker
-  sees its options without a second call. Schemes are per-card (`docs` tasks can skip the
-  review gate; a one-off card can carry its own inline flow), and `force=true` always
-  works but stamps `forced: true` on the event. **Overrides are allowed and never
-  silent** — the audit trail is the safeguard, not a lock.
+- **Make the pipeline strict, not suggested.** Each board carries a **flow** — a state
+  machine over its columns (`ready → running → review → done`, and nothing else), set over
+  MCP with `set_flow`/`set_transitions` and stored on the board itself (no config file). An
+  illegal move is *refused*, not logged and allowed. Agents call `list_transitions` instead
+  of guessing — and `list_work` inlines each card's legal moves, so a worker sees its
+  options without a second call. A one-off card can carry its own inline flow or the
+  `free-roam` escape, and `force=true` always works but stamps `forced: true` on the event.
+  **Overrides are allowed and never silent** — the audit trail is the safeguard, not a lock.
 - **Let agents pull their own work.** `list_work` answers "what should I work on?" —
   the agent's cards, each with its legal moves inline — and an atomic claim/lease
   (TTL + heartbeat + crash-reclaim) guarantees two agents never grab the same card. A
@@ -93,7 +93,7 @@ here rather than a convention:
 |---|---|
 | Two workers pick up the same card | Atomic claim/lease. The second `claim_card` loses, deterministically. |
 | A worker dies holding a card | TTL + heartbeat. The lease expires and the card is reclaimable — no stuck lane, no cleanup job. |
-| An agent skips the review gate | The flow scheme refuses the transition. Not a lint, not a prompt instruction — a rejected call. |
+| An agent skips the review gate | The board flow refuses the transition. Not a lint, not a prompt instruction — a rejected call. |
 | An agent decides to "clean up" the board | Archive-first deletes; a live card cannot be purged; column deletes refuse while cards remain. |
 | A retried tool call creates a duplicate card | Idempotency key returns the original result, with no second change-log event. |
 | A lane silently fills up | WIP limits are enforced on every move, over any backend. |
@@ -113,9 +113,10 @@ worker raises attention and waits for your answer rather than inventing one. Mea
 the feed and wake the instant something moves — a durable, cursored queue where every
 "message" is a card you can see, reorder, and answer in a browser.
 
-The [flow config this board actually runs on](docs/examples/flows-default.yaml) —
-`triage → todo → scheduled → ready → running → blocked → review → done`, with the reopen
-edge and an unmodeled ad-hoc lane — is in the repo, commented, as a starting point.
+The flow this board actually runs — `triage → todo → scheduled → ready → running →
+blocked → review → done`, with `waiting for mr`, a `won't do` cancel lane, the reopen
+edge, and an ad-hoc `staging` lane — is the `agent-lifecycle` preset (`init_board(preset=
+"agent-lifecycle")`); `set_flow`/`set_transitions` edit it live.
 
 ## Quick Start
 
@@ -151,6 +152,14 @@ claude mcp add kanban-pro -s user -- \
 Multiple harnesses can register the same server — each spawns its own process (with its
 own actor); they share the SQLite store safely.
 
+Then install the agent skills so your sessions know how to drive the board — an
+orchestrator (plan work, set up a board's flow) and a pull worker (claim/move/report):
+
+```bash
+uv run kanban-pro-mcp --install-skills            # -> ~/.claude/skills (never overwrites)
+uv run kanban-pro-mcp --install-skills /some/dir   # or a custom skills dir
+```
+
 **Any OS (mac/Windows/Linux), no clone needed** once the repo has a remote: install
 [uv](https://docs.astral.sh/uv/), then `uvx --from git+<repo-url> kanban-pro-mcp`, or
 `uv tool install` to put `kanban-pro-mcp` on PATH.
@@ -169,9 +178,9 @@ agent> create_card {title: "Add retry logic to the sync worker",
 agent> move_card PRO-12 → doing
   → conflict: WIP limit reached on 'doing' (3/3)
 agent> list_transitions PRO-12
-  → scheme 'default' (source: flow) — legal from todo: [doing]
+  → source: flow (board) — legal from todo: [doing]
 agent> move_card PRO-12 → done
-  → conflict: scheme 'default' does not allow todo -> done; use force=true to override
+  → conflict: board flow does not allow todo -> done; use force=true to override
 agent> move_card PRO-12 → done, force=true
   → Card moved. The event carries forced=true — never silent.
 human> list_changes since=41
@@ -198,47 +207,39 @@ on that, and the [configuration guide](docs/configuration.md) covers each in ful
 | Which backend | `--profile <name>` / `KANBAN_PRO_PROFILE` | `default` (native SQLite) |
 | Who is writing | `--actor <kind:name>` / `KANBAN_PRO_ACTOR` | `unknown` |
 | Where the board lives | `KANBAN_PRO_DB` | `~/.local/share/kanban-pro/kanban.db` |
-| Which moves are legal | `flows.yaml` / `KANBAN_PRO_FLOWS` | none — free movement |
+| Which moves are legal | `set_flow` / `set_transitions` (per board) | none — free movement |
 
 ### Workflow rules
 
-A card can move anywhere until you write a flow file. Then each named **scheme** declares
-its states and the legal transitions between them (states are your column names):
+A card can move anywhere until you give the board a **flow** — the legal column→column
+moves, keyed by column id, stored on the board itself and set over MCP:
 
-```yaml
-flows:
-  default:                       # code tasks: gated pipeline
-    states: [backlog, todo, doing, review, done]
-    transitions:
-      - { from: todo,   to: doing }
-      - { from: doing,  to: [review, todo] }
-      - { from: review, to: [done, doing] }
-  docs:                          # documentation tasks skip the review gate
-    states: [todo, doing, done]
-    transitions:
-      - { from: todo,  to: doing }
-      - { from: doing, to: done }
-
-default_flow: default
+```text
+set_flow("b1", {
+  "b1:todo":   ["b1:doing"],
+  "b1:doing":  ["b1:review", "b1:todo"],
+  "b1:review": ["b1:done", "b1:doing"],
+})
+# or one lane at a time: set_transitions("b1", "b1:review", ["b1:done", "b1:doing"])
+# or start a NEW board pre-wired:  init_board("b1", preset="agent-lifecycle")
 ```
 
-Drop that at `~/.config/kanban-pro/flows.yaml` (or per-profile,
-`flows-default.yaml`). A card overrides the default with
-`ext["kanban_pro.scheme"] = "docs"`, or the reserved `"free-roam"` for unrestricted
-movement, or carries its own one-off flow inline in `ext["kanban_pro.flow"]`. A column no
-scheme mentions stays free, so you can add an ad-hoc lane without editing the rules. **No
-file at all → the whole board is free-roam:** the engine is opt-in and never appears
-uninvited.
+Every edge references a real column on that board — `set_flow` refuses a dangling id, and
+deleting a column strips the edges that named it, so the flow can't drift from the columns.
+A card overrides its board's flow with `ext["kanban_pro.scheme"] = "free-roam"` (unrestricted)
+or carries its own one-off flow inline in `ext["kanban_pro.flow"]`. A column named in no
+edge stays free, so you can keep an ad-hoc lane without governing it. **No flow at all →
+the whole board is free-roam:** enforcement is opt-in and never appears uninvited.
 
 Agents never guess — `list_transitions` (and every item `list_work` returns) carries the
 card's legal moves. An illegal move is refused; `force=true` performs it anyway and
 stamps `forced: true` on the event. Overrides are always allowed, never silent.
 
-WIP limits are separate: they live **on the column** (`update_column`), not in the flow
-file, and kanban-pro enforces them over any backend.
+WIP limits are separate: they live **on the column** (`update_column`), not in the flow,
+and kanban-pro enforces them over any backend.
 
-A fully commented real-world example — the agent lifecycle this board runs on — is in
-[docs/examples/flows-default.yaml](docs/examples/flows-default.yaml).
+New boards come pre-wired from a preset — `blank`, `simple-kanban`, `docs`, or
+`agent-lifecycle` (the swarm lifecycle this board runs) — via `init_board(preset=…)`.
 
 ### When an agent needs you: the attention flag
 
@@ -270,7 +271,7 @@ the board API is deliberately separated from where cards are stored, via **adapt
 The scenario that motivates this: your team tracks work in Jira. You point kanban-pro
 at Jira, and your agents work real Jira tickets through the exact same safe,
 attributed kanban tools — no agent ever learns the Jira API or holds a Jira token.
-And where Jira lacks something kanban-pro offers (WIP limits, flow schemes,
+And where Jira lacks something kanban-pro offers (WIP limits, per-board flow,
 checklists), kanban-pro **fills the gap itself** — and tells you
 honestly which is which: query `capabilities` and each one reports **`native`**
 (the backend does it), **`polyfilled`** (kanban-pro does it on top), or
@@ -448,9 +449,9 @@ interface can bypass the guards or the audit trail. Directory layout:
 
 **Working today:** the canonical model and port, three adapters behind one contract
 suite, the augmenting layer (WIP enforcement, comments/relations polyfill, honest
-capability reporting), the MCP server (37 tools + 9 resources), actor identity + the
+capability reporting), the MCP server (41 tools + 9 resources), actor identity + the
 append-only change-log with both the `list_changes` pull feed and the `wait_changes`
-long-poll, the flow engine (named schemes, inline per-card flows, free-roam, audited
+long-poll, the flow engine (per-board flow, inline per-card flows, free-roam, audited
 force), structured work reports with human-answerable questions, the push-fed web UI
 (card detail, live session-log tail, retry), and the generic migration tool — all
 tested, and verified live against a real production board.

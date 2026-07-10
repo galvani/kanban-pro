@@ -19,19 +19,21 @@ from __future__ import annotations
 from typing import Protocol, runtime_checkable
 
 from kanban_pro.core.flow import (
+    BOARD,
     FLOW_EXT_KEY,
+    FREE_ROAM,
     INLINE,
     SCHEME_EXT_KEY,
-    FlowConfig,
     NativeTransitions,
     Resolution,
     TransitionInfo,
     TransitionOption,
-    free_roam,
+    modeled_columns,
     parse_inline_flow,
 )
 from kanban_pro.domain import (
     Board,
+    BoardFlow,
     BoardPatch,
     Card,
     CardPatch,
@@ -59,11 +61,9 @@ class AugmentingBackend:
         self,
         adapter: KanbanBackend,
         overlay: KanbanBackend | None = None,
-        flows: FlowConfig | None = None,
     ) -> None:
         self._adapter = adapter
         self._overlay = overlay
-        self.flows = flows
         self._fulfilments = self._compute_fulfilments()
         #: port conformance: everything not UNAVAILABLE is callable on this backend.
         self.capabilities: frozenset[Capability] = frozenset(
@@ -77,8 +77,8 @@ class AugmentingBackend:
                 out[cap] = Fulfilment.NATIVE
             elif cap is Capability.WIP_LIMITS:
                 out[cap] = Fulfilment.POLYFILLED  # Tier-1 enforcement, always available
-            elif cap is Capability.WORKFLOW and self.flows is not None:
-                out[cap] = Fulfilment.POLYFILLED  # Tier-1: the flow engine (flow.yaml)
+            elif cap is Capability.WORKFLOW:
+                out[cap] = Fulfilment.POLYFILLED  # Tier-1: the flow engine (per-board flow)
             elif cap in _OVERLAY_CAPS and self._overlay is not None:
                 out[cap] = Fulfilment.POLYFILLED
             else:
@@ -123,75 +123,91 @@ class AugmentingBackend:
                 " — move a card out first"
             )
 
-    # --- Tier-1 flow enforcement (flow engine — core/flow.py; ruled 2026-07-05) ---
+    # --- Tier-1 flow enforcement (flow engine — core/flow.py; ruled 2026-07-10) ---
 
-    async def _resolve_flow(self, card: Card) -> Resolution:
+    def _resolve_flow(self, card: Card) -> Resolution:
+        """Which flow applies to this card (see core/flow.py resolution chain). Reads only
+        the card — the board's own flow is fetched by the caller when resolved == BOARD."""
         ext = card.ext if isinstance(card.ext, dict) else {}
-        scheme_raw = ext.get(SCHEME_EXT_KEY)
-        scheme = str(scheme_raw) if scheme_raw is not None else None
-        # chain rule 0: an inline one-card flow wins over everything (explicit rules
-        # travelling ON the card); malformed -> fall back below, flagged.
+        if ext.get(SCHEME_EXT_KEY) == FREE_ROAM:
+            return Resolution(resolved=FREE_ROAM)  # per-card escape hatch
         inline_raw = ext.get(FLOW_EXT_KEY)
         if inline_raw is not None:
             inline = parse_inline_flow(inline_raw)
             if inline is not None:
-                return Resolution(requested=INLINE, resolved=INLINE, flow=inline)
-            fallback = self.flows.resolve(scheme) if self.flows else free_roam(scheme)
-            return fallback.model_copy(update={"fell_back": True})
-        if self.flows is None:
-            return free_roam(scheme)  # chain rule 1: no config -> unrestricted
-        return self.flows.resolve(scheme)
+                return Resolution(resolved=INLINE, inline_flow=inline)
+            return Resolution(resolved=BOARD, fell_back=True)  # bad inline -> board flow
+        return Resolution(resolved=BOARD)
 
     async def _check_flow(self, card_id: str, to_board_id: str, to_column_id: str) -> None:
-        """Validate a move against the card's scheme. Skips: backend-native WORKFLOW
-        (trust it), free-roam, unmodeled endpoints (chain rule 4), repositioning.
-        Inline card flows are enforced even when no flow.yaml is configured."""
+        """Validate a move against the card's flow. Skips: backend-native WORKFLOW (trust
+        it), free-roam, unmodeled endpoints (a flow governs only the columns it names),
+        repositioning."""
         if Capability.WORKFLOW in self._adapter.capabilities:
             return
         card = await self._adapter.get_card(card_id)
-        resolution = await self._resolve_flow(card)
-        flow = resolution.flow
-        if flow is None:  # free-roam
+        resolution = self._resolve_flow(card)
+        if resolution.resolved == FREE_ROAM:
             return
         placement = next((p for p in card.placements if p.board_id == to_board_id), None)
         if placement is None:
             return  # the adapter's strict-move NotFound handles this (Q16)
-        columns = {c.id: c.name.lower() for c in await self._adapter.list_columns(to_board_id)}
-        current = columns.get(placement.column_id)
-        target = columns.get(to_column_id)
-        if current is None or target is None:
-            return
-        if current not in flow.states or target not in flow.states:
-            return  # a scheme governs only the states it declares
-        if current == target:
+        current_id = placement.column_id
+        if current_id == to_column_id:
             return  # repositioning within a column is not a transition
-        if not flow.permits(current, target):
-            allowed = ", ".join(flow.allowed.get(current, [])) or "none"
+        board = await self._adapter.get_board(to_board_id)
+
+        if resolution.resolved == INLINE:  # name-based one-card flow
+            flow = resolution.inline_flow
+            assert flow is not None
+            names = {c.id: c.name.lower() for c in board.columns}
+            current = names.get(current_id)
+            target = names.get(to_column_id)
+            if current is None or target is None:
+                return
+            if current not in flow.states or target not in flow.states:
+                return  # a flow governs only the states it declares
+            if not flow.permits(current, target):
+                allowed = ", ".join(flow.allowed.get(current, [])) or "none"
+                raise Conflict(
+                    f"inline flow does not allow {current} -> {target}"
+                    f" (allowed from {current}: {allowed}); use force=true to override"
+                )
+            return
+
+        # the board's own flow (the normal path), by column id
+        transitions = board.flow.transitions if board.flow else {}
+        if not transitions:
+            return  # free-roam board
+        modeled = modeled_columns(transitions)
+        if current_id not in modeled or to_column_id not in modeled:
+            return  # a flow governs only the columns it names
+        if to_column_id not in transitions.get(current_id, []):
+            allowed = ", ".join(transitions.get(current_id, [])) or "none"
             raise Conflict(
-                f"scheme {resolution.resolved!r} does not allow {current} -> {target}"
-                f" (allowed from {current}: {allowed}); use force=true to override"
+                f"board flow does not allow {current_id} -> {to_column_id}"
+                f" (allowed from {current_id}: {allowed}); use force=true to override"
             )
 
     async def transitions(self, card_id: str, board_id: str | None = None) -> TransitionInfo:
-        """What moves are legal for this card, and under which resolved scheme."""
+        """What moves are legal for this card, and under which resolved flow."""
         card = await self._adapter.get_card(card_id)
         if board_id is None:
             if not card.placements:
                 raise Conflict(f"card {card_id!r} has no placement — nothing to move")
             board_id = card.placements[0].board_id
         placement = next((p for p in card.placements if p.board_id == board_id), None)
-        columns = await self._adapter.list_columns(board_id)
-        names = {c.id: c.name.lower() for c in columns}
+        board = await self._adapter.get_board(board_id)
+        columns = board.columns
         current_id = placement.column_id if placement else None
         requested = card.ext.get(SCHEME_EXT_KEY) if isinstance(card.ext, dict) else None
         scheme = str(requested) if requested is not None else None
 
-        def options(predicate_names: set[str] | None) -> list[TransitionOption]:
+        def options(ids: set[str] | None) -> list[TransitionOption]:
             return [
                 TransitionOption(column_id=c.id, name=c.name)
                 for c in columns
-                if c.id != current_id
-                and (predicate_names is None or c.name.lower() in predicate_names)
+                if c.id != current_id and (ids is None or c.id in ids)
             ]
 
         if isinstance(self._adapter, NativeTransitions):
@@ -199,36 +215,79 @@ class AugmentingBackend:
             return TransitionInfo(
                 card_id=card_id, board_id=board_id, current_column_id=current_id,
                 scheme=scheme, resolved_scheme=None, source="backend",
-                options=options(lanes), note="workflow enforced by the backend",
+                options=[TransitionOption(column_id=c.id, name=c.name)
+                         for c in columns if c.id != current_id and c.name.lower() in lanes],
+                note="workflow enforced by the backend",
             )  # fmt: skip
-        resolution = await self._resolve_flow(card)
-        if resolution.flow is None:
+        resolution = self._resolve_flow(card)
+        if resolution.resolved == FREE_ROAM:
             return TransitionInfo(
                 card_id=card_id, board_id=board_id, current_column_id=current_id,
-                scheme=scheme, resolved_scheme=resolution.resolved,
-                source="free-roam" if self.flows is not None else "free",
+                scheme=scheme, resolved_scheme=FREE_ROAM, source="free-roam",
                 options=options(None),
             )  # fmt: skip
-        flow = resolution.flow
-        source = INLINE if resolution.resolved == INLINE else "flow"
-        current_name = names.get(current_id) if current_id else None
+
+        if resolution.resolved == INLINE:  # name-based one-card flow
+            flow = resolution.inline_flow
+            assert flow is not None
+            names = {c.id: c.name.lower() for c in columns}
+            current_name = names.get(current_id) if current_id else None
+            if current_name is None or current_name not in flow.states:
+                return TransitionInfo(
+                    card_id=card_id, board_id=board_id, current_column_id=current_id,
+                    scheme=scheme, resolved_scheme=INLINE, source=INLINE, options=options(None),
+                    note="current column not modeled by the inline flow — free",
+                )  # fmt: skip
+            allowed_names = set(flow.allowed.get(current_name, []))
+            legal = {cid for cid, nm in names.items() if nm in allowed_names}
+            return TransitionInfo(
+                card_id=card_id, board_id=board_id, current_column_id=current_id,
+                scheme=scheme, resolved_scheme=INLINE, source=INLINE, options=options(legal),
+            )  # fmt: skip
+
+        # the board's own flow
+        transitions = board.flow.transitions if board.flow else {}
         note = (
-            "scheme/flow fallback applied — requested definition unknown or malformed"
-            if resolution.fell_back
-            else None
+            "inline flow malformed — fell back to the board flow" if resolution.fell_back else None
         )
-        if current_name is None or current_name not in flow.states:
+        if not transitions:
             return TransitionInfo(
                 card_id=card_id, board_id=board_id, current_column_id=current_id,
-                scheme=scheme, resolved_scheme=resolution.resolved, source=source,
-                options=options(None),
-                note=(note or "") + " (current column not modeled by the scheme — free)",
+                scheme=scheme, resolved_scheme=BOARD, source="free", options=options(None),
+                note=(note or "") + " (no board flow configured — free)" if note else
+                "no board flow configured — free",
             )  # fmt: skip
+        modeled = modeled_columns(transitions)
+        if current_id is None or current_id not in modeled:
+            return TransitionInfo(
+                card_id=card_id, board_id=board_id, current_column_id=current_id,
+                scheme=scheme, resolved_scheme=BOARD, source="flow", options=options(None),
+                note=(note or "") + " current column not modeled by the board flow — free",
+            )  # fmt: skip
+        # legal = the lane's explicit edges + any unmodeled column (free to enter)
+        legal = set(transitions.get(current_id, [])) | {
+            c.id for c in columns if c.id not in modeled
+        }
         return TransitionInfo(
             card_id=card_id, board_id=board_id, current_column_id=current_id,
-            scheme=scheme, resolved_scheme=resolution.resolved, source=source,
-            options=options(set(flow.allowed.get(current_name, []))), note=note,
+            scheme=scheme, resolved_scheme=BOARD, source="flow", options=options(legal), note=note,
         )  # fmt: skip
+
+    # --- flow administration (per-board, validated against the board's columns) ---
+
+    async def set_flow(self, board_id: str, flow: BoardFlow) -> Board:
+        """Replace a board's workflow. Every referenced column ID must exist on the board
+        — a flow that names a non-existent lane is refused (drift-proofing at the write)."""
+        board = await self._adapter.get_board(board_id)
+        col_ids = {c.id for c in board.columns}
+        for source, targets in flow.transitions.items():
+            for cid in (source, *targets):
+                if cid not in col_ids:
+                    raise Conflict(
+                        f"flow references column {cid!r} not on board {board_id!r}"
+                        f" (columns: {', '.join(sorted(col_ids)) or 'none'})"
+                    )
+        return await self._adapter.set_flow(board_id, flow)
 
     # --- boards / columns: delegate ---
 
@@ -257,6 +316,20 @@ class AugmentingBackend:
         return await self._adapter.update_column(column_id, patch)
 
     async def delete_column(self, column_id: str) -> None:
+        # cascade: strip any board-flow edges that reference this lane, so the flow can
+        # never point at a deleted column (the write-side drift guard, mirror of set_flow).
+        for board in await self._adapter.list_boards():
+            if board.flow is None:
+                continue
+            stripped = {
+                src: [d for d in dests if d != column_id]
+                for src, dests in board.flow.transitions.items()
+                if src != column_id
+            }
+            if stripped != board.flow.transitions:
+                await self._adapter.set_flow(
+                    board.id, board.flow.model_copy(update={"transitions": stripped})
+                )
         await self._adapter.delete_column(column_id)
 
     # --- cards: delegate + WIP checks on column entry ---

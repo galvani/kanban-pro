@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import shutil
 from collections.abc import Awaitable
 from pathlib import Path
 
@@ -27,6 +28,7 @@ from mcp.types import ToolAnnotations
 
 from kanban_pro import core
 from kanban_pro.config import ACTOR_ENV, PROFILE_ENV, build_backend
+from kanban_pro.core.presets import PRESETS, build_preset_board
 from kanban_pro.core.work_report import (
     WORK_REPORT_SCHEMA,
 )
@@ -38,6 +40,7 @@ from kanban_pro.core.work_report import (
 )
 from kanban_pro.domain import (
     Board,
+    BoardFlow,
     BoardPatch,
     Card,
     CardPatch,
@@ -288,8 +291,8 @@ async def move_card(
     """Move a card within a board it's already on (re-column / re-position).
 
     Errors if the card has no placement on to_board_id (use add_placement), or if the
-    card's workflow scheme forbids the transition — check list_transitions first.
-    force=true deliberately overrides scheme + WIP validation; the override is always
+    board's workflow forbids the transition — check list_transitions first.
+    force=true deliberately overrides flow + WIP validation; the override is always
     recorded in the change-log, never silent.
     """
     backend = await _get_backend()
@@ -302,10 +305,11 @@ async def move_card(
 
 @mcp.tool(annotations=_RO)
 async def list_transitions(card_id: str, board_id: str | None = None) -> core.TransitionInfo:
-    """What moves are legal for this card right now, and under which resolved scheme.
+    """What moves are legal for this card right now, and under which resolved flow.
 
-    Sources: the card's flow scheme (flow.yaml; 'free-roam' = unrestricted), the
-    backend's own workflow (e.g. hermes), or free movement when nothing is configured.
+    Sources: the board's own flow (by column id; set via set_flow/set_transitions), the
+    backend's own workflow (e.g. hermes), a per-card inline flow / 'free-roam' escape, or
+    free movement when the board has no flow.
     """
     backend = await _get_backend()
     if not isinstance(backend, core.RecordingBackend | core.AugmentingBackend):
@@ -315,27 +319,71 @@ async def list_transitions(card_id: str, board_id: str | None = None) -> core.Tr
 
 @mcp.tool(annotations=_RO)
 async def list_flows() -> dict[str, object]:
-    """Available workflow schemes: every flow.yaml scheme (+ built-in 'free-roam'),
-    with states, allowed transitions, and which scheme is the default."""
+    """Every board's workflow — the allowed column->column moves (by column id) that
+    `set_flow`/`set_transitions` administer. A board with no flow is free-roam. The
+    reserved per-card escape `ext['kanban_pro.scheme'] = 'free-roam'` frees one card;
+    an inline per-card flow lives in `ext['kanban_pro.flow']`."""
     backend = await _get_backend()
-    flows = (
-        backend.flows
-        if isinstance(backend, core.RecordingBackend | core.AugmentingBackend)
-        else None
-    )
-    payload: dict[str, object] = {
-        "builtin": {core.FREE_ROAM: "unrestricted transitions (reserved scheme)"},
+    boards = await _call(backend.list_boards())
+    return {
+        "free_roam_scheme": core.FREE_ROAM,
         "scheme_ext_key": core.SCHEME_EXT_KEY,
+        "presets": list(PRESETS),
+        "boards": {
+            b.id: ({"transitions": b.flow.transitions} if b.flow and b.flow.transitions else None)
+            for b in boards
+        },
     }
-    if flows is None:
-        payload["configured"] = None
-        payload["note"] = "no flow.yaml configured — every card behaves as free-roam"
+
+
+# --- flow administration (per-board workflow, keyed by column id) ---
+
+
+@mcp.tool(annotations=_IDEMPOTENT)
+async def set_flow(board_id: str, transitions: dict[str, list[str]]) -> Board:
+    """Replace a board's whole workflow. `transitions` maps a from-column id to the list
+    of to-column ids a card may move to from that lane. Every id must be a real column on
+    the board (a dangling reference is refused). Pass `{}` to clear (see clear_flow).
+
+    A column named in no edge is unmodeled — moves in/out of it stay free. Enforcement is
+    on `move_card`; `force=true` overrides and is audited."""
+    backend = await _get_backend()
+    return await _call(backend.set_flow(board_id, BoardFlow(transitions=transitions)))
+
+
+@mcp.tool(annotations=_IDEMPOTENT)
+async def set_transitions(board_id: str, from_column_id: str, to_column_ids: list[str]) -> Board:
+    """Set the out-edges for ONE lane, leaving the rest of the board's flow untouched.
+    `to_column_ids=[]` removes that lane's edges. All ids must be real columns."""
+    backend = await _get_backend()
+    board = await _call(backend.get_board(board_id))
+    edges = dict(board.flow.transitions) if board.flow else {}
+    if to_column_ids:
+        edges[from_column_id] = to_column_ids
     else:
-        payload["default"] = flows.default
-        payload["configured"] = {
-            name: {"states": f.states, "transitions": f.allowed} for name, f in flows.flows.items()
-        }
-    return payload
+        edges.pop(from_column_id, None)
+    return await _call(backend.set_flow(board_id, BoardFlow(transitions=edges)))
+
+
+@mcp.tool(annotations=_DESTRUCTIVE)
+async def clear_flow(board_id: str) -> Board:
+    """Drop a board's workflow entirely — it becomes free-roam (any move allowed)."""
+    return await _call((await _get_backend()).set_flow(board_id, BoardFlow()))
+
+
+@mcp.tool(annotations=_WRITE)
+async def init_board(
+    board_id: str, name: str | None = None, preset: str = "agent-lifecycle"
+) -> Board:
+    """Onboard a NEW board pre-seeded from a preset — columns + a matching workflow, built
+    together so they can't drift.
+
+    Presets: 'blank' (no columns, free-roam — build it yourself), 'simple-kanban'
+    (todo/doing/done), 'docs' (todo/ready/running/done, no review gate), 'agent-lifecycle'
+    (the Hermes swarm lanes). To onboard by IMPORT instead (from Hermes or another store),
+    use the `kanban-pro-migrate` CLI, not this tool. Errors if the board id already exists."""
+    board = build_preset_board(board_id, name or board_id, preset)
+    return await _call((await _get_backend()).create_board(board))
 
 
 @mcp.tool(annotations=_WRITE)
@@ -696,18 +744,22 @@ async def work_distribution_resource() -> str:
 async def workflow_resource() -> str:
     """The workflow contract: how to move cards and what's legal.
 
-    ``list_transitions(card_id, board_id?)`` returns a ``TransitionInfo``:
+    The workflow lives ON the board (``board.flow``): allowed column→column moves keyed by
+    column id, administered with ``set_flow`` / ``set_transitions`` / ``clear_flow``. No
+    config file. ``list_transitions(card_id, board_id?)`` returns a ``TransitionInfo``:
     ``{options: [{column_id, name}, ...], resolved_scheme, source}``.
 
     Each ``column_id`` in ``options[]`` is a valid target for ``move_card``.
     The ``source`` field tells you where the rules came from:
-      - ``flow`` — flow.yaml scheme (the default)
-      - ``free-roam`` — the reserved scheme; any column is reachable
+      - ``flow`` — the board's own ``board.flow``
+      - ``inline`` — a per-card ``ext['kanban_pro.flow']`` (name-based, one card)
+      - ``free-roam`` — a card with ``ext['kanban_pro.scheme'] = 'free-roam'``
       - ``backend`` — the adapter's own lifecycle (e.g. Hermes ready/blocked/done)
-      - ``free`` — current column not modeled by the scheme → free movement
+      - ``free`` — no board flow, or current column not modeled by it → free movement
 
-    ``force=true`` on ``move_card`` overrides the scheme + WIP checks.  The override is
-    ALWAYS recorded in the change-log — it's for unblocking, never routine.
+    A column named in no edge is unmodeled → free to enter/leave (a flow governs only the
+    columns it names). ``force=true`` on ``move_card`` overrides the flow + WIP checks. The
+    override is ALWAYS recorded in the change-log — it's for unblocking, never routine.
     """
     return json.dumps(
         {
@@ -721,9 +773,8 @@ async def workflow_resource() -> str:
                     "board_id": "str",
                     "current_column_id": "str|null",
                     "scheme": "str|null — the card's ext[kanban_pro.scheme], if set",
-                    "resolved_scheme": "str|null — what actually applied"
-                    " (free-roam = unrestricted)",
-                    "source": "str — flow|free-roam|backend|free",
+                    "resolved_scheme": "str|null — 'board'|'inline'|'free-roam' (what applied)",
+                    "source": "str — flow|inline|free-roam|backend|free",
                     "options": "list[{column_id: str, name: str}] — valid targets for move_card",
                     "note": "str|null",
                 },
@@ -734,15 +785,19 @@ async def workflow_resource() -> str:
                     "to_board_id": "str — must equal an existing placement's board_id",
                     "to_column_id": "str — must be in list_transitions().options or use force",
                     "position": "int (default 0)",
-                    "force": "bool (default false) — override scheme + WIP"
-                    " (recorded in change-log)",
+                    "force": "bool (default false) — override flow + WIP (recorded in change-log)",
                 },
                 "returns": "Card — with updated placement",
             },
-            "flows": {
-                "discovery": "list_flows() — all schemes, states, transitions, and the default",
-                "scheme_selection": "card ext['kanban_pro.scheme'] = 'docs'|'free-roam'"
-                " — per-card override; unset = config default",
+            "flow_admin": {
+                "discovery": "list_flows() — every board's flow (transitions by column id)",
+                "set_flow": "set_flow(board_id, transitions) — replace a board's whole flow",
+                "set_transitions": "set_transitions(board_id, from_column_id, to_column_ids)"
+                " — set one lane's out-edges",
+                "clear_flow": "clear_flow(board_id) — drop the flow (free-roam)",
+                "init_board": "init_board(board_id, name?, preset) — new board from a preset",
+                "per_card_override": "ext['kanban_pro.scheme'] = 'free-roam' frees one card;"
+                " ext['kanban_pro.flow'] = {states, transitions} is an inline one-card flow",
             },
         },
         indent=2,
@@ -758,7 +813,7 @@ async def domain_resource() -> str:
 
     | key | owner | meaning |
     |---|---|---|
-    | ``kanban_pro.scheme`` | flow engine | workflow scheme name (see kanban://workflow) |
+    | ``kanban_pro.scheme`` | flow engine | ``'free-roam'`` frees this card (kanban://workflow) |
     | ``kanban_pro.attention`` | attention signal | ``{reason, raised_by, for}`` |
     | ``kanban_pro.migrated_from`` | migration | provenance ``\"<profile>/<board-id>\"`` |
     | ``hermes`` | hermes adapter | backend-specific fields |
@@ -848,12 +903,49 @@ def _launch_command() -> list[str]:
     return ["kanban-pro-mcp"]
 
 
+#: agent skills shipped as examples — install targets for `--install-skills`.
+_SKILL_NAMES = ("kanban-orchestrator", "kanban-worker", "kanban-pro-work-reporting")
+_DEFAULT_SKILLS_DIR = "~/.claude/skills"
+
+
+def _skills_source() -> Path:
+    """The bundled example skills dir (repo-root/examples/skills)."""
+    return Path(__file__).resolve().parents[2] / "examples" / "skills"
+
+
+def _install_skills(target: Path) -> None:
+    """Copy the example agent skills into `target` (e.g. ~/.claude/skills). Never clobbers:
+    an existing skill dir is left as-is so local edits survive. Touches nothing else."""
+    src = _skills_source()
+    if not src.is_dir():
+        print(f"# skill sources not found at {src}")
+        print("# (install from a source checkout of kanban-pro, or copy examples/skills/ manually)")
+        return
+    target.mkdir(parents=True, exist_ok=True)
+    installed = skipped = 0
+    for name in _SKILL_NAMES:
+        s, d = src / name, target / name
+        if not s.is_dir():
+            continue
+        if d.exists():
+            print(f"skip {name}: already at {d} (remove it to reinstall)")
+            skipped += 1
+            continue
+        shutil.copytree(s, d)
+        print(f"installed {name} -> {d}")
+        installed += 1
+    print(f"\n{installed} installed, {skipped} left in place. Reload skills to pick them up.")
+
+
 def _print_config(harness: str) -> None:
     """Print the registration command/snippet for a harness. Touches no config files."""
     cmd = _launch_command()
     if harness == "claude":
         print("# Claude Code (-s user = all projects):")
         print("claude mcp add kanban-pro -s user -- " + " ".join(cmd))
+        print("#")
+        print("# then install the orchestrator + worker agent skills:")
+        print(f"kanban-pro-mcp --install-skills   # -> {_DEFAULT_SKILLS_DIR}")
     elif harness == "codex":
         print("# add to ~/.codex/config.toml:")
         print("[mcp_servers.kanban-pro]")
@@ -894,11 +986,26 @@ def main() -> None:
         default=None,
         help="print the MCP registration snippet for a harness and exit",
     )
+    parser.add_argument(
+        "--install-skills",
+        nargs="?",
+        const=_DEFAULT_SKILLS_DIR,
+        default=None,
+        metavar="DIR",
+        help=(
+            "copy the example agent skills (orchestrator / worker / work-reporting) into DIR"
+            f" (default {_DEFAULT_SKILLS_DIR}) and exit; never overwrites an existing skill"
+        ),
+    )
     parser.add_argument("-v", "--verbose", action="store_true", help="debug logging (stderr)")
     args = parser.parse_args()
 
     if args.print_config:
         _print_config(args.print_config)
+        return
+
+    if args.install_skills is not None:
+        _install_skills(Path(args.install_skills).expanduser())
         return
 
     # stderr only — stdout carries JSON-RPC.

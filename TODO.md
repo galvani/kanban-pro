@@ -30,6 +30,18 @@ Small, sharp, and each one currently surprises somebody. Documented in CHANGELOG
 - [ ] **`kanban://work-distribution` and the other doc resources** should be regenerated
   from code, not hand-written, so they can't drift like methods.md did.
 
+## Flow-in-DB follow-ups
+
+The core rework SHIPPED on branch `flow-in-db` (see JOURNAL 2026-07-10 +
+[docs/flow-in-db-plan.md](docs/flow-in-db-plan.md)). Remaining:
+
+- [ ] **Merge `flow-in-db` and reload the running MCP server(s).** Until reload the live
+  server runs old code — enforcement is off AND a column edit through it would drop the new
+  `board.flow` field. Reload before touching columns on the `default` board.
+- [ ] **(optional) YAML-file import for onboarding** — `init_board(preset=import-file)` that
+  reads a flows.yaml and name-maps it onto a new board's columns. Dropped from the initial
+  cut (D3); build only if someone wants git-versioned preset files.
+
 ## Unbuilt interfaces
 
 - [ ] **CLI** (`kanban_pro/cli/`) — the last unbuilt PRIMARY interface. Same ops as

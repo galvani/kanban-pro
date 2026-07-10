@@ -36,8 +36,8 @@ if your moves are being watched, because they are.
      then `move_card` to the done column.
    - stuck → `record_work_report` the open question/need/finding, `add_comment` WHY
      (typed: `blocked: <kind> — <reason>`), then `move_card` to the blocked column.
-   - Always check `list_transitions(card_id)` if a move is refused — the card's flow
-     scheme decides what's legal, and the error names the allowed targets.
+   - Always check `list_transitions(card_id)` if a move is refused — the board's flow
+     decides what's legal, and the error names the allowed targets.
 6. **`release_claim(card_id)`** — always, done or stuck.
 
 ## Discipline
@@ -46,8 +46,9 @@ if your moves are being watched, because they are.
   doing the same job twice.
 - **Never `force=true` silently.** A forced move is allowed but always audited — if
   you must force, the same action needs an `add_comment` saying why.
-- **Respect the scheme.** A card may carry its own workflow (`docs` skips review;
-  `free-roam` is unrestricted). `list_transitions` tells you which rules apply.
+- **Respect the board's flow.** The workflow is set on the board; a card can still
+  override with `free-roam` (unrestricted) or its own inline flow. `list_transitions`
+  tells you which rules apply.
 - **Deletes are archive-first** by design: `archive_card` is the way to remove;
   `delete_card` only purges already-archived cards. Board/column deletes refuse while
   live cards remain. Don't fight the guards — they're for your own crashes.
@@ -95,6 +96,7 @@ update_card(card_id, {"ext": {"session": {
 - `archive_card(card_id)` — Archive a card (soft, recoverable — the default way to remove one).
 - `claim_card(card_id, ttl_seconds?, owner?)` — Atomically lease a card so no other agent picks it up (visible in list_work).
 - `clear_attention(card_id, resolution?)` — Clear a card's attention flag (question answered / decision made). Put the
+- `clear_flow(board_id)` — Drop a board's workflow entirely — it becomes free-roam (any move allowed).
 - `create_board(board, idempotency_key?)` — Create a board. Omit `id` to have one generated; columns/labels may be inlined.
 - `create_card(card, idempotency_key?)` — Create a card. `placements` must have >=1 entry (board_id, column_id, position).
 - `create_column(board_id, column, idempotency_key?)` — Add a column to a board. `category` gives it portable semantics (e.g. 'done').
@@ -106,20 +108,23 @@ update_card(card_id, {"ext": {"session": {
 - `get_board(board_id)` — Get one board (includes its columns and label registry).
 - `get_card(card_id)` — Get one card (works for archived cards too).
 - `heartbeat_claim(card_id, ttl_seconds?, owner?)` — Renew your live lease on a card while still working it. `owner` must match
+- `init_board(board_id, name?, preset?)` — Onboard a NEW board pre-seeded from a preset — columns + a matching workflow, built
 - `list_boards()` — List all boards.
 - `list_cards(board_id, include_archived?)` — List a board's cards. Archived cards are hidden unless include_archived=true
 - `list_changes(since?, limit?)` — Change feed: every recorded write after cursor `since` (audit trail + sync).
 - `list_columns(board_id)` — List a board's columns (name, order, semantic category, wip_limit).
 - `list_comments(card_id)` — List a card's comments.
-- `list_flows()` — Available workflow schemes: every flow.yaml scheme (+ built-in 'free-roam'),
+- `list_flows()` — Every board's workflow — the allowed column->column moves (by column id) that
 - `list_relations(card_id)` — List a card's typed relations (blocks, parent/child, duplicates, ...).
-- `list_transitions(card_id, board_id?)` — What moves are legal for this card right now, and under which resolved scheme.
+- `list_transitions(card_id, board_id?)` — What moves are legal for this card right now, and under which resolved flow.
 - `list_work(assignee?, include_unassigned?)` — What should I work on? Workable cards for `assignee` (default: YOU, this
 - `move_card(card_id, to_board_id, to_column_id, position?, force?)` — Move a card within a board it's already on (re-column / re-position).
 - `raise_attention(card_id, reason, for_actor?)` — Flag a card as needing a decision or input (e.g. a question only a human or a
 - `record_work_report(card_id, section, item, op?, idempotency_key?)` — Update one structured work_report section/item on a card.
 - `release_claim(card_id, owner?)` — Release your lease (done or giving up). `owner` overrides the actor
 - `remove_placement(card_id, board_id)` — Take a card off one board (its other placements stay). The last placement can't
+- `set_flow(board_id, transitions)` — Replace a board's whole workflow. `transitions` maps a from-column id to the list
+- `set_transitions(board_id, from_column_id, to_column_ids)` — Set the out-edges for ONE lane, leaving the rest of the board's flow untouched.
 - `unarchive_card(card_id)` — Restore an archived card.
 - `update_board(board_id, patch)` — Partially update a board — only the fields set in `patch` are applied.
 - `update_card(card_id, patch)` — Partially update a card — only the fields set in `patch` are applied.

@@ -1,29 +1,27 @@
-"""The flow engine: named workflow schemes loaded from YAML (TODO "Flow management").
+"""The flow engine: per-board workflow, stored on the board (`board.flow`).
 
-A *scheme* is a transition state-machine over column NAMES (case-insensitive) — column
-ids are per-board, names are what flow authors write. A card picks its scheme via
-`ext["kanban_pro.scheme"]`; unset inherits the config's default scheme.
+A board's workflow is a transition state-machine over its OWN column IDs
+(`domain.BoardFlow`) — administered through MCP (`set_flow` / `set_transitions` /
+`clear_flow`), never a config file. Edges reference the same board's columns, so a flow
+can never dangle. This module holds the *reading* side (resolve a card's applicable flow,
+answer "what moves are legal"); the board data itself lives in `domain.BoardFlow`.
 
-Reserved scheme **"free-roam"**: built-in, always available, never definable in YAML —
-unrestricted transitions for that card while the board default stays enforced (Jan).
+Resolution chain for a card (ruled 2026-07-10):
+1. `ext["kanban_pro.scheme"] == "free-roam"`  -> the card is unrestricted (per-card escape).
+2. `ext["kanban_pro.flow"]` (inline one-card flow, name-based) -> wins; malformed falls
+   through to the board flow, flagged.
+3. the board's own `board.flow` -> enforced by column ID.
+4. no board flow (absent/empty) -> free movement.
 
-Resolution chain (ruled 2026-07-05):
-1. no flows configured        -> everything behaves as free-roam
-2. card has no scheme         -> the config's default scheme
-3. unknown scheme             -> default scheme + loud warning (never freeze the board)
-4. unmodeled column endpoint  -> the move is free (a scheme governs only its own states)
-
-`flow.yaml` fails fast at load on dangling references. `hooks`/`wip_limits` keys are
-accepted-but-ignored for now (syntax reserved — see TODO).
+A column that appears in no edge of the board flow is *unmodeled*: moves in and out of it
+stay free (a flow governs only the columns it names).
 """
 
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 from typing import Protocol, runtime_checkable
 
-import yaml
 from pydantic import BaseModel, ConfigDict, Field
 
 logger = logging.getLogger("kanban_pro.flow")
@@ -32,6 +30,22 @@ FREE_ROAM = "free-roam"
 SCHEME_EXT_KEY = "kanban_pro.scheme"
 FLOW_EXT_KEY = "kanban_pro.flow"  # inline ONE-CARD flow definition {states, transitions}
 INLINE = "inline"
+BOARD = "board"  # the resolved-flow name when the board's own flow applies
+
+
+def modeled_columns(transitions: dict[str, list[str]]) -> set[str]:
+    """Every column a board flow *names* — as an edge source or target. A column outside
+    this set is unmodeled and moves in/out of it are free (a flow governs only its own)."""
+    cols: set[str] = set(transitions)
+    for targets in transitions.values():
+        cols.update(targets)
+    return cols
+
+
+# --- inline per-card flow (name-based; a card carries its own mini state-machine) -------
+# Rare escape hatch that travels ON a card via ext["kanban_pro.flow"]; matched by column
+# NAME because it may apply across boards with different column ids. The board flow (the
+# normal path) is ID-based and needs none of this.
 
 
 class _TransitionRule(BaseModel):
@@ -41,67 +55,24 @@ class _TransitionRule(BaseModel):
 
 
 class _FlowSpec(BaseModel):
-    model_config = ConfigDict(extra="allow")  # hooks/wip_limits reserved, ignored for now
+    model_config = ConfigDict(extra="allow")
     states: list[str]
     transitions: list[_TransitionRule] = Field(default_factory=list)
-    auto_reset_attempts_on_reassign: bool = True
-
-
-class _FlowsFile(BaseModel):
-    model_config = ConfigDict(extra="allow")
-    flows: dict[str, _FlowSpec]
-    default_flow: str | None = None
 
 
 class Flow(BaseModel):
-    """One validated scheme: states + allowed from->to edges (all lowercase names)."""
+    """A validated inline flow: states + allowed from->to edges (all lowercase names)."""
 
     name: str
     states: list[str]
     allowed: dict[str, list[str]]  # from-state -> to-states
-    auto_reset_attempts_on_reassign: bool = True
 
     def permits(self, from_state: str, to_state: str) -> bool:
         return to_state in self.allowed.get(from_state, [])
 
 
-class Resolution(BaseModel):
-    """Outcome of resolving a card's scheme. `flow=None` means unrestricted."""
-
-    requested: str | None
-    resolved: str  # scheme name actually applied ("free-roam" when unrestricted)
-    fell_back: bool = False
-    flow: Flow | None = None
-
-
-class FlowConfig(BaseModel):
-    flows: dict[str, Flow]
-    default: str
-
-    def resolve(self, requested: str | None) -> Resolution:
-        if requested == FREE_ROAM:
-            return Resolution(requested=requested, resolved=FREE_ROAM)
-        name = requested or self.default
-        if name in self.flows:
-            return Resolution(requested=requested, resolved=name, flow=self.flows[name])
-        logger.warning(
-            "unknown scheme %r — falling back to default scheme %r", requested, self.default
-        )
-        return Resolution(
-            requested=requested,
-            resolved=self.default,
-            fell_back=True,
-            flow=self.flows[self.default],
-        )
-
-
-def free_roam(requested: str | None = None) -> Resolution:
-    """The no-flows-configured resolution: everything is free-roam."""
-    return Resolution(requested=requested, resolved=FREE_ROAM)
-
-
 def _build_flow(name: str, spec: _FlowSpec) -> Flow:
-    """Validate one flow spec into a Flow. Raises ValueError on dangling references."""
+    """Validate one inline flow spec into a Flow. Raises ValueError on dangling refs."""
     states = [s.lower() for s in spec.states]
     allowed: dict[str, list[str]] = {}
     for rule in spec.transitions:
@@ -115,22 +86,14 @@ def _build_flow(name: str, spec: _FlowSpec) -> Flow:
         allowed.setdefault(source, []).extend(
             t for t in targets if t not in allowed.get(source, [])
         )
-    return Flow(
-        name=name,
-        states=states,
-        allowed=allowed,
-        auto_reset_attempts_on_reassign=spec.auto_reset_attempts_on_reassign,
-    )
+    return Flow(name=name, states=states, allowed=allowed)
 
 
 def parse_inline_flow(raw: object) -> Flow | None:
     """Validate a card's inline flow (ext["kanban_pro.flow"]).
 
-    Returns None when malformed — the caller falls back to the named/default scheme
-    with a loud warning (resolution-chain rule-3 spirit: never freeze a card on a
-    bad definition). Note: an inline flow is enforced even on profiles with NO
-    flow.yaml — attaching one is an explicit request for rules; the WORKFLOW
-    fulfilment still reflects only the profile config.
+    Returns None when malformed — the caller falls back to the board flow with a loud
+    warning (never freeze a card on a bad definition).
     """
     try:
         return _build_flow(INLINE, _FlowSpec.model_validate(raw))
@@ -139,21 +102,16 @@ def parse_inline_flow(raw: object) -> Flow | None:
         return None
 
 
-def load_flows(path: str | Path) -> FlowConfig:
-    """Parse + validate flow.yaml. Fails fast on any dangling reference (guardrail)."""
-    raw = yaml.safe_load(Path(path).read_text())
-    parsed = _FlowsFile.model_validate(raw)
-    for reserved in (FREE_ROAM, INLINE):
-        if reserved in parsed.flows:
-            raise ValueError(f"{reserved!r} is a reserved scheme name — remove it from flows")
-    flows = {name: _build_flow(name, spec) for name, spec in parsed.flows.items()}
-    default = parsed.default_flow or "default"
-    if default not in flows:
-        raise ValueError(
-            f"default scheme {default!r} is not defined (declare `default_flow` or a"
-            " flow named 'default')"
-        )
-    return FlowConfig(flows=flows, default=default)
+# --- resolution + transitions query ----------------------------------------------------
+
+
+class Resolution(BaseModel):
+    """Which flow applies to a card. `resolved` is FREE_ROAM | INLINE | BOARD; the board
+    flow itself is read from the board when `resolved == BOARD`."""
+
+    resolved: str
+    fell_back: bool = False
+    inline_flow: Flow | None = None  # set only when resolved == INLINE
 
 
 class TransitionOption(BaseModel):
@@ -169,7 +127,7 @@ class TransitionInfo(BaseModel):
     current_column_id: str | None
     scheme: str | None  # what the card requested (ext), if anything
     resolved_scheme: str | None  # what actually applied (None = backend-native rules)
-    source: str  # "flow" | "free-roam" | "backend" | "free"
+    source: str  # "flow" | "free-roam" | "backend" | "free" | "inline"
     options: list[TransitionOption]
     note: str | None = None
 

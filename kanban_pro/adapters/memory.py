@@ -11,6 +11,7 @@ from datetime import UTC, datetime
 
 from kanban_pro.domain import (
     Board,
+    BoardFlow,
     BoardPatch,
     Card,
     CardPatch,
@@ -112,6 +113,12 @@ class MemoryBackend:
     async def delete_column(self, column_id: str) -> None:
         for board in self._boards.values():
             board.columns = [c for c in board.columns if c.id != column_id]
+
+    # --- flow (stored on the board) ---
+    async def set_flow(self, board_id: str, flow: BoardFlow) -> Board:
+        updated = (await self.get_board(board_id)).model_copy(update={"flow": flow})
+        self._boards[board_id] = updated
+        return updated
 
     # --- cards ---
     async def list_cards(self, board_id: str, include_archived: bool = False) -> list[Card]:

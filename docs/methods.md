@@ -4,7 +4,7 @@ Every operation exists once in `core/` over the `KanbanBackend` port and is proj
 three surfaces (SPEC decision 5 + "Consuming kanban-pro"):
 
 - **MCP tools** (primary) — one tool per operation, schema generated from the domain
-  models. **37 tools + 9 resources today.**
+  models. **41 tools + 9 resources today.**
 - **CLI** (primary) — `kanban-pro <resource> <verb> [flags]`. _(planned — no `cli/` yet)_
 - **HTTP** (secondary) — `kanban_pro/api/` exists but serves the **web UI** (board
   snapshot, SSE, card detail, move/comment/answer/retry), not the full canonical
@@ -122,11 +122,17 @@ a started column" stays visible in the change-log.
 
 | Operation | Signature | Notes |
 |---|---|---|
-| legal moves | `list_transitions(card_id, board_id?)` | the card's legal target columns *right now* + the resolved scheme and where it came from (inline `ext["kanban_pro.flow"]` → named scheme → backend workflow → free) |
-| list schemes | `list_flows()` | every `flow.yaml` scheme + built-in `free-roam`, with states, transitions, and which is default |
+| legal moves | `list_transitions(card_id, board_id?)` | the card's legal target columns *right now* + the resolved flow and where it came from (inline `ext["kanban_pro.flow"]` → `board.flow` by column id → backend workflow → free) |
+| list flows | `list_flows()` | each board's flow — `{boards: {board_id: {transitions}\|null}, free_roam_scheme, scheme_ext_key, presets}`; a board with no flow is free-roam |
+| set board flow | `set_flow(board_id, transitions)` | replace the whole board flow (`{from_col_id: [to_col_id, …]}`); every referenced column id must exist on the board — a dangling ref is refused. `{}` clears it |
+| set one lane | `set_transitions(board_id, from_column_id, to_column_ids)` | set just one lane's out-edges, leaving the rest; `[]` clears that lane |
+| clear board flow | `clear_flow(board_id)` | drop the flow → free-roam board |
+| onboard a board | `init_board(board_id, name?, preset="agent-lifecycle")` | create a NEW board from a preset (`blank`, `simple-kanban`, `docs`, `agent-lifecycle`) — columns + a matching flow, built together so they can't dangle. Import onboarding is the `kanban-pro-migrate` CLI, not this tool |
 
-`move_card` enforces the resolved scheme; `force=true` overrides it and stamps
-`forced: true` on the `card.moved` event — never silent.
+Flow is **board data** (`board.flow`, keyed by the board's own column ids), administered
+over MCP via `set_flow`/`set_transitions`/`clear_flow` — not a YAML file. A flow edit
+emits a `board.updated` event. `move_card` enforces the resolved flow; `force=true`
+overrides it and stamps `forced: true` on the `card.moved` event — never silent.
 
 ### Work reports (core convenience — not port ops)
 
@@ -172,8 +178,8 @@ patch semantics, Q17):
 
 | Key | Owner | Meaning |
 |---|---|---|
-| `kanban_pro.scheme` | flow engine | the card's workflow scheme name (`"docs"`, `"free-roam"`; unset = default) |
-| `kanban_pro.flow` | flow engine | inline ONE-card flow `{states, transitions}` — precedence over `scheme`, enforced even without flow.yaml; malformed → default scheme + warning |
+| `kanban_pro.scheme` | flow engine | only `"free-roam"` is meaningful now (frees the card); named schemes are gone — the board's flow (`board.flow`) governs otherwise |
+| `kanban_pro.flow` | flow engine | inline ONE-card flow `{states, transitions}` (name-based) — precedence over the board flow, enforced even on a flowless board; malformed → falls back to the board flow + warning |
 | `kanban_pro.attention` | attention signal (queued) | `{reason, raised_by, for}` — needs a decision/input |
 | `kanban_pro.copied_from` | cross-mount copy (queued) | provenance link `"<mount>/<card-id>"` |
 | `kanban_pro.migrated_from` | `kanban-pro-migrate` | import provenance `"<profile>/<board-id>"` |
@@ -220,7 +226,7 @@ everything at connect time — no per-backend code.
 
 ### Tools (one per operation)
 
-Snake-case names matching the operations above — **37 tools**, the live surface:
+Snake-case names matching the operations above — **41 tools**, the live surface:
 
 ```
 list_boards, get_board, create_board, update_board, delete_board,
@@ -228,6 +234,7 @@ list_columns, create_column, update_column, delete_column,
 list_cards, get_card, create_card, update_card,
 record_work_report, answer_work_report_question,
 move_card, list_transitions, list_flows,
+set_flow, set_transitions, clear_flow, init_board,
 add_placement, remove_placement, archive_card, unarchive_card, delete_card,
 list_comments, add_comment, delete_comment,
 list_relations, add_relation, delete_relation,
@@ -276,7 +283,7 @@ All under the `kanban://` scheme — **9 today**:
 | `kanban://capabilities` | Active provider's `Capability` set, each with its `Fulfilment` (`native` / `polyfilled` / `unavailable`) — **how a harness learns what this kanban can do.** |
 | `kanban://boards` / `board/{board_id}` / `card/{card_id}` | Read-through canonical data. |
 | `kanban://domain` | The canonical domain model. |
-| `kanban://workflow` | Flow schemes, states, transitions. |
+| `kanban://workflow` | Per-board flow — the legal column→column moves and how a card's flow resolves. |
 | `kanban://work-distribution` | How work is claimed and routed. |
 | `kanban://work-report-schema` | Sections + write rules for `record_work_report`. |
 | `kanban://event-schema` | Change-log event shape. |

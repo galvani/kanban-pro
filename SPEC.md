@@ -169,13 +169,14 @@ no custom fields, etc.). Costs to keep in mind for write-through: it can clutter
 backend's native UI (mitigate with hidden markers), needs reliable round-trip parsing,
 and querying serialized data may require scanning until an MCP/index exists. For
 out-of-band deletes, reconciliation still GCs any overlay-fallback rows. Enforcement-only
-polyfills (Tier 1: workflow/WIP) persist **nothing** in the backend — the rules are
-kanban-pro config, applied at move time.
+polyfills (Tier 1: workflow/WIP) apply the rules at move time; the rules themselves live
+on the board (WIP on the column, transitions in `board.flow`), not in a separate store.
 
 **Polyfill tiers (safest first):**
-- **Tier 1 — pure enforcement, no stored data:** allowed-transition workflow + WIP
-  limits. kanban-pro validates `move_card` then delegates; only the *rules* live in
-  kanban-pro (config), so there is **no source-of-truth split**. Works over any backend.
+- **Tier 1 — pure enforcement:** allowed-transition workflow + WIP limits. kanban-pro
+  validates `move_card` then delegates. The rules are board configuration — WIP on the
+  column, transitions in `board.flow` (by column id, administered via `set_flow`) — so
+  there is **no source-of-truth split**. Works over any backend that stores a board.
 - **Tier 2 — overlay data keyed to backend IDs:** typed relations, custom fields, extra
   comments/labels. The system-of-record split above applies here.
 - **Tier 3 — hard, needs backend cooperation:** faithful ordering when the backend owns

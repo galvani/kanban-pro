@@ -52,6 +52,7 @@ def test_tools_registered_match_methods_doc() -> None:
         "list_comments", "add_comment", "delete_comment",
         "list_relations", "add_relation", "delete_relation",
         "list_changes", "list_transitions", "list_flows",
+        "set_flow", "set_transitions", "clear_flow", "init_board",
         "list_work", "claim_card", "heartbeat_claim", "release_claim",
         "raise_attention", "clear_attention", "wait_changes",
     }  # fmt: skip
@@ -235,7 +236,7 @@ async def _capabilities_resource_reports_fulfilment() -> None:
     caps = payload["capabilities"]
     assert caps["comments"] == "native"
     assert caps["wip_limits"] == "polyfilled"  # Tier-1 core enforcement
-    assert caps["workflow"] == "unavailable"  # flow-YAML design pending
+    assert caps["workflow"] == "polyfilled"  # Tier-1: per-board flow engine
 
 
 def test_capabilities_resource_reports_fulfilment() -> None:

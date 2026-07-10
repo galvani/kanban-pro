@@ -101,9 +101,10 @@ all 25 port methods to raise `NotSupported`, so a thin adapter overrides just wh
    `delete_card_guarded` / `delete_board_guarded` / `delete_column_guarded`
    (`core/__init__.py`) enforce archive-first and empty-only. An interface that called an
    adapter directly would bypass them — which is why interfaces never do.
-8. **A scheme governs only the states it declares.** A column no scheme mentions is
-   *unmodeled*: moves in and out of it stay free. An unknown scheme name falls back to the
-   default with a loud warning — a config typo must never freeze the board.
+8. **A board flow governs only the columns it names.** A column in no edge is *unmodeled*:
+   moves in and out of it stay free. The flow is stored on the board by column id and
+   validated at the write (`set_flow` refuses dangling refs; `delete_column` cascades), so
+   it cannot drift from the columns — no config typo can freeze or mislead the board.
 9. **The work report is current truth, not an append-only log.** History belongs in the
    change-log via `work_report.updated`. Never rewrite the whole `ext["work_report"]` blob
    through `update_card`.
@@ -162,23 +163,39 @@ existing caller.
 
 ---
 
-## 6. Flow engine (`core/flow.py`)
+## 6. Flow engine (`core/flow.py` + `domain.BoardFlow`)
 
-Resolution chain, first match wins:
+The workflow lives **on the board** — `board.flow` (`domain.BoardFlow`): a map of allowed
+column→column moves keyed by column **ID**, stored in the board doc, administered over MCP
+(`set_flow` / `set_transitions` / `clear_flow`). Because edges reference the same board's
+column ids, a flow can never dangle (contrast the old name-matched `flows.yaml`, retired
+2026-07-10 — see JOURNAL). No config file is read at runtime.
 
-1. `ext["kanban_pro.flow"]` — a full inline `{states, transitions}` for this one card.
-   Enforced even with no `flows.yaml`. Malformed → default + loud warning.
-2. `ext["kanban_pro.scheme"]` — a named scheme, or the reserved `"free-roam"`.
-3. The backend's own workflow (hermes has one).
-4. `default_flow`, else free movement.
+Resolution chain for a card (`AugmentingBackend._resolve_flow`), first match wins:
 
-`free-roam` and `inline` are **reserved names**, rejected if defined in YAML. State names
-are matched **lowercased** against column names. `flows.yaml` fails fast at load on a
-transition referencing an undeclared state.
+1. `ext["kanban_pro.scheme"] == "free-roam"` — a per-card escape; the card is unrestricted.
+2. `ext["kanban_pro.flow"]` — a full inline `{states, transitions}` for this ONE card
+   (name-based, may span boards). Wins over the board flow; malformed → board flow, flagged.
+3. `board.flow` — the board's own transitions, enforced by column id (the normal path).
+4. No board flow (absent / empty `transitions`) → free movement.
 
-**Trap:** the `wip_limits:` key inside `flows.yaml` is parsed and **silently ignored**
-(`_FlowSpec` sets `extra="allow"`). WIP limits live on the *column* (`update_column`).
-`auto_reset_attempts_on_reassign` *is* honoured (`recording.py:259`).
+The board's own workflow is native for a workflow-owning backend (hermes) — kanban-pro
+does not administer that one (`set_flow` → `NotSupported`).
+
+**A column named in no edge is *unmodeled*** — moves in and out of it stay free (a flow
+governs only the columns it names). This is how a board keeps an ad-hoc scratch lane
+ungoverned while the rest is enforced. `list_transitions` reflects this: from a modeled
+lane it offers the lane's explicit edges **plus** every unmodeled column (each is free to
+enter).
+
+**Write-side drift guards (the reason flow-on-the-board beats a config file):**
+`set_flow` refuses any edge that references a column not on the board; `delete_column`
+**cascades**, stripping edges that reference the removed lane. So the flow and the columns
+cannot drift apart.
+
+A flow edit is a board-doc write → it emits `board.updated` (no new event kind).
+`board.flow.auto_reset_attempts_on_reassign` (default true) is honoured on reassign/re-lane
+(`recording.py`). WIP limits live on the *column* (`update_column`), never the flow.
 
 ---
 
@@ -283,7 +300,8 @@ uv run ruff format . && uv run ruff check . && uv run mypy kanban_pro && uv run 
 ## 11. Traps
 
 - `":memory:"` for `NativeStore` gives every connection its own empty database.
-- `flows.yaml`'s `wip_limits:` is accepted and ignored. Column `wip_limit` is the real one.
+- WIP limits live on the *column* (`update_column`), never in `board.flow`. A flow holds
+  only transitions.
 - `list_work` does **not** surface attention. An agent that only polls its queue never
   learns a question was raised for it; it must also watch `wait_changes`.
 - `clear_attention` is not access-controlled — any actor may clear any flag. Recorded, so

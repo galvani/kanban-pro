@@ -16,6 +16,7 @@ from typing import Protocol, runtime_checkable
 
 from kanban_pro.domain import (
     Board,
+    BoardFlow,
     BoardPatch,
     Card,
     CardPatch,
@@ -125,6 +126,11 @@ class KanbanBackend(Protocol):
     async def create_column(self, board_id: str, column: Column) -> Column: ...
     async def update_column(self, column_id: str, patch: ColumnPatch) -> Column: ...
     async def delete_column(self, column_id: str) -> None: ...
+
+    # --- flow (Capability.WORKFLOW; per-board transition rules, keyed by column id) ---
+    # Replaces the whole board flow. Backends that own their workflow natively (e.g. a
+    # hermes/Jira scheme) leave this NotSupported — kanban-pro doesn't administer theirs.
+    async def set_flow(self, board_id: str, flow: BoardFlow) -> Board: ...
 
     # --- cards ---
     # archived cards are hidden by default (decision 7); include_archived=True lists

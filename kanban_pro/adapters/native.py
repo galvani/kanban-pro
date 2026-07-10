@@ -24,6 +24,7 @@ import aiosqlite
 
 from kanban_pro.domain import (
     Board,
+    BoardFlow,
     BoardPatch,
     Card,
     CardPatch,
@@ -214,6 +215,15 @@ class NativeStore:
                     board.columns = [c for c in board.columns if c.id != column_id]
                     await self._save_board(db, board)
             await db.commit()
+
+    # --- flow (stored inside the board doc) ---
+    async def set_flow(self, board_id: str, flow: BoardFlow) -> Board:
+        async with aiosqlite.connect(self._path) as db:
+            board = await self._get_board(db, board_id)
+            updated = board.model_copy(update={"flow": flow})
+            await self._save_board(db, updated)
+            await db.commit()
+        return updated
 
     # --- cards ---
     async def list_cards(self, board_id: str, include_archived: bool = False) -> list[Card]:

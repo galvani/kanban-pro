@@ -71,7 +71,7 @@ def test_fulfilment_reporting() -> None:
     assert f[Capability.COMMENTS] is Fulfilment.POLYFILLED  # overlay data
     assert f[Capability.RELATIONS] is Fulfilment.POLYFILLED
     assert f[Capability.WIP_LIMITS] is Fulfilment.POLYFILLED  # Tier-1 enforcement
-    assert f[Capability.WORKFLOW] is Fulfilment.UNAVAILABLE  # flow YAML pending
+    assert f[Capability.WORKFLOW] is Fulfilment.POLYFILLED  # Tier-1: per-board flow engine
 
     bare = AugmentingBackend(StubRemote(), overlay=None).fulfilments()
     assert bare[Capability.COMMENTS] is Fulfilment.UNAVAILABLE  # no overlay, no data

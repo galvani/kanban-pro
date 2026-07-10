@@ -24,14 +24,12 @@ from kanban_pro.core import (
     ClaimStore,
     DedupeStore,
     RecordingBackend,
-    load_flows,
 )
 from kanban_pro.ports import KanbanBackend
 
 PROFILE_ENV = "KANBAN_PRO_PROFILE"
 DB_ENV = "KANBAN_PRO_DB"
 ACTOR_ENV = "KANBAN_PRO_ACTOR"
-FLOWS_ENV = "KANBAN_PRO_FLOWS"
 
 
 def _data_dir() -> Path:
@@ -44,19 +42,6 @@ def default_db_path() -> Path:
     if env := os.environ.get(DB_ENV):
         return Path(env)
     return _data_dir() / "kanban.db"
-
-
-def flows_path(profile: str) -> Path | None:
-    """flow.yaml location: $KANBAN_PRO_FLOWS, else XDG config (per-profile file wins
-    over the shared one). None = no flow engine (free-roam behavior)."""
-    if env := os.environ.get(FLOWS_ENV):
-        return Path(env)
-    config_home = Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config")))
-    for candidate in (f"flows-{profile}.yaml", "flows.yaml"):
-        path = config_home / "kanban-pro" / candidate
-        if path.exists():
-            return path
-    return None
 
 
 def changelog_path(profile: str) -> Path | None:
@@ -126,10 +111,9 @@ async def build_backend(profile: str | None = None, actor: str | None = None) ->
         known = ", ".join(sorted(REGISTRY))
         raise ValueError(f"unknown profile {name!r} (known: {known})") from None
     resolved_actor = actor or os.environ.get(ACTOR_ENV) or "unknown"
-    flows_file = flows_path(name)
-    flows = load_flows(flows_file) if flows_file else None
+    # workflow lives on the board (board.flow), administered over MCP — no config file.
     return RecordingBackend(
-        AugmentingBackend(await factory(), flows=flows),
+        AugmentingBackend(await factory()),
         ChangeLog(changelog_path(name)),
         resolved_actor,
         claims=ClaimStore(claims_path(name)),
