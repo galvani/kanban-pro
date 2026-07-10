@@ -3,11 +3,23 @@
 **A kanban board your coding agents natively understand — and a state machine they can't
 wander out of.**
 
-> **Don't want to read this?** Ask an agent that can browse:
-> `Do I need this? https://github.com/galvani/kanban-pro`
-> It'll find [`llms.txt`](llms.txt) — written for the agent, not for you — and tell you
-> honestly whether you need it, who should walk away, and what it costs. Say yes and it
-> installs and verifies the thing itself. See [PROMPT.md](PROMPT.md).
+> **Don't want to read this?** Paste this into any agent that can browse — Claude Code,
+> Codex, ChatGPT, whatever you use:
+>
+> ```text
+> Do I need this? https://github.com/galvani/kanban-pro
+> ```
+>
+> It finds [`llms.txt`](llms.txt), which is written for the agent rather than for you:
+> what works today versus what's still planned, who should use it, **who should walk
+> away**, how it compares to a plain kanban / Jira+MCP / your agent's own to-do list, and
+> what AGPL-3.0 means for whatever you're planning to build. It's told not to sell you
+> anything and to say plainly if you don't need it.
+>
+> Then, in the same conversation: `Yes — install it for me and prove it works.` It runs
+> the commands itself (needs [uv](https://docs.astral.sh/uv/); no clone), verifies the
+> package builds *before* touching your config, and proves the server works by creating a
+> board and moving a card — not by trusting that a config entry means success.
 
 You run coding agents every day — Claude Code, Codex, whatever comes next. They do
 real work: fix bugs, ship features, review each other's changes. But their *tasks*
@@ -377,8 +389,8 @@ interface can bypass the guards or the audit trail. Directory layout:
 
 ## Documentation
 
-- [PROMPT.md](PROMPT.md) / [llms.txt](llms.txt) — hand the repo to an AI agent: "do I need
-  this?", then let it install and verify. `llms.txt` is the agent-facing brief.
+- [llms.txt](llms.txt) — the agent-facing brief. Hand the repo to an AI agent, ask "do I
+  need this?", then let it install and verify.
 - [docs/configuration.md](docs/configuration.md) — **start here to configure it**:
   profiles, actors, workflow rules, WIP limits, the attention flag, and listeners
 - [CHANGELOG.md](CHANGELOG.md) — what changed, for people who *use* it — including a frank

@@ -6,8 +6,10 @@
   `Do I need this? https://github.com/galvani/kanban-pro` — and gets an honest verdict,
   then an install they never had to type. The instructions therefore have to live in the
   *repo*, not in a prompt the user has to find and paste. Hence
-  [`llms.txt`](llms.txt) (the emerging convention, root path, agent-facing) + a thin
-  [`PROMPT.md`](PROMPT.md) holding just the one-liners.
+  [`llms.txt`](llms.txt) — the emerging convention, root path, agent-facing.
+  (A thin `PROMPT.md` held the one-liners for a few hours; folded into the README's top
+  callout and deleted the same day — one more file to keep in sync bought nothing that a
+  four-line blockquote didn't.)
 - **`llms.txt` is written adversarially against its own project**, because a brief that
   sells gets ignored (or worse, believed): an explicit WORKS vs NOT BUILT split (no CLI,
   no Jira adapter, no bulk ops, no push notifications, no `PRO-12` keys, no write-through);
