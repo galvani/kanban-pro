@@ -142,6 +142,10 @@ Sections — **list** (upserted by stable item `id`, `op` ∈ `upsert`/`replace`
 `questions`, `findings`, `plan`, `needs`, `analysis_log`, `checks`.
 **Singleton** (replaced as current state): `about`, `verdict`, `handoff`.
 
+**Format version (`_v`).** Each report carries `_v` — currently `1`. See
+[ext versioning](#ext-versioning) below. A section may not be named with a leading
+underscore; underscore keys are reserved metadata, never content.
+
 Rules: never rewrite the whole `ext.work_report` blob by hand; `raise_attention` is only
 the *signal* — the actual question belongs in `questions[]`. Machine-readable schema:
 the `kanban://work-report-schema` resource.
@@ -185,6 +189,29 @@ Liveness is **derived**, never stored: a card reads as "running" because a live 
 (`ext._claim`) exists, so a crashed lease correctly reads as done once it expires. The
 log pointer lives on `ext.session` (it must outlive the claim); liveness comes from the
 claim.
+
+## ext versioning
+
+`ext` is a **bag with independent writers** — kanban-pro owns `work_report` and
+`kanban_pro.*`, each adapter owns its own namespace (`hermes`), the dispatcher owns
+`work`. No single version number can describe it: bumping one would imply a change to
+namespaces its owner never touched.
+
+So **each structured namespace carries its own `_v`, inside itself**, and the version
+travels with the data when a namespace is copied to another card, exported, or migrated
+between backends.
+
+| Rule | |
+|---|---|
+| `_v` | int, the namespace's format version. Underscore-prefixed keys are reserved metadata (cf. the injected `_claim`, `_last_comment`), never content. |
+| Missing `_v` | means **version 1** — the shape that existed before versioning. No data migration was needed; readers migrate on read, writers stamp on write. |
+| A newer `_v` than the code understands | **refused for writing** (`conflict`), never silently rewritten: old code must not clobber a format it cannot represent. Reads pass it through untouched. |
+| Bumping a version | requires a migration step in that namespace's `_migrate_*` chain, in the same change. |
+
+Implemented today for `work_report` (`WORK_REPORT_VERSION`, `kanban_pro/core/work_report.py`).
+Adapter- and dispatcher-owned namespaces version themselves under the same convention;
+unnamespaced scalar keys (`branch`, `ticket`, …) can't carry a version and shouldn't be
+relied on as a format.
 
 ## MCP projection
 

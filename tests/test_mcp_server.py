@@ -16,7 +16,8 @@ from mcp.server.fastmcp.exceptions import ToolError
 import kanban_pro.mcp as kmcp
 from kanban_pro.adapters.memory import MemoryBackend
 from kanban_pro.core import AugmentingBackend, ChangeLog, RecordingBackend
-from kanban_pro.domain import Board, Card, Column, Placement
+from kanban_pro.core.work_report import WORK_REPORT_VERSION
+from kanban_pro.domain import Board, Card, CardPatch, Column, Placement
 
 
 @pytest.fixture(autouse=True)
@@ -175,6 +176,57 @@ async def _answer_work_report_question_mirrors_comment() -> None:
 
 def test_answer_work_report_question_mirrors_comment() -> None:
     asyncio.run(_answer_work_report_question_mirrors_comment())
+
+
+async def _work_report_is_stamped_with_format_version() -> None:
+    _, card = await _make_board_with_card()
+    await kmcp.record_work_report(card.id, "plan", {"id": "p1", "text": "ship", "status": "todo"})
+    report = (await kmcp.get_card(card.id)).ext["work_report"]
+    assert report["_v"] == WORK_REPORT_VERSION
+
+
+def test_work_report_is_stamped_with_format_version() -> None:
+    asyncio.run(_work_report_is_stamped_with_format_version())
+
+
+async def _legacy_unversioned_report_migrates_on_write() -> None:
+    """A report written before versioning has no `_v`; it means v1 and is stamped."""
+    _, card = await _make_board_with_card()
+    await kmcp.update_card(card.id, CardPatch(ext={"work_report": {"about": "legacy"}}))
+    await kmcp.record_work_report(card.id, "plan", {"id": "p1", "text": "x", "status": "todo"})
+    report = (await kmcp.get_card(card.id)).ext["work_report"]
+    assert report["_v"] == WORK_REPORT_VERSION
+    assert report["about"] == "legacy"  # pre-existing content survives the migration
+
+
+def test_legacy_unversioned_report_migrates_on_write() -> None:
+    asyncio.run(_legacy_unversioned_report_migrates_on_write())
+
+
+async def _newer_report_version_refuses_overwrite() -> None:
+    """Old code must never silently clobber a format it cannot represent."""
+    _, card = await _make_board_with_card()
+    await kmcp.update_card(
+        card.id, CardPatch(ext={"work_report": {"_v": WORK_REPORT_VERSION + 1, "about": "future"}})
+    )
+    with pytest.raises(ToolError, match="refusing to overwrite"):
+        await kmcp.record_work_report(card.id, "plan", {"id": "p1", "text": "x"})
+    # the future report is untouched
+    assert (await kmcp.get_card(card.id)).ext["work_report"]["about"] == "future"
+
+
+def test_newer_report_version_refuses_overwrite() -> None:
+    asyncio.run(_newer_report_version_refuses_overwrite())
+
+
+async def _underscore_section_is_reserved() -> None:
+    _, card = await _make_board_with_card()
+    with pytest.raises(ToolError, match="reserved"):
+        await kmcp.record_work_report(card.id, "_v", {"id": "x"})
+
+
+def test_underscore_section_is_reserved() -> None:
+    asyncio.run(_underscore_section_is_reserved())
 
 
 async def _capabilities_resource_reports_fulfilment() -> None:

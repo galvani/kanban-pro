@@ -583,7 +583,8 @@ function reportSectionOrderFor(card) {
 
 function renderWorkReport(report, cardId, requiredSections = [], sectionOrder = Object.keys(REPORT_SECTION_LABELS)) {
   report = report && typeof report === "object" ? report : {};
-  if (!Object.keys(report).length && !requiredSections.length) return "";
+  const contentKeys = Object.keys(report).filter(k => !k.startsWith("_"));  // `_v` isn't content
+  if (!contentKeys.length && !requiredSections.length) return "";
   const parts = [];
   const missing = requiredSections.filter(section => isReportSectionEmpty(report[section]));
   if (missing.length) {
@@ -595,7 +596,10 @@ function renderWorkReport(report, cardId, requiredSections = [], sectionOrder = 
     parts.push(renderReportValue(REPORT_SECTION_LABELS[section], report[section], cardId, section));
   }
   for (const [section, value] of Object.entries(report)) {
-    if (!known.has(section)) parts.push(renderReportValue(section, value, cardId, section));
+    // Underscore keys are reserved report metadata (`_v` = format version), not content.
+    if (!known.has(section) && !section.startsWith("_")) {
+      parts.push(renderReportValue(section, value, cardId, section));
+    }
   }
   const html = parts.filter(Boolean).join("");
   return html ? `<h4>Work report</h4>${html}` : "";
