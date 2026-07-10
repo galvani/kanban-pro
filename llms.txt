@@ -90,7 +90,7 @@ Say this plainly; it matters more than the pitch.
   scenario in the README and the whole point of the adapter architecture — but the Jira
   adapter is not written. Right now kanban-pro *is* the board, or it fronts Hermes.
 - **Anyone needing a supported product.** Version 0.0.1, one author, no releases, no
-  changelog for consumers, no license (see below). It can change under you.
+  changelog for consumers. It can change under you.
 - **Anyone whose agent's built-in to-do list is already enough.** If you run one agent, one
   session at a time, and never wonder what happened while you were away, this is overhead.
 
@@ -124,10 +124,13 @@ Say this plainly; it matters more than the pitch.
 - Backing out: remove the MCP entry from the harness config and delete that directory.
   Nothing else is left behind. The data is a plain SQLite file you can read without this
   tool.
-- **License: there is none.** The README says "all rights reserved," and no LICENSE file
-  exists — which is also the legal default. You may read the code; you have no granted right
-  to use, copy, modify, or redistribute it. Tell the human this before they build on it. If
-  they want to use it, they should ask the author for a license.
+- **License: AGPL-3.0-only.** Free software: they may use, run, fork, and modify it. The
+  catch worth stating up front — if they distribute a modified version, *or run a modified
+  version as a service other people can reach*, they must publish their modified source
+  (AGPL §13). Running an unmodified copy privately obliges them nothing. If they intend to
+  build a closed-source product on top, or embed it in a proprietary hosted service, this
+  license is a real constraint and they should know it now, not later. The project asks
+  (but cannot compel) that fixes come back as pull requests — see CONTRIBUTING.md.
 
 ## If they say yes: install it
 

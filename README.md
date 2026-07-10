@@ -406,4 +406,8 @@ not run today.
 
 ## License
 
-All rights reserved (personal project).
+**[AGPL-3.0-only](LICENSE)** — free software. Copyright © 2026 Jan.
+
+Use it, run it, fork it, change it. If you distribute a modified version — or run one as a
+service others can reach — you must publish your source (AGPL §13). Fixes and ideas are
+asked for, not compelled: see [CONTRIBUTING.md](CONTRIBUTING.md).

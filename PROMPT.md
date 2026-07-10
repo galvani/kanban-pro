@@ -14,7 +14,8 @@ Do I need this? https://github.com/galvani/kanban-pro
 Any decent agent will fetch the repo and find [`llms.txt`](llms.txt), which is written for
 it rather than for you: what kanban-pro is, what genuinely works today versus what's still
 planned, who should use it, **who should walk away**, how it compares to a plain kanban /
-Jira+MCP / your agent's own to-do list, what adopting it costs, and the licensing catch.
+Jira+MCP / your agent's own to-do list, what adopting it costs, and what AGPL-3.0
+means for what you're planning to build.
 It's told not to sell you anything and to say plainly if you don't need it.
 
 If your agent doesn't go looking for `llms.txt` on its own, point it there:
