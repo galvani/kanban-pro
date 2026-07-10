@@ -190,6 +190,8 @@ No clone needed — `uvx` builds it from git. Do the work; don't hand them comma
   https://raw.githubusercontent.com/galvani/kanban-pro/main/docs/configuration.md
 - Every operation and its MCP projection:
   https://raw.githubusercontent.com/galvani/kanban-pro/main/docs/methods.md
+- What changed, and a frank known-limitations list:
+  https://raw.githubusercontent.com/galvani/kanban-pro/main/CHANGELOG.md
 - Design rationale and the decision log:
   https://raw.githubusercontent.com/galvani/kanban-pro/main/SPEC.md
   https://raw.githubusercontent.com/galvani/kanban-pro/main/JOURNAL.md

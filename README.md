@@ -381,9 +381,12 @@ interface can bypass the guards or the audit trail. Directory layout:
   this?", then let it install and verify. `llms.txt` is the agent-facing brief.
 - [docs/configuration.md](docs/configuration.md) — **start here to configure it**:
   profiles, actors, workflow rules, WIP limits, the attention flag, and listeners
+- [CHANGELOG.md](CHANGELOG.md) — what changed, for people who *use* it — including a frank
+  **known limitations** list
 - [SPEC.md](SPEC.md) — what and why (canonical model, the core+passthrough decision,
   capability model)
-- [JOURNAL.md](JOURNAL.md) — decisions and rationale
+- [JOURNAL.md](JOURNAL.md) — decisions and rationale: what was rejected, what broke, why
+- [TODO.md](TODO.md) — open backlog (nothing in it is done)
 - [AGENTS.md](AGENTS.md) — conventions & hard rules for coding agents, incl. how to
   author a new adapter
 - [docs/methods.md](docs/methods.md) — every operation + its MCP projection
