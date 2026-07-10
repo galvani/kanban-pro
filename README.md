@@ -352,19 +352,54 @@ reprioritize, and answer in a browser. Your task queue finally has a UI.
 
 ## Why not X?
 
-The concept combo — self-hosted backend-agnostic proxy + honest capability polyfill +
-MCP-first + agent-safety — has no direct prior art (web survey, 2026-07-05; see
-[JOURNAL.md](JOURNAL.md)). The nearest neighbors each miss a piece:
+**If you are a human choosing a kanban board, you probably want one of the others.**
+kanban-pro is single-user, has no auth or permissions, and is version 0.0.1; Trello,
+Linear, Jira, Vikunja, Wekan and GitHub Projects each beat it on UX, mobile, multi-user
+and maturity, and it isn't close. The full, cited breakdown — including who should walk
+away — is in [docs/comparison.md](docs/comparison.md).
 
-| | kanban-pro | Unified task APIs (Unified.to-style) | MCP aggregators (Composio Rube) | Agent boards (Agent Kanban, Flux) | Per-backend MCP (Atlassian, Linear) | Classic kanbans (Planka, Vikunja) |
+What *is* hard to find elsewhere is the coordination machinery an unattended agent fleet
+needs. Surveyed 2026-07-10 across sixteen products:
+
+| | Enforced flow (refuses illegal moves) | WIP enforced on write | Resumable cursor feed | Atomic claim/lease |
+|---|---|---|---|---|
+| **kanban-pro** | ✅ | ✅ | ✅ | ✅ |
+| Jira | ✅ validators | ⚠️ soft | ⚠️ org audit only | ❌ |
+| Linear | ❌ categories | ❌ | ⚠️ GraphQL cursor | ❌ |
+| Trello | ❌ | ⚠️ soft | ⚠️ `since` polling | ❌ |
+| GitHub Projects v2 | ❌ automation | ⚠️ soft | ⚠️ webhooks | ❌ |
+| Vikunja · Planka · Taiga · Kanboard | ❌ | ❌ | ❌ | ❌ |
+| Wekan | ❌ | ⚠️ blocks (server-side unverified) | ❌ | ❌ |
+| Agent boards (Flux, Backlog.md, `kanban-mcp` ×2) | ❌ | ⚠️ one of them | ⚠️ SSE at best | ❌ |
+
+**Claim/lease appears in nothing else surveyed** — every other tool's "assignment" is a
+last-write-wins field two agents can both grab. Neither does anything else combine a
+no-miss cursor feed with transition enforcement.
+
+Be clear about what is *not* novel, though. MCP kanbans are a crowded category (at least
+ten exist). Self-hosting is table stakes. Jira has enforced workflows and has for twenty
+years. [multidimensionalcats/kanban-mcp](https://github.com/multidimensionalcats/kanban-mcp)
+already ships structured work reports; [Backlog.md](https://github.com/MrLesk/Backlog.md)
+already does archive-first deletes; [Flux](https://github.com/sirsjg/flux) is a real,
+active, git-native agent board. Those three are the closest prior art. What has no
+precedent found is the *bundle*: claim/lease **and** a resumable cursor **and** enforced
+flow **and** capability-honest adapters, self-hosted, MCP-first.
+
+Two further corrections to what this README used to say: classic kanbans are **not**
+MCP-illiterate any more — Trello, Jira, Linear and GitHub all ship *official* MCP servers
+now, and the rest have community ones. And the backend-proxy idea isn't new either
+(Composio, Unified.to); the honest `native`/`polyfilled`/`unavailable` reporting is the
+part that is.
+
+| | kanban-pro | Unified task APIs (Unified.to) | MCP aggregators (Composio Rube) | Agent boards (Flux, Backlog.md) | Per-backend MCP (Atlassian, Linear, GitHub) | Classic kanbans (Planka, Vikunja) |
 |---|---|---|---|---|---|---|
-| Self-hosted | ✅ | ❌ SaaS | ❌ SaaS | varies | varies | ✅ |
+| Self-hosted | ✅ | ❌ SaaS | ⚠️ self-host path | ✅ | varies | ✅ |
 | Backend-agnostic | ✅ one model, any adapter | ✅ normalize-only | ➖ many apps, per-app tools | ❌ own store only | ❌ one backend | ❌ own store only |
-| MCP-native | ✅ primary interface | ❌ | ✅ | ✅ | ✅ | ❌ |
+| MCP-native | ✅ primary interface | ❌ | ✅ | ✅ | ✅ | ⚠️ community servers |
 | Capability polyfill | ✅ delegate → polyfill → honest `unavailable` | ❌ gaps are just missing | ❌ | ➖ n/a | ❌ | ❌ |
-| Agent-safety semantics | ✅ archive-first, guarded deletes, WIP | ❌ | ❌ | ➖ partial | ❌ raw backend semantics | ❌ |
+| Agent-safety semantics | ✅ archive-first, guarded deletes, WIP, claim/lease | ❌ | ❌ | ➖ partial | ❌ raw backend semantics | ❌ |
 | Actor audit trail | ✅ per-connection actor + change-log | ❌ | ❌ | ➖ | ➖ backend's own | ➖ |
-| Push-fed UI | ✅ SSE, on-demand | ❌ | ❌ | ➖ | ❌ | ➖ web UI |
+| Multi-user / permissions | ❌ **single-user** | ✅ | ✅ | ➖ | ✅ | ✅ |
 
 ## Architecture
 
@@ -393,6 +428,8 @@ interface can bypass the guards or the audit trail. Directory layout:
   need this?", then let it install and verify.
 - [docs/configuration.md](docs/configuration.md) — **start here to configure it**:
   profiles, actors, workflow rules, WIP limits, the attention flag, and listeners
+- [docs/comparison.md](docs/comparison.md) — cited comparison against 16 boards, including
+  **who should walk away** and what here isn't actually novel
 - [CHANGELOG.md](CHANGELOG.md) — what changed, for people who *use* it — including a frank
   **known limitations** list
 - [SPEC.md](SPEC.md) — what and why (canonical model, the core+passthrough decision,

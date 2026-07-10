@@ -1,5 +1,45 @@
 # kanban-pro — Journal
 
+## 2026-07-10 — competitive survey: the "no prior art" claim was overreaching
+
+- **Why:** the README asserted the concept combo "has no direct prior art (web survey,
+  2026-07-05)". That survey was never re-checked, and two of the README's factual claims
+  had gone stale. Re-ran it across 16 products with citations →
+  [docs/comparison.md](docs/comparison.md).
+- **Two claims were simply WRONG and are now corrected:**
+  1. *"Classic kanbans ❌ MCP-native."* Trello ships an **official** MCP server
+     (`https://mcp.trello.com/v1` — verified by fetching Atlassian's own doc), as do Jira,
+     Linear, and GitHub (`github/github-mcp-server`, ★31k). Planka, Vikunja, Kanboard,
+     Taiga, Wekan and Focalboard all have community servers. Practically every classic
+     kanban is MCP-reachable; what they lack is coordination semantics, not MCP.
+  2. *"Agent boards (Agent Kanban, Flux)"* was written as if half-imagined. **Both are
+     real** — verified via the GitHub API: `sirsjg/flux` (★91, MIT, active 2026-06-29),
+     and "Agent Kanban" maps to `eyalzh/kanban-mcp` (★40) / `kaban-board/kaban` (★47).
+     Also found `multidimensionalcats/kanban-mcp` (★75), the closest single peer, which
+     **already ships structured work reports with cycle-time metrics**.
+- **What survives scrutiny:** **atomic claim/lease with TTL+heartbeat appears in ZERO of
+  the sixteen** — every other tool's "assignment" is a last-write-wins field two agents can
+  both grab. A resumable cursor feed exists nowhere in the OSS/agent set (Trello's `since`
+  polling and Linear's GraphQL cursor are the nearest, both proprietary SaaS). Capability
+  honesty (native/polyfilled/unavailable) appears unique, even among the multi-backend
+  proxies (Composio, Unified.to).
+- **What does NOT survive, and is now said out loud:** MCP kanbans are a crowded category
+  (≥10). Self-hosting is table stakes. **Jira has had a real server-side transition state
+  machine for ~20 years** — our enforced flow is novel only *in a self-hosted MCP-first
+  agent board*. Work reports (multidimensionalcats), archive-first deletes (Backlog.md) and
+  the proxy concept (Composio, Unified.to) all have prior art. Single-user with no
+  permissions is a liability, not a simplification. The README now leads the comparison with
+  "you probably want one of the others".
+- **Also flagged:** Focalboard is effectively dead (its README literally says *"This
+  repository is currently not maintained"*, verified) and its successor is in maintenance
+  mode; Planka is **fair-code, not OSI open source**; Kanboard is maintenance-mode; and
+  Kanboard's famous WIP limits **do not hard-block** — the column just turns red.
+- **Method note:** the research subagent got two counts wrong earlier in the day (claimed 27
+  port methods, and that methods.md listed 39 tools against a stated 37). Both were false —
+  25 and an exact 37-name match. Every load-bearing claim here was re-verified directly
+  (GitHub API for stars/dates/licence, WebFetch for the Trello MCP doc and Focalboard's
+  README). **Do not merge subagent research without checking its numbers.**
+
 ## 2026-07-10 — `llms.txt`: the repo answers "do I need this?" without the human reading it
 
 - **Goal:** a newcomer with no checkout types one line into their agent —

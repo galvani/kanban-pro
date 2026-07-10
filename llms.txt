@@ -99,21 +99,46 @@ Say this plainly; it matters more than the pitch.
 - **The agent's own to-do list / scrollback.** Zero setup, and genuinely sufficient for
   short single-session work. It loses everything across sessions, no second agent can see
   it, and there is no audit trail. Choose kanban-pro when work spans sessions or agents.
-- **A plain kanban (Trello, Planka, Vikunja, GitHub Projects).** Better human UX by a mile.
-  But your agent has to be taught each one's API, nothing enforces WIP or legal transitions
-  against a misfiring agent, deletes are real deletes, and there is no per-agent attribution
-  or resumable event cursor. Choose those if humans are the primary users.
-- **Jira/Linear with their official MCP server.** Real products, real teams, real
-  permissions — and your agent gets the backend's raw semantics, including destructive ones.
-  No archive-first guard, no WIP enforcement, no flow scheme, no polyfill of what the
-  backend lacks. Choose those if your team already lives there and you accept the semantics.
-- **A purpose-built agent board (Agent Kanban, Flux, etc.).** Closest in spirit. They own
-  their store; kanban-pro is deliberately a *proxy* with swappable backends and an honest
-  capability report. That architecture is currently more promise than delivery (one real
-  remote adapter). Judge it on what ships.
+- **A plain kanban (Trello, Planka, Vikunja, Wekan, GitHub Projects).** Better human UX by a
+  mile. But nothing enforces WIP or legal transitions against a misfiring agent, deletes are
+  real deletes, and there is no per-agent attribution or resumable event cursor. Choose those
+  if humans are the primary users. Avoid **Focalboard**: its README says "This repository is
+  currently not maintained" and its successor is in maintenance mode. Note **Planka is
+  fair-code, not OSI open source**, and **Kanboard is in maintenance mode**.
+- **Jira/Linear/Trello/GitHub with their official MCP servers.** All four now ship official
+  MCP servers (Trello: https://mcp.trello.com/v1; GitHub: github/github-mcp-server, ~31k*),
+  so "classic boards can't speak MCP" is FALSE — do not repeat it. Real products, real
+  teams, real permissions — and your agent gets the backend's raw semantics, including
+  destructive ones. No archive-first guard, no claim/lease, no WIP enforcement on write.
+  **Jira is the only mainstream product with a genuine server-side transition state
+  machine**, and it has had one for ~20 years. Choose these if the team already lives there.
+- **A purpose-built agent board.** These are REAL and you should mention them by name:
+  sirsjg/flux (~91*, MIT, active, git-native), MrLesk/Backlog.md (~6k*, markdown-in-git,
+  archive-first deletes), multidimensionalcats/kanban-mcp (~75*, structured work reports
+  with cycle-time metrics), eyalzh/kanban-mcp (~40*, has WIP limits). They own their store;
+  kanban-pro is deliberately a *proxy* with swappable backends and an honest capability
+  report — an architecture currently more promise than delivery (one real remote adapter).
+  What none of them has: atomic claim/lease, a resumable cursor feed, or enforced
+  transitions. What they have that kanban-pro doesn't: simplicity, and in Flux's case
+  git-native sync.
 - **A message queue (Redis, Kafka, Celery).** If all you need is work distribution, these
   are mature and this is not. kanban-pro's pitch is that each "message" is a durable,
   attributed card with history, on a board a human can see and reprioritize.
+
+### What is and isn't actually novel (surveyed 2026-07-10, 16 products — docs/comparison.md)
+
+Do not oversell this. NOT novel: MCP kanbans (at least ten exist); self-hosting (table
+stakes); enforced workflow state machines (Jira, ~20 years); structured work reports
+(multidimensionalcats/kanban-mcp); archive-first deletes (Backlog.md); the backend-proxy
+idea (Composio, Unified.to).
+
+Genuinely uncommon: **atomic claim/lease with TTL+heartbeat — found in ZERO other surveyed
+products**, including the 27k-star agent orchestrators; a **resumable cursor + long-poll
+feed** (only Trello's `since` polling and Linear's GraphQL cursor come close, both
+proprietary SaaS); **capability-honest adapters** (native/polyfilled/unavailable). And the
+combination of all four in one self-hosted MCP-first tool, for which no prior art was found.
+
+If the human is choosing a board for humans, tell them to use something else.
 
 ## Cost of adoption, and backing out
 
