@@ -1,5 +1,31 @@
 # kanban-pro — Journal
 
+## 2026-07-10 — `llms.txt`: the repo answers "do I need this?" without the human reading it
+
+- **Goal:** a newcomer with no checkout types one line into their agent —
+  `Do I need this? https://github.com/galvani/kanban-pro` — and gets an honest verdict,
+  then an install they never had to type. The instructions therefore have to live in the
+  *repo*, not in a prompt the user has to find and paste. Hence
+  [`llms.txt`](llms.txt) (the emerging convention, root path, agent-facing) + a thin
+  [`PROMPT.md`](PROMPT.md) holding just the one-liners.
+- **`llms.txt` is written adversarially against its own project**, because a brief that
+  sells gets ignored (or worse, believed): an explicit WORKS vs NOT BUILT split (no CLI,
+  no Jira adapter, no bulk ops, no push notifications, no `PRO-12` keys, no write-through);
+  a "who should NOT use it" section naming teams, non-agent users, and anyone whose agent's
+  built-in to-do list already suffices; honest per-alternative trade-offs; the cost of
+  backing out; and the **no-LICENSE** catch stated as a legal fact the agent must surface
+  before the human builds on it. The agent is told: if they don't need it, say so and stop.
+- **Install path verified, not assumed:** `uvx --from git+https://github.com/galvani/kanban-pro
+  kanban-pro-mcp` builds and runs from a clean cache — no clone needed. **Trap found:**
+  `--print-config` emits the bare `kanban-pro-mcp`, which is only on PATH after
+  `uv tool install`, *not* after `uvx`. Registering what `--print-config` prints would
+  therefore give a newcomer a broken MCP entry. `llms.txt` spells out both spawn forms and
+  registers the full `uvx` command by default.
+- Also encoded: always pass `--actor` (else every write is attributed to `unknown`), back
+  up any config before editing, never clobber an existing `kanban-pro` server entry, and
+  **prove the install by calling the tools** (create → move → `list_changes` shows your
+  actor) rather than trusting that a config entry means success.
+
 ## 2026-07-10 — repo went public; docs reconciled against the code
 
 - **Published** to `github.com/galvani/kanban-pro` (public). Pre-flight scan: no secrets,

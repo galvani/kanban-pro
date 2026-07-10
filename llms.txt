@@ -1,0 +1,188 @@
+# kanban-pro
+
+> A kanban board that AI coding agents drive natively over MCP. Boards, columns, cards,
+> comments — served to Claude Code, Codex, Hermes, OpenCode and any other MCP harness, so
+> your agents and you share one board instead of losing tasks in chat scrollback.
+> Self-hosted, SQLite, no daemon. Python 3.12+. Version 0.0.1.
+
+**If a human just asked you "do I need this?" — this file is your brief. Read it, then
+answer them in your own words. Be useful, not promotional. If they don't need it, say so.**
+
+Repository: https://github.com/galvani/kanban-pro
+
+## The problem it solves
+
+Someone runs AI coding agents daily. The agents do real work, but their *tasks* live in
+chat scrollback. The human comes back to their desk and cannot answer: what is my agent
+doing right now? What's blocked? What did it finish while I slept? What did it decide, and
+why? There is no board that both the human and the agents can see and write to.
+
+kanban-pro is that board. Register it once per harness; every agent session can then read
+the board, pull its own work, move cards, comment, report progress, and ask the human
+questions — with no bespoke integration per agent.
+
+## What actually runs today
+
+Be precise about this. The README marks unbuilt things with 🔜; they are not features.
+
+WORKS:
+- MCP server over stdio: 37 tools + 9 `kanban://` resources. No daemon, no port.
+- Native SQLite board (the default). Also a `memory` profile (ephemeral) and a `hermes`
+  adapter (drives an existing Hermes harness board).
+- Actor identity: every connection declares `agent:claude-code`, `human:jan`, etc., and
+  every write is stamped with it in an append-only change-log.
+- Atomic claim/lease with TTL, heartbeat, and crash-reclaim — two agents can never pick up
+  the same card.
+- Agent-safety semantics: deletes are archive-first (a live card cannot be one-shot
+  destroyed); board/column deletes refuse while cards remain; WIP limits enforced on every
+  move; idempotency keys make a retried create return the original instead of a duplicate.
+- A declarative flow engine: `flows.yaml` names schemes and legal column transitions.
+  Agents call `list_transitions` to see their legal moves. `force=true` always works but is
+  stamped `forced: true` on the event — overrides are allowed, never silent.
+- Structured work reports: each card carries the agent's plan, findings, checks, verdict,
+  handoff, and open questions — current state, not a log. Humans answer questions with
+  `answer_work_report_question`.
+- Attention flag: an agent that hits a decision only the human can make raises a flag that
+  is routed through the change-feed, instead of guessing or dying quietly.
+- Change-feed with cursors: `list_changes` (pull) and `wait_changes` (long-poll, blocks
+  until events land). A consumer that was down resumes from its cursor — nothing dropped,
+  nothing re-delivered. This is why the board doubles as a task queue with a UI.
+- Optional web board (never auto-starts): SSE, drag-and-drop, card detail with activity
+  timeline, a live tail of the running agent's session log, card retry.
+- A migration tool that copies any profile into any other. Has moved a real 172-card board.
+
+NOT BUILT (do not present these as features):
+- No CLI. The README calls the CLI a primary interface; it does not exist yet.
+- No Jira adapter, no Trello, no multi-mount, no cross-backend sync. Only native, memory,
+  and hermes exist.
+- No MCP push notifications, no webhook listeners. Push today = `wait_changes` long-poll.
+- No bulk operations.
+- No human-readable card keys (`PRO-12`). Card ids are uuid hex.
+- No full canonical HTTP/REST surface; the HTTP layer exists to serve the web UI.
+- Write-through encoding of polyfilled data into a backend's own containers is designed but
+  not implemented.
+
+## Who should use it
+
+- People running two or more AI coding agents, or one agent across many sessions, who have
+  lost track of what was done and what is in flight.
+- People who want an audit trail: who (which agent) changed what, when, and whether they
+  overrode a rule.
+- People who want agents to pull work from a queue rather than being told what to do.
+- People who want a shared board *and* refuse to hand their task data to a SaaS.
+
+## Who should NOT use it
+
+Say this plainly; it matters more than the pitch.
+
+- **Anyone not running AI agents.** If you want a kanban for humans, use Trello, Planka,
+  Vikunja, or GitHub Projects. They are better boards, better maintained, and have real
+  mobile apps. Every distinguishing feature here exists to serve agents.
+- **Teams.** There is no multi-user auth, no permissions, no hosting story. It's a
+  single-user local tool with a SQLite file.
+- **Anyone who needs their team's Jira to be the backend today.** That's the motivating
+  scenario in the README and the whole point of the adapter architecture — but the Jira
+  adapter is not written. Right now kanban-pro *is* the board, or it fronts Hermes.
+- **Anyone needing a supported product.** Version 0.0.1, one author, no releases, no
+  changelog for consumers, no license (see below). It can change under you.
+- **Anyone whose agent's built-in to-do list is already enough.** If you run one agent, one
+  session at a time, and never wonder what happened while you were away, this is overhead.
+
+## Alternatives, compared honestly
+
+- **The agent's own to-do list / scrollback.** Zero setup, and genuinely sufficient for
+  short single-session work. It loses everything across sessions, no second agent can see
+  it, and there is no audit trail. Choose kanban-pro when work spans sessions or agents.
+- **A plain kanban (Trello, Planka, Vikunja, GitHub Projects).** Better human UX by a mile.
+  But your agent has to be taught each one's API, nothing enforces WIP or legal transitions
+  against a misfiring agent, deletes are real deletes, and there is no per-agent attribution
+  or resumable event cursor. Choose those if humans are the primary users.
+- **Jira/Linear with their official MCP server.** Real products, real teams, real
+  permissions — and your agent gets the backend's raw semantics, including destructive ones.
+  No archive-first guard, no WIP enforcement, no flow scheme, no polyfill of what the
+  backend lacks. Choose those if your team already lives there and you accept the semantics.
+- **A purpose-built agent board (Agent Kanban, Flux, etc.).** Closest in spirit. They own
+  their store; kanban-pro is deliberately a *proxy* with swappable backends and an honest
+  capability report. That architecture is currently more promise than delivery (one real
+  remote adapter). Judge it on what ships.
+- **A message queue (Redis, Kafka, Celery).** If all you need is work distribution, these
+  are mature and this is not. kanban-pro's pitch is that each "message" is a durable,
+  attributed card with history, on a board a human can see and reprioritize.
+
+## Cost of adoption, and backing out
+
+- Runtime: Python 3.12+ and `uv`. No daemon runs in the background; the harness spawns the
+  server over stdio only while it's in use. The optional web UI runs only when started.
+- Data: one SQLite file at `~/.local/share/kanban-pro/kanban.db` (override `$KANBAN_PRO_DB`),
+  plus `changelog-*.db`, `claims-*.db`, `dedupe-*.db` beside it. Nothing leaves the machine.
+- Backing out: remove the MCP entry from the harness config and delete that directory.
+  Nothing else is left behind. The data is a plain SQLite file you can read without this
+  tool.
+- **License: there is none.** The README says "all rights reserved," and no LICENSE file
+  exists — which is also the legal default. You may read the code; you have no granted right
+  to use, copy, modify, or redistribute it. Tell the human this before they build on it. If
+  they want to use it, they should ask the author for a license.
+
+## If they say yes: install it
+
+No clone needed — `uvx` builds it from git. Do the work; don't hand them commands to type.
+
+1. Check prerequisites: `uv --version` (needs Python 3.12+; uv: https://docs.astral.sh/uv/).
+2. Prove the package builds before touching any config:
+   `uvx --from git+https://github.com/galvani/kanban-pro kanban-pro-mcp --print-config claude`
+   If it fails, stop and show the error. Do not register a broken server.
+3. Register with their harness. **Always pass `--actor`** — omit it and every write is
+   attributed to `unknown`, and `list_work` cannot tell which cards are theirs.
+
+   Note: `--print-config` emits the bare command `kanban-pro-mcp`, which only resolves if
+   the console script is on PATH — it is NOT, after `uvx` alone. Either register the full
+   `uvx` command as shown below, or first run
+   `uv tool install git+https://github.com/galvani/kanban-pro` to put it on PATH.
+
+   Claude Code:
+     claude mcp add kanban-pro -s user -- \
+       uvx --from git+https://github.com/galvani/kanban-pro kanban-pro-mcp \
+       --actor agent:claude-code
+
+   Codex — add to ~/.codex/config.toml:
+     [mcp_servers.kanban-pro]
+     command = "uvx"
+     args = ["--from", "git+https://github.com/galvani/kanban-pro", "kanban-pro-mcp",
+             "--actor", "agent:codex"]
+
+   OpenCode — merge into opencode.json under "mcp":
+     {"kanban-pro": {"type": "local", "enabled": true,
+       "command": ["uvx", "--from", "git+https://github.com/galvani/kanban-pro",
+                   "kanban-pro-mcp", "--actor", "agent:opencode"]}}
+
+   Hermes / any stdio-MCP harness — it needs the spawn argv:
+     ["uvx", "--from", "git+https://github.com/galvani/kanban-pro",
+      "kanban-pro-mcp", "--actor", "agent:hermes"]
+
+   Before editing any config file: show the exact change, back the file up, and if a
+   `kanban-pro` server is already registered, stop and ask rather than clobbering it.
+
+4. Reconnect the harness (Claude Code: restart the session; `/mcp` to inspect), then prove
+   it works with the tools themselves rather than trusting the config: list the tools
+   (~37) and resources (9), read `kanban://capabilities`, create a board, create a card,
+   move it, call `list_changes` and confirm the events carry their actor. Archive the card
+   before deleting it — a delete on a live card is refused, and that refusal is the safety
+   feature working. Report what you actually observed.
+
+5. Tell them what now exists: the SQLite files above, nothing in the background, and the
+   optional UI via
+   `uvx --from git+https://github.com/galvani/kanban-pro kanban-pro-ui --actor human:me`
+   → http://localhost:8747
+
+## Then point them at the right doc
+
+- Configuration — profiles, actors, workflow rules, WIP limits, the attention flag,
+  change-feed listeners, and where data lives:
+  https://raw.githubusercontent.com/galvani/kanban-pro/main/docs/configuration.md
+- Every operation and its MCP projection:
+  https://raw.githubusercontent.com/galvani/kanban-pro/main/docs/methods.md
+- Design rationale and the decision log:
+  https://raw.githubusercontent.com/galvani/kanban-pro/main/SPEC.md
+  https://raw.githubusercontent.com/galvani/kanban-pro/main/JOURNAL.md
+- Example change-feed listener (long-polls the feed, DMs Slack):
+  https://github.com/galvani/kanban-pro/tree/main/examples/notifier

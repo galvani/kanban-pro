@@ -2,6 +2,12 @@
 
 **A kanban board your coding agents natively understand.**
 
+> **Don't want to read this?** Ask an agent that can browse:
+> `Do I need this? https://github.com/galvani/kanban-pro`
+> It'll find [`llms.txt`](llms.txt) — written for the agent, not for you — and tell you
+> honestly whether you need it, who should walk away, and what it costs. Say yes and it
+> installs and verifies the thing itself. See [PROMPT.md](PROMPT.md).
+
 You run coding agents every day — Claude Code, Codex, whatever comes next. They do
 real work: fix bugs, ship features, review each other's changes. But their *tasks*
 live in chat scrollback. You come back to your desk asking: what is my agent doing
@@ -317,6 +323,8 @@ interface can bypass the guards or the audit trail. Directory layout:
 
 ## Documentation
 
+- [PROMPT.md](PROMPT.md) / [llms.txt](llms.txt) — hand the repo to an AI agent: "do I need
+  this?", then let it install and verify. `llms.txt` is the agent-facing brief.
 - [docs/configuration.md](docs/configuration.md) — **start here to configure it**:
   profiles, actors, workflow rules, WIP limits, the attention flag, and listeners
 - [SPEC.md](SPEC.md) — what and why (canonical model, the core+passthrough decision,
