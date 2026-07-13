@@ -344,9 +344,21 @@ is a first-class concern (audit, the change-log, the work-queue's "me"). Identit
 everything that connection does is stamped with it. Actors are plain strings by
 convention, not User references — a User row is not required to act. A per-call
 override is deferred until a concrete need appears. Implemented by
-`core.RecordingBackend`, the outermost decorator of the core stack: it records every
-*successful* write into the change-log (decision 9); reads and failed writes are never
-recorded.
+`core.RecordingBackend`: it records every *successful* write into the change-log
+(decision 9); reads and failed writes are never recorded.
+
+**Amended 2026-07-13 — the decision is now enforced, not merely honoured.** An identity
+you can omit is a convention, and a convention gets dropped: a connection with no
+`--actor` wrote a whole session's events as `actor: unknown`, which is worse than no log
+at all — the board *looks* audited and the rows name nobody. So
+`core.ActorPolicyBackend` is now the **outermost** decorator of the core stack, wrapping
+`RecordingBackend`, and it **refuses every write from an unidentified connection**
+(actor absent, blank, `unknown`, or not `kind:name`). Reads are never affected: an
+anonymous connection may look at the board, it just may not change it. The refusal is a
+`conflict` naming the flag that is missing — loud and fixable in one restart, where the
+damage it prevents is silent and permanent. A board may opt out with
+`ext["anonymous_writes"] = "allow"` (default `"refuse"`), which is right for a personal
+single-user board with nobody to attribute to, and for nothing else.
 
 ## Consuming kanban-pro (consumption model)
 

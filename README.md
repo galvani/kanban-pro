@@ -198,14 +198,16 @@ One snapshot, then SSE deltas. Drag a card in the browser, watch the agent's
 
 ## Configure it
 
-Nothing is required — run `kanban-pro-mcp` with no arguments and you get the native
-SQLite board, free movement, and writes attributed to `unknown`. A few settings improve
-on that, and the [configuration guide](docs/configuration.md) covers each in full.
+One thing is required: **say who you are**. `kanban-pro-mcp` with no arguments gives you
+the native SQLite board and free movement, but a connection that declares no actor may
+only *read* — every write is refused, because an event nobody can be held to makes the
+board look audited while telling you nothing. Everything else has a working default, and
+the [configuration guide](docs/configuration.md) covers each in full.
 
 | Setting | How | Default |
 |---|---|---|
 | Which backend | `--profile <name>` / `KANBAN_PRO_PROFILE` | `default` (native SQLite) |
-| Who is writing | `--actor <kind:name>` / `KANBAN_PRO_ACTOR` | `unknown` |
+| Who is writing | `--actor <kind:name>` / `KANBAN_PRO_ACTOR` | none — **required for writes** (per-board opt-out: `ext["anonymous_writes"] = "allow"`) |
 | Where the board lives | `KANBAN_PRO_DB` | `~/.local/share/kanban-pro/kanban.db` |
 | What a card id looks like | `board.id_scheme` (per board) | `uuid` — 32 hex chars |
 | Which moves are legal | `set_flow` / `set_transitions` (per board) | none — free movement |
@@ -262,6 +264,11 @@ board, and puts an `attention.raised` event on the change-feed carrying the reas
 the target — so a listener can deliver the question wherever you are. You answer;
 `clear_attention` retires the flag.
 
+A flag says how loudly it speaks: `severity="block"` (the default) **halts** the card
+until someone clears it, while `warn` and `info` are visible on the board and on the feed
+but let the work carry on — so a worker can flag something worth knowing without stopping
+the card.
+
 Attention is the **signal**, not the content: the question itself goes in the card's work
 report under `questions[]`, which you resolve with `answer_work_report_question` (or by
 typing into the UI), and which is mirrored back as a normal comment.
@@ -304,7 +311,7 @@ backend has *any* usable container (a comment, a description, a custom field), t
 polyfill is **written through** into it so the backend stays authoritative and can show
 the data in its own UI. *Write-through encoding is designed, not yet built (🔜) — today
 polyfilled comments and relations live in the overlay.* Full breakdown:
-[docs/configuration.md](docs/configuration.md#8-where-your-data-lives).
+[docs/configuration.md](docs/configuration.md#10-where-your-data-lives).
 
 ```
   your agents (Claude Code, Codex, …)          you (browser)

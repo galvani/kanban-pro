@@ -1,5 +1,91 @@
 # kanban-pro — Journal
 
+## 2026-07-13 — Work-report sections collapse, and stay collapsed
+
+- The card modal renders every work-report section expanded; on a long report (a builder's
+  `analysis_log`, a reviewer's `findings`) the sections you actually want are pushed off-screen.
+- Sections are now click-to-collapse, and the collapsed set is persisted in `localStorage` keyed
+  by **section, not by card** (`kanban-pro-report-collapsed`). Collapse `Analysis` once and it
+  stays collapsed on every card you open — the preference is about the section you don't care to
+  read, not about one card. Collapsed state is applied at render time, so opening a card doesn't
+  flash the section open before hiding it.
+- The three renderers (`renderReportList` / `renderReportObject` / the scalar branch) plus the
+  "Required by route" banner all emitted the same `<section class="reportSec"><h4 class="hdr-…">`
+  prefix by hand; they now go through one `reportSection(kind, title, body)` helper — which is
+  what made the toggle a four-line change rather than four copies of it.
+
+## 2026-07-13 — `isinstance(be, RecordingBackend)` was load-bearing, and adding a decorator broke it
+
+- **Shipped a live outage in the minute after adding `ActorPolicyBackend`.** The dispatcher came
+  back up dead: `ToolFailure: wait_changes: not_supported: change-log is not wired for this
+  backend`. Nothing about the change-log had changed — but 14 call sites across `mcp/`, `api/` and
+  `core/work_report.py` asked **`isinstance(backend, RecordingBackend)`** as a stand-in for *"does
+  this backend have the core stack?"*, and a decorator placed OUTSIDE RecordingBackend makes that
+  test `False`.
+- **The failure mode is the point.** Only three of those sites raise (`wait_changes`,
+  `list_changes`, `list_work`); the other eleven degrade **silently** — `force` moves stop forcing,
+  `idempotency_key` stops deduping, `work_report` writes stop emitting their audit event. The loud
+  one is what saved us. A type test standing in for a capability question fails open.
+- **Fix:** `core.unwrap(backend, cls)` walks the `_inner` chain and answers structurally. Every one
+  of the 14 sites now asks for the layer it actually needs instead of asserting the shape of the
+  stack. Adding a decorator no longer silently disables half the core.
+- **The tests did not catch it** — every test built its own stack by hand (`RecordingBackend(
+  AugmentingBackend(MemoryBackend()))`), so not one exercised what `config.build_backend` actually
+  returns. That's the real defect: the suite tested a stack that no longer shipped.
+  `test_the_core_stack_survives_being_wrapped` now asserts the wrapped stack keeps its change-log,
+  claims, dedupe and idempotency.
+
+## 2026-07-13 — Writes need an identity (`actor: unknown` is refused)
+
+- **Found by accident, while fixing the attention bug below.** Jan noticed a board event stamped
+  `actor: unknown` and traced it to *this* session: the Claude Code MCP registration had no
+  `--actor` flag (`~/.claude.json` had drifted from the note claiming `--actor agent:claude-code`).
+  Every write that connection made — including a `board.updated` — was recorded, permanently, as
+  belonging to nobody.
+- **Why that's worse than an error.** The write SUCCEEDS. The change-log looks complete and
+  audited; the row simply cannot be traced to anyone, and no one finds out until they try to
+  reconstruct what happened — which is the one moment the log exists for. A loud refusal at write
+  time costs a restart; a silent unattributable row costs the history.
+- **`ActorPolicyBackend`** (new outermost decorator, `core/actor_policy.py`): an anonymous actor
+  may READ freely, but its writes raise `Conflict` with a message naming the flag to pass. Anonymous
+  = absent, blank, `unknown`, or off-convention — a bare `reviewer` is *not* an identity, since it
+  doesn't say whether a human or an agent did the thing. **Default-deny by construction:** the
+  decorator guards every attribute NOT on a read allowlist, so a write method added later is covered
+  without anyone remembering to come back here.
+- **Opt-out lives on the board, administered over MCP** (Jan's rule — all config goes through MCP):
+  `ext["anonymous_writes"] = "allow"`. It suits a personal single-user board, where there is nobody
+  to attribute to, and nothing else. `init_board` now takes the setting and its doc tells the agent
+  to **ask** rather than assume, with the trade-off spelled out.
+- Not enforced in `RecordingBackend._record()` — that runs *after* the inner write, so refusing
+  there would let the write land while suppressing its log entry: exactly the divergence this is
+  meant to prevent.
+
+## 2026-07-13 — A blocking flag may no longer rest in an auto-clear lane
+
+- **The incident (VLM-75, card `767d6599`).** A builder finished a README task, handed off
+  (`assignees=[reviewer]`) and moved the card to `ready`. The dispatcher's report-contract
+  backstop then noticed the worker had never written `work_report.findings` — it dropped the
+  section while recovering from a `record_work_report` id-validation error — and raised a
+  **blocking** attention flag on the card *where it now sat*: in `ready`.
+- **Why that strands the card.** `auto_clear_attention_columns` was only ever honoured on
+  ARRIVAL (inside `move_card`). A flag raised *after* the card reached the lane is cleared by
+  nothing, and a blocking flag hides the card from every queue. Result: a card parked in a lane
+  the board itself declares attention-free, invisible to workers, freeable only by a human
+  running `clear_attention` by hand. Jan hit exactly this and had to clear it manually.
+- **The fix, and the fix I rejected.** The symmetric-looking fix — "apply the auto-clear rule
+  in `raise_attention` too" — would make the raise a **silent no-op**, throwing away the
+  escalation and sending a card with a broken work report on to review with nobody the wiser.
+  Swallowing an escalation is worse than stalling one. So instead `raise_attention` now
+  **refuses** a `block` on a card resting in an auto-clear column (`Conflict`): the caller must
+  move the card out first (blocked/running), or say `warn`/`info` — those don't halt the lane,
+  so they cannot deadlock it. Illegal state, unrepresentable.
+- **It found a second bug immediately.** The dispatcher's own backstops raised blocking flags on
+  cards sitting in `ready`; they now pull the card back to `blocked` first (kanban-dispatcher,
+  same date). A worker's handoff should not stand on a report the contract rejected anyway.
+- **Also:** `auto_clear_columns(board)` is now a helper (one reader of the ext key, used by both
+  `move_card` and the new guard), and the auto-clear-on-arrival path finally has a test — it had
+  none, which is how the asymmetry survived.
+
 ## 2026-07-12 — `duplicated_by`, and a skill that audits the board's own flow (`kanban-retro`)
 
 - **Why now:** a real incident. The Hermes swarm worked a ticket family (VLM-75) in parallel

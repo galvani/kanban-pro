@@ -16,6 +16,10 @@ Small, sharp, and each one currently surprises somebody. Documented in CHANGELOG
 - [ ] **`list_work` doesn't surface attention.** An agent that only polls its queue never
   learns a question was raised for it. Add a "needs my attention" section to `list_work`
   (Jan asked for this 2026-07-05) so a worker doesn't have to also watch the feed.
+- [ ] **Attention `severity` is advisory.** kanban-pro exposes the `severity` field and the
+  `attention_blocks()` helper but does not gate `list_work` on it — nothing in this repo
+  calls the helper; the consumer (the dispatcher) is what refuses to work a blocked card.
+  Decide whether the board should enforce its own signal.
 - [ ] **`clear_attention` is not access-controlled** — any actor may clear a flag raised
   for someone else. Recorded, so auditable; decide whether to enforce `for_actor`.
 - [ ] **Idempotency keys are optional**, but SPEC decision 8 specifies them as required on

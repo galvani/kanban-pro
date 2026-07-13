@@ -114,7 +114,14 @@
   .reportSec { border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px;
                margin: 8px 0; background: #1a1d23; }
   .reportSec h4 { margin: -8px -10px 8px; padding: 6px 10px; border-radius: 8px 8px 0 0;
-                 font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
+                 font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;
+                 cursor: pointer; user-select: none; }
+  /* collapsed: the header alone remains, so the section is still there to click back open */
+  .reportSec.collapsed { padding-bottom: 0; }
+  .reportSec.collapsed h4 { margin-bottom: -8px; border-radius: 8px; }
+  .reportSec.collapsed .secBody { display: none; }
+  .secCaret { display: inline-block; width: 12px; margin-right: 4px; transition: transform .12s; }
+  .reportSec.collapsed .secCaret { transform: rotate(-90deg); }
   .hdr-findings    { background: #3d1f2a; color: #f0a0b0; }
   .hdr-checks      { background: #1f2d3d; color: #90c0f0; }
   .hdr-verdict     { background: #2d3d1f; color: #b0e090; }
@@ -534,7 +541,7 @@ function reportText(v) {
 
 function renderReportList(title, rows, cardId, kind) {
   if (!Array.isArray(rows) || !rows.length) return "";
-  return `<section class="reportSec"><h4 class="hdr-${esc(kind || "unknown")}">${esc(title)}</h4>` + rows.map(r => {
+  return reportSection(kind, title, rows.map(r => {
     const status = r.status ? `<span class="chip">${esc(r.status)}</span>` : "";
     const sev = r.severity ? `<span class="chip">${esc(r.severity)}</span>` : "";
     const open = kind === "questions" && (r.title || r.text) && r.status !== "answered" && r.status !== "canceled";
@@ -560,7 +567,7 @@ function renderReportList(title, rows, cardId, kind) {
       <div><span class="rid">${esc(r.id || "")}</span> ${status} ${sev}</div>
       <div>${md(reportText(r))}</div>${evidence}${answer}${answerBox}${extraHtml}
     </div>`;
-  }).join("") + `</section>`;
+  }).join(""));
 }
 
 function renderInlineItem(v) {
@@ -581,6 +588,31 @@ const REPORT_SECTION_LABELS = {
   handoff: "Handoff",
 };
 
+/* --- collapsed work-report sections (client-only, persisted in localStorage) ---
+   Keyed by SECTION, not by card: collapse "Analysis" once and it stays collapsed on every
+   card you open — the point is to hide a section you don't care to read, and that preference
+   is about the section, not about one card. */
+const REPORT_COLLAPSE_KEY = "kanban-pro-report-collapsed";
+function collapsedSections() {
+  try { return new Set(JSON.parse(localStorage.getItem(REPORT_COLLAPSE_KEY)) || []); } catch { return new Set(); }
+}
+function toggleReportSection(kind) {
+  const collapsed = collapsedSections();
+  collapsed.has(kind) ? collapsed.delete(kind) : collapsed.add(kind);
+  localStorage.setItem(REPORT_COLLAPSE_KEY, JSON.stringify([...collapsed]));
+  for (const el of document.querySelectorAll(`.reportSec[data-sec="${CSS.escape(kind)}"]`)) {
+    el.classList.toggle("collapsed", collapsed.has(kind));
+  }
+}
+function reportSection(kind, title, body) {
+  const key = kind || "unknown";
+  const isCollapsed = collapsedSections().has(key);  // applied at render time, so no flash on open
+  return `<section class="reportSec${isCollapsed ? " collapsed" : ""}" data-sec="${esc(key)}">`
+    + `<h4 class="hdr-${esc(key)}" onclick="toggleReportSection('${esc(key)}')" title="click to collapse">`
+    + `<span class="secCaret">▾</span>${esc(title)}</h4>`
+    + `<div class="secBody">${body}</div></section>`;
+}
+
 function isReportSectionEmpty(value) {
   if (value === null || value === undefined || value === "") return true;
   if (Array.isArray(value)) return value.length === 0;
@@ -593,7 +625,7 @@ function renderReportValue(title, value, cardId, kind) {
   if (Array.isArray(value)) return renderReportList(title, value, cardId, kind);
   if (typeof value === "object" && value !== null)
     return renderReportObject(title, value, kind);
-  return `<section class="reportSec"><h4 class="hdr-${esc(kind || "unknown")}">${esc(title)}</h4>${md(reportText(value))}</section>`;
+  return reportSection(kind, title, md(reportText(value)));
 }
 
 function renderReportObject(title, obj, kind) {
@@ -607,7 +639,7 @@ function renderReportObject(title, obj, kind) {
       : esc(JSON.stringify(v, null, 2));
     return `<div class="objRow"><span class="objKey">${label}</span><span class="objVal">${val}</span></div>`;
   }).join("");
-  return `<section class="reportSec"><h4 class="hdr-${esc(kind || "unknown")}">${esc(title)}</h4><div class="objGrid">${rows}</div></section>`;
+  return reportSection(kind, title, `<div class="objGrid">${rows}</div>`);
 }
 
 function reportRequiredFor(card) {
@@ -641,7 +673,8 @@ function renderWorkReport(report, cardId, requiredSections = [], sectionOrder = 
   const parts = [];
   const missing = requiredSections.filter(section => isReportSectionEmpty(report[section]));
   if (missing.length) {
-    parts.push(`<section class="reportSec"><h4>Required by route</h4><div style="color:var(--danger)">Missing: ${missing.map(s => esc(REPORT_SECTION_LABELS[s] || s)).join(", ")}</div></section>`);
+    parts.push(reportSection("required", "Required by route",
+      `<div style="color:var(--danger)">Missing: ${missing.map(s => esc(REPORT_SECTION_LABELS[s] || s)).join(", ")}</div>`));
   }
   const known = new Set(Object.keys(REPORT_SECTION_LABELS));
   const ordered = [...sectionOrder, ...Object.keys(REPORT_SECTION_LABELS)].filter((section, index, list) => list.indexOf(section) === index);

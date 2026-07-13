@@ -42,6 +42,22 @@ column id. You administer it — workers only follow it.
 - A column named in no edge stays free (an ungoverned scratch lane). Read any board's flow
   with `list_flows()`.
 
+### Two board settings you own, and must not guess at
+
+- **`anonymous_writes`** (`init_board(anonymous_writes=...)`, or `update_board(ext=...)` later)
+  — whether the board accepts writes from a connection with no identity (one started without
+  `--actor kind:name`, whose events land as `actor: unknown`). **ASK the user, don't assume:**
+  `refuse` (default) means every write names who made it, so the change-log can still answer
+  "who did this" a year from now — right for any board that more than one person or agent
+  touches. `allow` suits a personal, single-user board where there is nobody to attribute to.
+  An unattributable event looks audited but isn't, and nobody notices until they need history.
+- **`auto_clear_attention_columns`** (`update_board(ext=...)`) — the RESTING lanes: arriving in
+  one clears the card's attention flag, because a card that reached it is waiting on nobody.
+  Only list lanes where that's true. A lane where cards WAIT on a human (e.g. `scheduled`,
+  parked until someone sets a retry) must NOT be here — the move would clear the very flag that
+  asks for the decision. kanban-pro refuses a blocking flag on a card resting in one of these
+  lanes, so a mislisted lane shows up as a `Conflict`, not as a silently stranded card.
+
 ## Watching and steering
 
 - **Consume the change-feed, don't poll the board:** keep the last `seq` you saw and
@@ -51,6 +67,11 @@ column id. You administer it — workers only follow it.
   expires on its own, no action needed. A card in a blocked column → read its last
   comment (`list_comments`) and either resolve the blocker, reassign
   (`update_card`), or move it back to ready.
+- **A blocking attention flag is the only thing that halts a card** (`severity="block"`;
+  `warn`/`info` are visible but keep it flowing). Blocked cards do not appear in anyone's
+  `list_work`, so nothing frees them but you: watch `wait_changes` for `attention.raised`,
+  answer via `answer_work_report_question`, then `clear_attention`. A flag nobody is watching
+  is a stalled card, and it will not announce itself.
 - Refused moves are information: `list_transitions(card_id)` shows what the board's flow
   allows. Use `force=true` only for deliberate exceptions, always with a
   comment saying why.
@@ -91,7 +112,7 @@ column id. You administer it — workers only follow it.
 - `get_board(board_id)` — Get one board (includes its columns and label registry).
 - `get_card(card_id)` — Get one card (works for archived cards too).
 - `heartbeat_claim(card_id, ttl_seconds?, owner?)` — Renew your live lease on a card while still working it. `owner` must match
-- `init_board(board_id, name?, preset?, id_scheme?)` — Onboard a NEW board pre-seeded from a preset — columns + a matching workflow, built
+- `init_board(board_id, name?, preset?, id_scheme?, anonymous_writes?)` — Onboard a NEW board pre-seeded from a preset — columns + a matching workflow, built
 - `list_boards()` — List all boards.
 - `list_cards(board_id, include_archived?)` — List a board's cards. Archived cards are hidden unless include_archived=true
 - `list_changes(since?, limit?)` — Change feed: every recorded write after cursor `since` (audit trail + sync).

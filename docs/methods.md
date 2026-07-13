@@ -109,7 +109,7 @@ Subtasks = child cards via `PARENT`/`CHILD` relations (`SUBTASKS`).
 | claim | `claim_card(card_id, ttl_seconds=3600, owner?)` | atomic CAS lease (competing consumers); expired leases are silently reclaimable; recorded as `card.claimed` |
 | heartbeat | `heartbeat_claim(card_id, ttl_seconds=3600, owner?)` | renew own live lease (not recorded) |
 | release | `release_claim(card_id, owner?)` | idempotent; recorded as `card.released` |
-| raise attention | `raise_attention(card_id, reason, for_actor?)` | sets `ext["kanban_pro.attention"]` + `attention.raised` event (routable: notifiers read reason/target from the feed) |
+| raise attention | `raise_attention(card_id, reason, for_actor?, severity="block")` | sets `ext["kanban_pro.attention"]` + `attention.raised` event (routable: notifiers read reason/target/severity from the feed). `severity` ∈ `block` (halts the card) / `warn` / `info` (visible, card keeps flowing); a `block` is refused on a card resting in a board `auto_clear_attention_columns` lane — it would be stranded |
 | clear attention | `clear_attention(card_id, resolution?)` | removes the flag + `attention.cleared` event |
 
 `owner` defaults to the connection's actor — pass it only when one process holds leases
@@ -127,7 +127,7 @@ a started column" stays visible in the change-log.
 | set board flow | `set_flow(board_id, transitions)` | replace the whole board flow (`{from_col_id: [to_col_id, …]}`); every referenced column id must exist on the board — a dangling ref is refused. `{}` clears it |
 | set one lane | `set_transitions(board_id, from_column_id, to_column_ids)` | set just one lane's out-edges, leaving the rest; `[]` clears that lane |
 | clear board flow | `clear_flow(board_id)` | drop the flow → free-roam board |
-| onboard a board | `init_board(board_id, name?, preset="agent-lifecycle")` | create a NEW board from a preset (`blank`, `simple-kanban`, `docs`, `agent-lifecycle`) — columns + a matching flow, built together so they can't dangle. Import onboarding is the `kanban-pro-migrate` CLI, not this tool |
+| onboard a board | `init_board(board_id, name?, preset="agent-lifecycle", id_scheme?, anonymous_writes="refuse")` | create a NEW board from a preset (`blank`, `simple-kanban`, `docs`, `agent-lifecycle`) — columns + a matching flow, built together so they can't dangle. `id_scheme` fixes the shape of this board's card ids; `anonymous_writes` is the board's identity policy (below). Import onboarding is the `kanban-pro-migrate` CLI, not this tool |
 
 Flow is **board data** (`board.flow`, keyed by the board's own column ids), administered
 over MCP via `set_flow`/`set_transitions`/`clear_flow` — not a YAML file. A flow edit
@@ -180,7 +180,7 @@ patch semantics, Q17):
 |---|---|---|
 | `kanban_pro.scheme` | flow engine | only `"free-roam"` is meaningful now (frees the card); named schemes are gone — the board's flow (`board.flow`) governs otherwise |
 | `kanban_pro.flow` | flow engine | inline ONE-card flow `{states, transitions}` (name-based) — precedence over the board flow, enforced even on a flowless board; malformed → falls back to the board flow + warning |
-| `kanban_pro.attention` | attention signal (queued) | `{reason, raised_by, for}` — needs a decision/input |
+| `kanban_pro.attention` | attention signal | `{reason, raised_by, for, severity}` — needs a decision/input. `severity` ∈ `block` (default; halts the card) / `warn` / `info`; absent = `block` (pre-severity flags). Advisory: kanban-pro exposes it (`core.recording.attention_blocks`), consumers act on it |
 | `kanban_pro.copied_from` | cross-mount copy (queued) | provenance link `"<mount>/<card-id>"` |
 | `kanban_pro.migrated_from` | `kanban-pro-migrate` | import provenance `"<profile>/<board-id>"` |
 | `work_report` | work-report ops | current structured card state (sections above) — write via `record_work_report`, never by hand |
@@ -190,6 +190,16 @@ patch semantics, Q17):
 
 Rule: `kanban_pro.*` is reserved for kanban-pro's own features; adapters use their
 backend's name as the namespace; the dispatcher owns `work`.
+
+## Board `ext` conventions
+
+Two board-level policies live in `board.ext` (set at `init_board`, changed with
+`update_board(ext=…)`) — see [configuration.md §3](configuration.md#3-board-settings-boardext):
+
+| Key | Values | Meaning |
+|---|---|---|
+| `anonymous_writes` | `"refuse"` (default) / `"allow"` | may a connection with no actor write to this board? `refuse` → every write from an unidentified connection is a `conflict`; reads always work |
+| `auto_clear_attention_columns` | `[column_id, …]` (default none) | the resting lanes: arriving there clears the card's attention flag. A `block` flag cannot be raised on a card already resting in one (it would be stranded). Never list a lane where cards WAIT on a human (e.g. `scheduled`) — the move would wipe the flag asking for the decision |
 
 Liveness is **derived**, never stored: a card reads as "running" because a live claim
 (`ext._claim`) exists, so a crashed lease correctly reads as done once it expires. The

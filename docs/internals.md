@@ -17,10 +17,13 @@ Every interface calls `core/`. Nothing calls an adapter directly. That is what m
 guards and the audit trail unbypassable.
 
 ```
-mcp/  ──┐                            (37 tools + 9 kanban:// resources)
-api/  ──┼──▶  RecordingBackend       outermost: actor stamp + change-log,
-cli/  ──┘         │                  dedupe, claims, attention, list_work
+mcp/  ──┐                            (41 tools + 9 kanban:// resources)
+api/  ──┼──▶  ActorPolicyBackend     outermost: an unidentified connection may read,
+cli/  ──┘         │                  but its writes are refused (default-deny)
  (🔜)             ▼
+            RecordingBackend         actor stamp + change-log, dedupe, claims,
+                  │                  attention, list_work
+                  ▼
             AugmentingBackend        capability dispatch: delegate / polyfill /
                   │                  refuse; Tier-1 WIP + flow enforcement
                   ▼
@@ -30,9 +33,9 @@ cli/  ──┘         │                  dedupe, claims, attention, list_wor
                backend
 ```
 
-Built by `config.build_backend()` (`kanban_pro/config.py:112`), which resolves
-`--profile` → factory → `RecordingBackend(AugmentingBackend(adapter, flows=…), ChangeLog,
-actor, claims=…, dedupe=…)`.
+Built by `config.build_backend()` (`kanban_pro/config.py:98`), which resolves
+`--profile` → factory → `ActorPolicyBackend(RecordingBackend(AugmentingBackend(adapter),
+ChangeLog, actor, claims=…, dedupe=…), actor)`.
 
 **Layer coupling you must know about:** `RecordingBackend` reaches *through* to the
 `AugmentingBackend` with `isinstance` checks to expose `flows`, `transitions`,
@@ -48,7 +51,16 @@ adapter, it silently records nothing.
 
 ## 2. What each layer adds
 
-### `RecordingBackend` (`core/recording.py`) — outermost
+### `ActorPolicyBackend` (`core/actor_policy.py`) — outermost
+
+Delegates everything; refuses every **write** when the connection's actor is anonymous
+(absent / blank / `unknown` / not `kind:name`). Reads are never affected. **Default-deny:**
+only the names in `_READS` are treated as reads, so a write method added later is guarded
+without anyone remembering to. A board opts out with `ext["anonymous_writes"] = "allow"`,
+resolved per call (the policy is administered over MCP and can change under a long-lived
+connection).
+
+### `RecordingBackend` (`core/recording.py`)
 
 Delegates everything; records successful writes. Also *hosts* the features that have no
 place in the port: claim/lease, attention, `list_work`, dedupe.
@@ -269,6 +281,12 @@ work report's `plan[]` / `checks[]` for a live to-do list.
 | `session` | the worker/harness |
 | `_claim`, `_last_comment` | injected at read, never stored |
 
+**`board.ext` is a policy bag, not a card bag** — kanban-pro reads two keys off it:
+`anonymous_writes` (`"refuse"` default / `"allow"`, `core/actor_policy.py`) and
+`auto_clear_attention_columns` (`[column_id, …]`, `core/recording.py`). Both are board
+settings administered over MCP (`init_board` / `update_board`), and both change *write
+behaviour*, so a change to either is felt on the very next call.
+
 Because the writers are independent, **there is no single `ext` version**. Each structured
 namespace carries its own `_v` *inside itself*, so the version travels with the data when
 copied or exported. Missing `_v` means version 1. A namespace written by a **newer** version
@@ -302,6 +320,18 @@ uv run ruff format . && uv run ruff check . && uv run mypy kanban_pro && uv run 
 - `":memory:"` for `NativeStore` gives every connection its own empty database.
 - WIP limits live on the *column* (`update_column`), never in `board.flow`. A flow holds
   only transitions.
+- **A connection with no `--actor` cannot write.** Every write is refused with a conflict
+  (`core/actor_policy.py`) — including from tests and scripts that build a backend without
+  passing one. Reads still work, which is why the failure looks like "everything works
+  until the first write".
+- **A `block` attention flag is refused on a card resting in an
+  `auto_clear_attention_columns` lane** (`_refuse_blocking_in_resting_lane`). The
+  auto-clear runs on *arrival* only, so such a flag would be cleared by nothing and the
+  card would be stranded — hidden from every queue. Move the card out first, or use
+  `warn`/`info`.
+- **Attention severity is advisory here.** `attention_blocks()` exists and nothing in this
+  repo calls it: kanban-pro records `severity` and `list_work` ignores it. The dispatcher
+  is what refuses to work a blocked card.
 - `list_work` does **not** surface attention. An agent that only polls its queue never
   learns a question was raised for it; it must also watch `wait_changes`.
 - `clear_attention` is not access-controlled — any actor may clear any flag. Recorded, so

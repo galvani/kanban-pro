@@ -4,9 +4,10 @@ Everything kanban-pro reads at startup, what the defaults are, and the three thi
 people actually want to change: **which backend**, **who you are**, and **what moves are
 legal**.
 
-There is no config file you *must* write. Run `kanban-pro-mcp` with no arguments and you
-get a working board: the native SQLite store, free movement between columns, every write
-attributed to `unknown`. The sections below are how you improve on that.
+There is no config file you *must* write, but there is one flag you *must* pass. Run
+`kanban-pro-mcp` with no arguments and you get the native SQLite store and free movement
+between columns — and **reads only**: a connection that declares no actor cannot write.
+The sections below are how you improve on that, starting with `--actor`.
 
 ---
 
@@ -17,7 +18,7 @@ Every setting has a flag, an env var, or both. Flags win over env vars.
 | What | Flag | Env var | Default |
 |---|---|---|---|
 | Which backend | `--profile <name>` | `KANBAN_PRO_PROFILE` | `default` (native store) |
-| Who is writing | `--actor <kind:name>` | `KANBAN_PRO_ACTOR` | `unknown` |
+| Who is writing | `--actor <kind:name>` | `KANBAN_PRO_ACTOR` | none — **required for writes** |
 | Where the board lives | — | `KANBAN_PRO_DB` | `~/.local/share/kanban-pro/kanban.db` |
 
 `~/.local/share` follows `XDG_DATA_HOME`, and `~/.config` follows `XDG_CONFIG_HOME`, if
@@ -55,8 +56,23 @@ uv run kanban-pro-ui  --actor human:jan
 
 The convention is `kind:name` — `agent:claude-code`, `agent:hermes-engineer`,
 `human:jan`. Actors are free-form strings, not user accounts: nothing needs to be
-registered before it can act. If you skip this, every write is attributed to `unknown`
-and `list_work` can't tell which cards are yours.
+registered before it can act. A bare `reviewer` doesn't count: without the `kind:` it
+doesn't say whether a human or an agent did the thing, which is the first question anyone
+asks of a change-log row.
+
+**Skip it and the connection can read, but every write is refused** with a conflict that
+names the flag you didn't pass:
+
+```
+agent> create_card …
+  → conflict: refusing 'create_card': this connection has no identity
+    (actor='unknown') … start the MCP server with `--actor kind:name`
+```
+
+An unattributable write is worse than a refused one: the event still lands, so the board
+*looks* audited, and nobody notices until they need the history and find a wall of
+`actor: unknown`. The refusal is loud and fixable in one flag; the alternative is silent
+and permanent. (A board can opt out — see [§3](#3-board-settings-boardext).)
 
 Each harness registers its own copy of the server with its own `--actor`, and they share
 the SQLite store safely.
@@ -107,7 +123,59 @@ profiles do this; a remote backend (`hermes`) mints ids its own way and ignores 
 
 ---
 
-## 3. WIP limits
+## 3. Board settings (`board.ext`)
+
+Two behaviours are decided **per board**, not per server, and both live in `board.ext` —
+set at creation with `init_board(...)`, changed later with `update_board(board_id, {"ext":
+{...}})`.
+
+| `ext` key | Values | What it decides |
+|---|---|---|
+| `anonymous_writes` | `"refuse"` (default) / `"allow"` | whether a connection with no actor may write to this board |
+| `auto_clear_attention_columns` | `["ready", "done", …]` (default none) | the **resting lanes**: a card arriving there has its attention flag cleared |
+
+### `anonymous_writes` — who may write
+
+`"refuse"` is the default, and it is what makes §1's `--actor` requirement real: a
+connection whose actor is missing/blank/`unknown`/off-convention may read this board but
+not write to it.
+
+```jsonc
+init_board(board_id="ops", preset="simple-kanban")                      // refuse (default)
+update_board("scratch", {"ext": {"anonymous_writes": "allow"}})         // opt out
+```
+
+`"allow"` is for a board with nobody to attribute to — a personal, single-user scratch
+board, where the ceremony buys nothing. On a board more than one actor touches, leave it
+alone: an unattributable event is the one kind of damage the change-log cannot repair
+after the fact.
+
+### `auto_clear_attention_columns` — the resting lanes
+
+Arriving in one of these columns clears the card's attention flag (`move_card` does it,
+recording an `attention.cleared` event with `resolution: "moved to <column>"`). The
+declaration means: *a card that reaches this lane is, by this board's own definition, not
+waiting on anybody.* Typically `ready` / `todo` / `done`.
+
+```jsonc
+update_board("ops", {"ext": {"auto_clear_attention_columns": ["ready", "todo", "done"]}})
+```
+
+Two consequences worth knowing before you list a lane:
+
+- **A blocking flag can't be raised on a card already resting there.** The clear runs on
+  *arrival*, so a `block` raised afterwards would be cleared by nothing — and a blocking
+  flag hides the card from every queue, so it would sit stranded in a lane the board calls
+  attention-free. `raise_attention(..., severity="block")` refuses it (see §6); move the
+  card to a working lane first, or use `warn`/`info`.
+- **Never list a lane where cards WAIT on a human.** A parking lane like `scheduled` looks
+  restful and isn't: a card sits there precisely *because* someone must decide something.
+  List it and the very move that parks the card wipes the flag that was asking for the
+  decision.
+
+---
+
+## 4. WIP limits
 
 A WIP limit lives **on the column**, not in the board flow. Set it with `update_column`
 (or in the UI), and every subsequent move into a full column is rejected:
@@ -126,7 +194,7 @@ concept of a WIP limit. Nothing is stored in the backend to make it work.
 
 ---
 
-## 4. Workflow rules (the board flow)
+## 5. Workflow rules (the board flow)
 
 By default a card can move anywhere. A **flow** turns the board into a state machine: it
 names which column→column transitions are legal. The flow is **board data**, not a config
@@ -195,25 +263,53 @@ agent> move_card PRO-12 → done, force=true
 
 `board.flow.auto_reset_attempts_on_reassign: true` (per board, default true) clears a
 card's attempt counter when it changes assignee or lane, so a retried card starts fresh.
-WIP limits live on the column (§3), never on the flow.
+WIP limits live on the column (§4), never on the flow.
 
 ---
 
-## 5. The attention flag — asking for a decision instead of guessing
+## 6. The attention flag — asking for a decision instead of guessing
 
 An agent that hits a decision it isn't entitled to make should neither guess nor die
 quietly. It raises an attention flag, naming **who** should answer:
 
 ```
-raise_attention(card_id, reason, for_actor=None)
+raise_attention(card_id, reason, for_actor=None, severity="block")
 clear_attention(card_id, resolution=None)
 ```
 
 Three things happen on a raise. The card gets
-`ext["kanban_pro.attention"] = {reason, raised_by, for}`. The board tile shows the flag.
-And an `attention.raised` event lands on the change-feed carrying the reason **and the
-target**. That last part is what makes it *routable* — a listener reads the target and
-delivers the question wherever the answerer actually is.
+`ext["kanban_pro.attention"] = {reason, raised_by, for, severity}`. The board tile shows
+the flag. And an `attention.raised` event lands on the change-feed carrying the reason,
+the **target** and the **severity**. The target is what makes it *routable* — a listener
+reads it and delivers the question wherever the answerer actually is.
+
+### Severity — does the work stop?
+
+| `severity` | Meaning | The card |
+|---|---|---|
+| `block` (default) | "I cannot proceed without a decision" | **HALTS** until the flag is cleared |
+| `warn` | "this went sideways but the work stands" | keeps flowing; visible, and notifiers surface it |
+| `info` | "you should know" | keeps flowing; noted, rarely worth a DM |
+
+Only `block` stops the work. Before severity existed every attention halted the lane, so a
+worker with something merely *worth knowing* had no way to say it without stopping the
+card; `warn`/`info` are that way. They are signals, not gates — don't use them for a
+question you actually need answered. An old flag carrying **no** `severity` counts as
+`block`, so an upgrade can't start a card flowing that was waiting for a human. An invalid
+severity is a conflict.
+
+**A `block` is refused on a card resting in an `auto_clear_attention_columns` lane**
+(§3) — the auto-clear only runs on arrival, so nothing would ever clear the flag and the
+card would be stranded, invisible to every queue. Move it to a working lane first, or say
+`warn`/`info`, which cannot deadlock a lane.
+
+### Severity is advisory — kanban-pro does not enforce it
+
+kanban-pro *records* the severity and offers `core.recording.attention_blocks(card.ext)`
+to read it; it does **not** gate `list_work` on it. Nothing in this repo calls that
+helper. The consumer — the dispatcher — is what decides not to work a blocked card. The
+board states the fact; the fleet acts on it. (Same shape as
+`list_work` not surfacing attention at all: see below.)
 
 ### It is not only for humans
 
@@ -238,7 +334,7 @@ agent is entitled to decide.
 
 This matters, and it's easy to get wrong:
 
-- **The change-feed is the delivery mechanism.** Watch it (§6) and filter for
+- **The change-feed is the delivery mechanism.** Watch it (§7) and filter for
   `attention.raised` events whose `for_actor` is you. That is how an agent — or a
   notifier acting for a human — learns a question is waiting. `wait_changes` blocks until
   one arrives.
@@ -273,7 +369,7 @@ await clear_attention(card_id, "answered q1")
 
 ---
 
-## 6. Listeners — getting events out of the board
+## 7. Listeners — getting events out of the board
 
 Every successful write is appended to the change-log with its actor, a monotonic `seq`,
 and a slim payload. A **listener** is anything that reads that log from a cursor it
@@ -317,7 +413,7 @@ to receive events, and it gives you the same resumability.
 
 ---
 
-## 7. Installing into a harness
+## 8. Installing into a harness
 
 The MCP server is spawned by the harness over stdio — no daemon, no port. Print the exact
 registration snippet:
@@ -336,7 +432,7 @@ claude mcp add kanban-pro -s user -- \
 Register the same server from several harnesses — each spawns its own process under its
 own actor, and they share the store.
 
-## 8. The web UI
+## 9. The web UI
 
 Optional, on-demand, never auto-started:
 
@@ -350,7 +446,7 @@ and refreshes to catch what it missed.
 
 ---
 
-## 9. Where your data lives
+## 10. Where your data lives
 
 On the `default` profile kanban-pro *is* the board, so this is simple: everything is in
 `kanban.db`.

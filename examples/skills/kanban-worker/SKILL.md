@@ -56,6 +56,20 @@ if your moves are being watched, because they are.
   know it tomorrow, it goes in a comment.
 - `work_report` is the current structured state. Use the `kanban-pro-work-reporting`
   skill whenever you ask questions, record findings, update a plan, or hand off.
+- **Say how loud your attention is.** `severity="block"` (the default) HALTS the card
+  until someone clears it — use it only for a decision you genuinely cannot make.
+  `warn` = "this went sideways but the work stands"; `info` = "you should know". Both
+  stay visible and let the card keep flowing. Don't downgrade a real question to `warn`
+  to avoid stopping a card, and don't `block` a card over something you could just say.
+- **Flag the card where it can be seen: not in a resting lane.** A `block` is REFUSED on
+  a card sitting in `ready`/`todo`/`done` (the board's `auto_clear_attention_columns`):
+  those lanes clear attention on arrival, so a flag raised there afterwards is cleared by
+  nothing, and a blocking flag hides the card from every queue — stranded, freeable only
+  by a human. If you're stuck, `move_card` to blocked FIRST, then raise. (This is exactly
+  the order step 5 already tells you to use.)
+- **Your writes must be attributable.** If a write is refused for "no identity", your MCP
+  connection was started without `--actor kind:name` — the write would have been logged as
+  `actor: unknown`. Don't work around it and don't retry: say which flag is missing.
 
 ## Linking your session log
 
@@ -108,7 +122,7 @@ update_card(card_id, {"ext": {"session": {
 - `get_board(board_id)` — Get one board (includes its columns and label registry).
 - `get_card(card_id)` — Get one card (works for archived cards too).
 - `heartbeat_claim(card_id, ttl_seconds?, owner?)` — Renew your live lease on a card while still working it. `owner` must match
-- `init_board(board_id, name?, preset?, id_scheme?)` — Onboard a NEW board pre-seeded from a preset — columns + a matching workflow, built
+- `init_board(board_id, name?, preset?, id_scheme?, anonymous_writes?)` — Onboard a NEW board pre-seeded from a preset — columns + a matching workflow, built
 - `list_boards()` — List all boards.
 - `list_cards(board_id, include_archived?)` — List a board's cards. Archived cards are hidden unless include_archived=true
 - `list_changes(since?, limit?)` — Change feed: every recorded write after cursor `since` (audit trail + sync).

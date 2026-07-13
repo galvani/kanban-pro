@@ -25,7 +25,7 @@ kanban_pro/
   adapters/   # one module per backend, each implements the port
   core/       # the one service: augmenting dispatch (adapter + overlay), dedupe,
               # change-log, flow engine, work reports
-  mcp/        # MCP server (PRIMARY interface) — 37 tools + 9 resources
+  mcp/        # MCP server (PRIMARY interface) — 41 tools + 9 resources
   api/        # FastAPI: serves the web UI (snapshot + SSE + card detail). Secondary.
   migrate.py  # kanban-pro-migrate — copy any profile into any other
   config.py   # profile selection + per-profile settings
@@ -33,9 +33,10 @@ kanban_pro/
 ```
 
 The interface layers are thin and stateless; all behavior lives in `core/`, which wraps
-the active adapter (`RecordingBackend(AugmentingBackend(adapter))`). Interfaces call
-`core/`, **never an adapter directly** — that is what makes the guards and the audit
-trail unbypassable.
+the active adapter (`ActorPolicyBackend(RecordingBackend(AugmentingBackend(adapter)))`).
+Interfaces call `core/`, **never an adapter directly** — that is what makes the guards and
+the audit trail unbypassable. The outermost layer (`core/actor_policy.py`) refuses writes
+from a connection with no identity, so nothing can land in the log as `actor: unknown`.
 
 **Before changing code, read [docs/internals.md](docs/internals.md)** — the layer stack,
 the invariants you must not break, the 23 event kinds, `ext` versioning, and the traps
