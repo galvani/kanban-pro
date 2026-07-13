@@ -635,7 +635,9 @@ function renderReportObject(title, obj, kind) {
     const val = typeof v === "string"
       ? (isLink
         ? `<a href="${esc(v)}" target="_blank" rel="noopener" class="mrLink">Open MR →</a>`
-        : linkify(md(v)))
+        : md(v))  // md() already autolinks — linkifying its OUTPUT re-matched the URL inside
+                  // the href it had just written, nesting <a> inside <a>
+
       : esc(JSON.stringify(v, null, 2));
     return `<div class="objRow"><span class="objKey">${label}</span><span class="objVal">${val}</span></div>`;
   }).join("");
@@ -725,10 +727,6 @@ function boldAgent(name) {
   });
 }
 
-function linkify(text) {
-  return text.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>');
-}
-
 function formatComment(body) {
   const lines = body.split("\n");
   let inJson = false;
@@ -739,15 +737,18 @@ function formatComment(body) {
     if (inJson) return "";
     // JSON on a single line (legacy format)
     if (trimmed.startsWith("{") && trimmed.endsWith("}")) return "";
+    // Agents write comments in markdown (**bold**, `code`, [links]) — render it, don't print
+    // the asterisks. mdInline takes already-escaped HTML and also autolinks bare URLs, so it
+    // subsumes linkify; using both would double-wrap the URLs it just linked.
     // §keyword lines
     if (trimmed.startsWith("§")) {
       const m = trimmed.match(/^§(\w+)\s*(.*)/);
-      if (m) return `<span class="badge badge-${esc(m[1])}">${esc(m[1])}</span> ${linkify(esc(m[2]))}`;
+      if (m) return `<span class="badge badge-${esc(m[1])}">${esc(m[1])}</span> ${mdInline(esc(m[2]))}`;
     }
     // [gate] lines
     const gate = trimmed.match(/^\[(\S+)\]\s+(.*)/);
-    if (gate) return `<span class="gateLabel">${esc(gate[1])}</span><span class="gateVal">${linkify(esc(gate[2]))}</span>`;
-    return linkify(esc(line));
+    if (gate) return `<span class="gateLabel">${esc(gate[1])}</span><span class="gateVal">${mdInline(esc(gate[2]))}</span>`;
+    return mdInline(esc(line));
   }).filter(l => l !== "").join("<br>");
 }
 
