@@ -26,7 +26,7 @@ from kanban_pro.domain import (
     Placement,
     Relation,
 )
-from kanban_pro.ports import Capability, Fulfilment, KanbanBackend, NotSupported
+from kanban_pro.ports import Capability, Conflict, Fulfilment, KanbanBackend, NotSupported
 
 from .augment import AugmentingBackend
 from .augment import fulfilments as _fulfilments
@@ -36,6 +36,23 @@ from .work import Claim, ClaimStore, WorkItem, WorkQueue
 
 #: ext key for the attention signal (methods.md "Card ext conventions")
 ATTENTION_EXT_KEY = "kanban_pro.attention"
+
+#: how loudly an attention flag speaks. Only `block` stops the work; see raise_attention.
+ATTENTION_SEVERITIES = frozenset({"block", "warn", "info"})
+
+#: what a flag with no `severity` means. Flags raised before severity existed carry none,
+#: and they were all blocking — so an absent severity must keep blocking, or a card that
+#: was waiting for a human would silently start flowing again on upgrade.
+ATTENTION_DEFAULT_SEVERITY = "block"
+
+
+def attention_blocks(card_ext: dict[str, object]) -> bool:
+    """True if this card's attention flag HALTS the work (vs merely being visible)."""
+    flag = card_ext.get(ATTENTION_EXT_KEY)
+    if not isinstance(flag, dict):
+        return False
+    return bool(flag.get("severity", ATTENTION_DEFAULT_SEVERITY) == "block")
+
 
 #: categories that count as "workable" for the queue (done/canceled/triage are not)
 _READYISH = {ColumnCategory.BACKLOG, ColumnCategory.UNSTARTED, ColumnCategory.STARTED}
@@ -100,17 +117,45 @@ class RecordingBackend:
     # --- attention signal (card-level "needs a decision", ruled 2026-07-05) ---
 
     async def raise_attention(
-        self, card_id: str, reason: str, for_actor: str | None = None
+        self,
+        card_id: str,
+        reason: str,
+        for_actor: str | None = None,
+        severity: str = "block",
     ) -> Card:
-        """Flag a card as needing input/decision — the routable event consumers watch.
+        """Flag a card as needing input — the routable event consumers watch.
 
         The flag lives in ext (shallow-merge, one key); the change-log event
-        `attention.raised` carries reason + target so notifiers route without
-        reading the card.
+        `attention.raised` carries reason + target + severity so notifiers route
+        without reading the card.
+
+        `severity` says whether the WORK stops (Jan, 2026-07-13 — before this, every
+        attention halted the lane, so a worker with something merely worth knowing had
+        no way to say it without stopping the card):
+
+            block   "I cannot proceed without a decision" — the card HALTS until the
+                    flag is cleared. The default, and the old behaviour.
+            warn    "this went sideways but the work stands" — visible on the card, and
+                    a notifier will surface it, but the card keeps flowing.
+            info    "you should know" — noted, non-blocking, usually not worth a DM.
+
+        Only `block` stops a dispatcher from working the card again. `warn`/`info` are
+        signals, not gates — do not use them for a question you actually need answered.
         """
-        flag = {"reason": reason, "raised_by": self.actor, "for": for_actor}
+        if severity not in ATTENTION_SEVERITIES:
+            raise Conflict(
+                f"severity must be one of {sorted(ATTENTION_SEVERITIES)}, got {severity!r}"
+            )
+        flag = {
+            "reason": reason,
+            "raised_by": self.actor,
+            "for": for_actor,
+            "severity": severity,
+        }
         card = await self._inner.update_card(card_id, CardPatch(ext={ATTENTION_EXT_KEY: flag}))
-        await self._record("attention", card_id, "raised", reason=reason, for_actor=for_actor)
+        await self._record(
+            "attention", card_id, "raised", reason=reason, for_actor=for_actor, severity=severity
+        )
         return card
 
     async def clear_attention(self, card_id: str, resolution: str | None = None) -> Card:

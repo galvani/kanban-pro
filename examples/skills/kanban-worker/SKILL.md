@@ -119,7 +119,7 @@ update_card(card_id, {"ext": {"session": {
 - `list_transitions(card_id, board_id?)` — What moves are legal for this card right now, and under which resolved flow.
 - `list_work(assignee?, include_unassigned?)` — What should I work on? Workable cards for `assignee` (default: YOU, this
 - `move_card(card_id, to_board_id, to_column_id, position?, force?)` — Move a card within a board it's already on (re-column / re-position).
-- `raise_attention(card_id, reason, for_actor?)` — Flag a card as needing a decision or input (e.g. a question only a human or a
+- `raise_attention(card_id, reason, for_actor?, severity?)` — Flag a card as needing a decision or input (e.g. a question only a human or a
 - `record_work_report(card_id, section, item, op?, idempotency_key?)` — Update one structured work_report section/item on a card.
 - `release_claim(card_id, owner?)` — Release your lease (done or giving up). `owner` overrides the actor
 - `remove_placement(card_id, board_id)` — Take a card off one board (its other placements stay). The last placement can't

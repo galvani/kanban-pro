@@ -14,8 +14,10 @@ from kanban_pro.core import (
     ChangeLog,
     DedupeStore,
     RecordingBackend,
+    attention_blocks,
 )
 from kanban_pro.domain import Board, Card, Column, Comment, Placement
+from kanban_pro.ports import Conflict
 
 
 def _stack(dedupe: DedupeStore | None = None) -> tuple[RecordingBackend, ChangeLog]:
@@ -102,6 +104,7 @@ async def _attention() -> None:
         "reason": "which auth provider?",
         "raised_by": "agent:test",
         "for": "human:jan",
+        "severity": "block",  # the default: a real question STOPS the work
     }
     assert flagged.ext["keep"] == 1  # shallow-merge left the rest alone
 
@@ -111,7 +114,45 @@ async def _attention() -> None:
 
     events = [(e.kind, e.data) for e in await log.since(0) if e.entity == "attention"]
     assert events == [
-        ("attention.raised", {"reason": "which auth provider?", "for_actor": "human:jan"}),
+        # severity rides on the EVENT too, so a notifier can filter (DM on block, log a warn)
+        # without fetching the card
+        (
+            "attention.raised",
+            {"reason": "which auth provider?", "for_actor": "human:jan", "severity": "block"},
+        ),
         ("attention.cleared", {"resolution": "use oauth"}),
     ]
     assert all(e.actor == "agent:test" for e in await log.since(0) if e.entity == "attention")
+
+
+def test_attention_severity_decides_whether_the_work_stops() -> None:
+    asyncio.run(_severity())
+
+
+async def _severity() -> None:
+    """Not every attention is a question. `warn`/`info` are visible but non-blocking — a worker
+    with something merely worth knowing used to have to HALT the card in order to say it."""
+    be, _log = _stack()
+    board = await _seed(be)
+    card = await be.create_card(
+        Card(title="t", placements=[Placement(board_id=board.id, column_id=board.columns[0].id)])
+    )
+
+    noted = await be.raise_attention(card.id, "skipped a flaky test", severity="warn")
+    assert noted.ext[ATTENTION_EXT_KEY]["severity"] == "warn"
+    assert not attention_blocks(noted.ext)  # the card keeps flowing
+
+    asked = await be.raise_attention(card.id, "which auth provider?", severity="block")
+    assert attention_blocks(asked.ext)  # this one halts the lane
+
+    # a flag raised BEFORE severity existed carries none — it must still block, or a card that
+    # was waiting on a human would silently start flowing again on upgrade
+    legacy = {ATTENTION_EXT_KEY: {"reason": "old", "raised_by": "agent:x", "for": "human:jan"}}
+    assert attention_blocks(legacy)
+
+    try:
+        await be.raise_attention(card.id, "typo", severity="urgent")
+    except Conflict as e:
+        assert "severity must be one of" in str(e)
+    else:
+        raise AssertionError("an unknown severity must be refused, not silently accepted")

@@ -16,12 +16,20 @@ from kanban_pro.core.flow import (
     SCHEME_EXT_KEY,
     TransitionInfo,
 )
-from kanban_pro.core.recording import ATTENTION_EXT_KEY, RecordingBackend
+from kanban_pro.core.recording import (
+    ATTENTION_DEFAULT_SEVERITY,
+    ATTENTION_EXT_KEY,
+    ATTENTION_SEVERITIES,
+    RecordingBackend,
+    attention_blocks,
+)
 from kanban_pro.core.work import Claim, ClaimStore, WorkItem, WorkQueue
 from kanban_pro.ports import Conflict, KanbanBackend, NotFound
 
 __all__ = [
+    "ATTENTION_DEFAULT_SEVERITY",
     "ATTENTION_EXT_KEY",
+    "ATTENTION_SEVERITIES",
     "AugmentingBackend",
     "ChangeEvent",
     "ChangeLog",
@@ -31,6 +39,7 @@ __all__ = [
     "FREE_ROAM",
     "SCHEME_EXT_KEY",
     "RecordingBackend",
+    "attention_blocks",
     "TransitionInfo",
     "WaitResult",
     "WorkItem",

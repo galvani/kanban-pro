@@ -546,13 +546,28 @@ async def release_claim(card_id: str, owner: str | None = None) -> str:
 
 
 @mcp.tool(annotations=_WRITE)
-async def raise_attention(card_id: str, reason: str, for_actor: str | None = None) -> Card:
+async def raise_attention(
+    card_id: str,
+    reason: str,
+    for_actor: str | None = None,
+    severity: str = "block",
+) -> Card:
     """Flag a card as needing a decision or input (e.g. a question only a human or a
-    specific agent can answer). Routable: the change-log event carries the reason and
-    the target actor, so notifier agents DM the right party. Put the actual question
-    in a comment; this flag is the signal, not the discussion."""
+    specific agent can answer). Routable: the change-log event carries the reason, the
+    target actor and the severity, so notifier agents DM the right party. Put the actual
+    question in a comment; this flag is the signal, not the discussion.
+
+    `severity` decides whether the WORK STOPS:
+      block  (default) "I cannot proceed without a decision" — a dispatcher will not work
+             this card again until the flag is cleared. Use it for a real question.
+      warn   "this went sideways but the work stands" — visible on the card and surfaced by
+             notifiers; the card KEEPS FLOWING to the next role.
+      info   "you should know" — noted, non-blocking, usually not worth a DM.
+
+    Do not use warn/info for something you actually need answered: nobody is required to
+    act on them, and the card will move on without you."""
     backend = await _get_backend()
-    return await _call(_recording(backend).raise_attention(card_id, reason, for_actor))
+    return await _call(_recording(backend).raise_attention(card_id, reason, for_actor, severity))
 
 
 @mcp.tool(annotations=_WRITE)
