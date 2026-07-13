@@ -30,6 +30,7 @@ from kanban_pro.core.changelog import ChangeEvent
 from kanban_pro.domain import Card, CardPatch, Comment
 from kanban_pro.ports import Conflict, KanbanBackend
 
+from .actor_policy import unwrap
 from .recording import RecordingBackend
 
 WORK_REPORT_EXT_KEY = "work_report"
@@ -168,8 +169,9 @@ async def record_work_report(
     """Update one work_report section/item and record a dedicated audit event."""
     if not isinstance(item, Mapping):
         raise Conflict("work_report item must be an object")
-    if isinstance(backend, RecordingBackend) and idempotency_key:
-        if hit := await backend.dedupe.get("work_report", idempotency_key):
+    rec = unwrap(backend, RecordingBackend)
+    if rec and idempotency_key:
+        if hit := await rec.dedupe.get("work_report", idempotency_key):
             return Card.model_validate_json(hit)
 
     card = await backend.get_card(card_id)
@@ -179,10 +181,10 @@ async def record_work_report(
         card_id, CardPatch(ext={WORK_REPORT_EXT_KEY: updated_report})
     )
 
-    if isinstance(backend, RecordingBackend):
-        await backend.changelog.append(
+    if rec:
+        await rec.changelog.append(
             ChangeEvent(
-                actor=backend.actor,
+                actor=rec.actor,
                 entity="work_report",
                 entity_id=card_id,
                 op="updated",
@@ -190,7 +192,7 @@ async def record_work_report(
             )
         )
         if idempotency_key:
-            await backend.dedupe.put("work_report", idempotency_key, updated.model_dump_json())
+            await rec.dedupe.put("work_report", idempotency_key, updated.model_dump_json())
     return updated
 
 
@@ -204,7 +206,8 @@ async def answer_work_report_question(
     answered_at: str | None = None,
 ) -> Card:
     """Answer one structured question and mirror the answer as a normal comment."""
-    actor = author or (backend.actor if isinstance(backend, RecordingBackend) else "human:jan")
+    rec = unwrap(backend, RecordingBackend)
+    actor = author or (rec.actor if rec else "human:jan")
     card = await record_work_report(
         backend,
         card_id,

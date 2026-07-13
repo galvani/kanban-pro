@@ -221,11 +221,13 @@ def create_app(
 
     def _changelog() -> core.ChangeLog | None:
         be = state.get("backend")
-        return be.changelog if isinstance(be, core.RecordingBackend) else None
+        rec = core.unwrap(be, core.RecordingBackend)
+        return rec.changelog if rec else None
 
     def _claims() -> core.ClaimStore | None:
         be = state.get("backend")
-        return be.claims if isinstance(be, core.RecordingBackend) else None
+        rec = core.unwrap(be, core.RecordingBackend)
+        return rec.claims if rec else None
 
     @app.exception_handler(KanbanError)
     async def _kanban_error(_request: Request, exc: KanbanError) -> JSONResponse:
@@ -383,7 +385,7 @@ def create_app(
     @app.get("/api/cards/{card_id}/transitions")
     async def card_transitions(card_id: str) -> core.TransitionInfo:
         be = await _backend()
-        if not isinstance(be, core.RecordingBackend | core.AugmentingBackend):
+        if not core.unwrap(be, (core.RecordingBackend, core.AugmentingBackend)):
             raise NotSupported("transitions query needs the core stack")
         return await be.transitions(card_id)
 
@@ -462,7 +464,7 @@ def create_app(
         if "kanban_pro.attention" in ext:
             patch_ext["kanban_pro.attention"] = None
         card = await be.update_card(card_id, CardPatch(ext=patch_ext))
-        if isinstance(be, core.RecordingBackend):
+        if core.unwrap(be, core.RecordingBackend):
             await be.clear_attention(card_id, body.resolution or "retry requested from UI")
             card = await be.get_card(card_id)
         placement = card.placements[0] if card.placements else None

@@ -19,6 +19,7 @@ from kanban_pro.adapters.hermes import HermesAdapter
 from kanban_pro.adapters.memory import MemoryBackend
 from kanban_pro.adapters.native import NativeStore
 from kanban_pro.core import (
+    ActorPolicyBackend,
     AugmentingBackend,
     ChangeLog,
     ClaimStore,
@@ -94,13 +95,14 @@ REGISTRY: dict[str, Callable[[], Awaitable[KanbanBackend]]] = {
 }
 
 
-async def build_backend(profile: str | None = None, actor: str | None = None) -> RecordingBackend:
+async def build_backend(profile: str | None = None, actor: str | None = None) -> ActorPolicyBackend:
     """Resolve the active profile (arg > env > 'default') and build the core stack:
 
-        RecordingBackend(AugmentingBackend(adapter), changelog, actor)
+        ActorPolicyBackend(RecordingBackend(AugmentingBackend(adapter), changelog, actor), actor)
 
     — augmenting = delegate/polyfill/enforce (decision 2); recording = every write
-    stamped into the per-profile change-log with the actor (decisions 9 & 10).
+    stamped into the per-profile change-log with the actor (decisions 9 & 10);
+    actor-policy = an unidentified connection may read but not write (decision 10).
     Store profiles need no overlay (full-capability); remote profiles will pass a
     NativeStore overlay when they need Tier-2 polyfills.
     """
@@ -112,10 +114,13 @@ async def build_backend(profile: str | None = None, actor: str | None = None) ->
         raise ValueError(f"unknown profile {name!r} (known: {known})") from None
     resolved_actor = actor or os.environ.get(ACTOR_ENV) or "unknown"
     # workflow lives on the board (board.flow), administered over MCP — no config file.
-    return RecordingBackend(
+    recording = RecordingBackend(
         AugmentingBackend(await factory()),
         ChangeLog(changelog_path(name)),
         resolved_actor,
         claims=ClaimStore(claims_path(name)),
         dedupe=DedupeStore(dedupe_path(name)),
     )
+    # outermost: an unidentified connection may read, but its writes would land in the log as
+    # `actor: unknown` — audited-looking and unattributable. Refused unless a board opts in.
+    return ActorPolicyBackend(recording, resolved_actor)

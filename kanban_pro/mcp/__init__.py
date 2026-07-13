@@ -28,6 +28,7 @@ from mcp.types import ToolAnnotations
 
 from kanban_pro import core
 from kanban_pro.config import ACTOR_ENV, PROFILE_ENV, build_backend
+from kanban_pro.core.actor_policy import ANONYMOUS_WRITES_EXT_KEY
 from kanban_pro.core.presets import PRESETS, build_preset_board
 from kanban_pro.core.work_report import (
     WORK_REPORT_SCHEMA,
@@ -83,6 +84,16 @@ Reporting, and asking:
   for_actor)`. `for_actor` is any actor — `agent:architect` as readily as `human:jan` —
   so escalate to the agent whose call it is, and only involve a human when no agent may
   decide. Answers arrive via `answer_work_report_question`.
+- `severity` says whether the WORK stops. Pick it honestly:
+  `block` (default) — "I cannot proceed without a decision": the card HALTS until someone
+  clears the flag. `warn` — "this went sideways but the work stands": visible, surfaced by
+  notifiers, card keeps flowing. `info` — "you should know": noted, non-blocking.
+  A `warn` is NOT a way to be heard without stopping a card you actually need answered.
+- A `block` is refused on a card resting in one of the board's `auto_clear_attention_columns`
+  (typically `ready`/`todo`/`done`). Those lanes clear attention on arrival, so a flag raised
+  there afterwards would be cleared by nothing and the card would be stranded — invisible to
+  every queue, freeable only by hand. Move the card to a working lane first (e.g. `blocked`),
+  or say `warn`/`info`, which cannot deadlock a lane.
 - `list_work` does NOT surface attention raised for you. Watch `wait_changes` for
   `attention.raised` events targeting your actor.
 
@@ -92,6 +103,12 @@ Destructive things are guarded, deliberately:
 - WIP limits are enforced on every move. A refused move is the board working, not a bug.
 - Retried creates: pass the same `idempotency_key` and you get the original back instead
   of a duplicate.
+- Writes need an identity. A connection started without `--actor kind:name` (or
+  $KANBAN_PRO_ACTOR) can READ, but its writes are refused: they would land in the log as
+  `actor: unknown` — audited-looking and unattributable. A board can opt out
+  (`update_board(ext={"anonymous_writes": "allow"})`), which suits a personal single-user
+  board and nothing else. If you are refused, do not work around it — say which flag is
+  missing.
 
 Reading the world: `kanban://capabilities` says what this backend can actually do
 (native / polyfilled / unavailable). `list_changes(since)` and `wait_changes(since)` are
@@ -160,7 +177,7 @@ async def create_board(board: Board, idempotency_key: str | None = None) -> Boar
     Send an idempotency_key (any unique string, REUSED on retry) so a retried call
     returns the original board instead of creating a duplicate."""
     backend = await _get_backend()
-    if idempotency_key and isinstance(backend, core.RecordingBackend):
+    if idempotency_key and core.unwrap(backend, core.RecordingBackend):
         return await _call(backend.create_board(board, idempotency_key=idempotency_key))
     return await _call(backend.create_board(board))
 
@@ -194,7 +211,7 @@ async def create_column(
     """Add a column to a board. `category` gives it portable semantics (e.g. 'done').
     idempotency_key (reused on retry) prevents duplicate creation."""
     backend = await _get_backend()
-    if idempotency_key and isinstance(backend, core.RecordingBackend):
+    if idempotency_key and core.unwrap(backend, core.RecordingBackend):
         return await _call(backend.create_column(board_id, column, idempotency_key=idempotency_key))
     return await _call(backend.create_column(board_id, column))
 
@@ -234,7 +251,7 @@ async def create_card(card: Card, idempotency_key: str | None = None) -> Card:
     Send an idempotency_key (any unique string, REUSED on retry) so retries return the
     original card instead of duplicating it."""
     backend = await _get_backend()
-    if idempotency_key and isinstance(backend, core.RecordingBackend):
+    if idempotency_key and core.unwrap(backend, core.RecordingBackend):
         return await _call(backend.create_card(card, idempotency_key=idempotency_key))
     return await _call(backend.create_card(card))
 
@@ -296,7 +313,7 @@ async def move_card(
     recorded in the change-log, never silent.
     """
     backend = await _get_backend()
-    if force and isinstance(backend, core.RecordingBackend | core.AugmentingBackend):
+    if force and core.unwrap(backend, (core.RecordingBackend, core.AugmentingBackend)):
         return await _call(
             backend.move_card(card_id, to_board_id, to_column_id, position, force=True)
         )
@@ -312,7 +329,7 @@ async def list_transitions(card_id: str, board_id: str | None = None) -> core.Tr
     free movement when the board has no flow.
     """
     backend = await _get_backend()
-    if not isinstance(backend, core.RecordingBackend | core.AugmentingBackend):
+    if not core.unwrap(backend, (core.RecordingBackend, core.AugmentingBackend)):
         raise ToolError("not_supported: transitions query needs the core stack")
     return await _call(backend.transitions(card_id, board_id))
 
@@ -380,6 +397,7 @@ async def init_board(
     name: str | None = None,
     preset: str = "agent-lifecycle",
     id_scheme: str | None = None,
+    anonymous_writes: str = "refuse",
 ) -> Board:
     """Onboard a NEW board pre-seeded from a preset — columns + a matching workflow, built
     together so they can't drift.
@@ -391,6 +409,24 @@ async def init_board(
     `id_scheme` fixes the shape of THIS board's card ids (default: a 32-hex uuid):
     'short:8' -> k7f3q9xw, 'prefix:KAN:6' -> KAN-k7f3q9, 'seq:KAN' -> KAN-1, KAN-2, KAN-3.
     Change it later with update_board; existing card ids never change.
+
+    `anonymous_writes` decides whether this board accepts writes from a connection that has no
+    identity (one started with no `--actor kind:name` / $KANBAN_PRO_ACTOR — its events would be
+    stamped `actor: unknown`). ASK THE USER, do not assume — the two answers suit different
+    boards, and the explanation they need is:
+
+      'refuse' (default)  Every write names who made it, so the change-log can answer "who did
+                          this, and when" forever. An unidentified client gets a Conflict that
+                          tells it exactly which flag to pass. Right for any board that more
+                          than one person or agent touches — an unattributable event looks
+                          audited but isn't, and nobody notices until they need the history.
+      'allow'             The board accepts unattributed writes. Right for a personal,
+                          single-user board where there is nobody to attribute to and the
+                          identity ceremony buys nothing. The cost: `actor: unknown` rows in
+                          the log that no later reader can trace back.
+
+    Change it later on any board: update_board(ext={"anonymous_writes": "allow"|"refuse"}).
+    Reads are never affected by either setting.
 
     To onboard by IMPORT instead (from Hermes or another store), use the
     `kanban-pro-migrate` CLI, not this tool. Errors if the board id already exists."""
@@ -406,7 +442,13 @@ async def init_board(
             f"conflict: board {board_id!r} already exists —"
             " edit it with set_flow / create_column instead of init_board"
         )
+    if anonymous_writes not in ("refuse", "allow"):
+        raise ToolError(
+            f"anonymous_writes must be 'refuse' or 'allow', got {anonymous_writes!r} — "
+            "ask the user which they want; the tool doc explains the trade-off"
+        )
     board = build_preset_board(board_id, name or board_id, preset, id_scheme)
+    board.ext = {**(board.ext or {}), ANONYMOUS_WRITES_EXT_KEY: anonymous_writes}
     return await _call(backend.create_board(board))
 
 
@@ -456,7 +498,7 @@ async def add_comment(comment: Comment, idempotency_key: str | None = None) -> C
     """Add a comment to a card (`card_id`, `author` = User id, `body`).
     idempotency_key (reused on retry) prevents duplicate comments."""
     backend = await _get_backend()
-    if idempotency_key and isinstance(backend, core.RecordingBackend):
+    if idempotency_key and core.unwrap(backend, core.RecordingBackend):
         return await _call(backend.add_comment(comment, idempotency_key=idempotency_key))
     return await _call(backend.add_comment(comment))
 
@@ -482,7 +524,7 @@ async def add_relation(relation: Relation, idempotency_key: str | None = None) -
     """Link two cards with a typed relation. Subtask = kind 'child' from parent card.
     idempotency_key (reused on retry) prevents duplicate relations."""
     backend = await _get_backend()
-    if idempotency_key and isinstance(backend, core.RecordingBackend):
+    if idempotency_key and core.unwrap(backend, core.RecordingBackend):
         return await _call(backend.add_relation(relation, idempotency_key=idempotency_key))
     return await _call(backend.add_relation(relation))
 
@@ -498,7 +540,7 @@ async def delete_relation(relation_id: str) -> str:
 
 
 def _recording(backend: KanbanBackend) -> core.RecordingBackend:
-    if not isinstance(backend, core.RecordingBackend):
+    if not core.unwrap(backend, core.RecordingBackend):
         raise ToolError("not_supported: work distribution needs the core stack")
     return backend
 
@@ -589,9 +631,9 @@ async def list_changes(since: int = 0, limit: int = 100) -> list[core.ChangeEven
     actor (who did it), entity/op (e.g. card.moved), and a slim data payload.
     """
     backend = await _get_backend()
-    if not isinstance(backend, core.RecordingBackend):
+    if not (rec := core.unwrap(backend, core.RecordingBackend)):
         raise ToolError("not_supported: change-log is not wired for this backend")
-    return await backend.changelog.since(since, min(max(limit, 1), 500))
+    return await rec.changelog.since(since, min(max(limit, 1), 500))
 
 
 @mcp.tool(annotations=_RO)
@@ -604,9 +646,9 @@ async def wait_changes(
     history — call that once, then loop with the returned cursor. Push semantics
     without polling loops."""
     backend = await _get_backend()
-    if not isinstance(backend, core.RecordingBackend):
+    if not (rec := core.unwrap(backend, core.RecordingBackend)):
         raise ToolError("not_supported: change-log is not wired for this backend")
-    return await backend.changelog.wait_since(
+    return await rec.changelog.wait_since(
         since, float(min(max(timeout_seconds, 0), 60)), min(max(limit, 1), 500)
     )
 
@@ -648,9 +690,12 @@ async def event_schema_resource() -> str:
                     "data_keys": [
                         "reason",
                         "for (str|null — target actor; null = anyone, human:jan = Jan's DM)",
+                        "severity (block|warn|info — block HALTS the card until cleared;"
+                        " warn/info are visible but the work carries on)",
                     ],
-                    "effect": "sets ext['kanban_pro.attention'] on the card;"
-                    " notifier filters on data.for",
+                    "effect": "sets ext['kanban_pro.attention']"
+                    " = {reason, raised_by, for, severity} on the card;"
+                    " notifier filters on data.for, and may filter on data.severity",
                 },
                 "attention.cleared": {
                     "data_keys": ["resolution (str|null)"],
@@ -853,7 +898,8 @@ async def domain_resource() -> str:
     | key | owner | meaning |
     |---|---|---|
     | ``kanban_pro.scheme`` | flow engine | ``'free-roam'`` frees this card (kanban://workflow) |
-    | ``kanban_pro.attention`` | attention signal | ``{reason, raised_by, for}`` |
+    | ``kanban_pro.attention`` | attention signal | ``{reason, raised_by, for, severity}`` |
+    | | | severity: ``block`` (default — HALTS the card) / ``warn`` / ``info``; absent = ``block`` |
     | ``kanban_pro.migrated_from`` | migration | provenance ``\"<profile>/<board-id>\"`` |
     | ``hermes`` | hermes adapter | backend-specific fields |
     | ``work`` | kanban-dispatcher | ``{log, attempts, quota_hits, retry_at}`` |

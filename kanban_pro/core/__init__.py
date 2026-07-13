@@ -8,6 +8,13 @@ roadmap (v1/v2).
 
 from __future__ import annotations
 
+from kanban_pro.core.actor_policy import (
+    ANONYMOUS_WRITES_EXT_KEY,
+    ActorPolicyBackend,
+    anonymous_writes_allowed,
+    is_anonymous,
+    unwrap,
+)
 from kanban_pro.core.augment import AugmentingBackend, fulfilments
 from kanban_pro.core.changelog import ChangeEvent, ChangeLog, WaitResult
 from kanban_pro.core.dedupe import DedupeStore
@@ -22,11 +29,17 @@ from kanban_pro.core.recording import (
     ATTENTION_SEVERITIES,
     RecordingBackend,
     attention_blocks,
+    auto_clear_columns,
 )
 from kanban_pro.core.work import Claim, ClaimStore, WorkItem, WorkQueue
 from kanban_pro.ports import Conflict, KanbanBackend, NotFound
 
 __all__ = [
+    "ANONYMOUS_WRITES_EXT_KEY",
+    "ActorPolicyBackend",
+    "anonymous_writes_allowed",
+    "is_anonymous",
+    "unwrap",
     "ATTENTION_DEFAULT_SEVERITY",
     "ATTENTION_EXT_KEY",
     "ATTENTION_SEVERITIES",
@@ -40,6 +53,7 @@ __all__ = [
     "SCHEME_EXT_KEY",
     "RecordingBackend",
     "attention_blocks",
+    "auto_clear_columns",
     "TransitionInfo",
     "WaitResult",
     "WorkItem",

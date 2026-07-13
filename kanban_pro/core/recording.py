@@ -1,8 +1,8 @@
 """RecordingBackend — stamps every successful write into the change-log with the actor.
 
-Outermost decorator in the core stack (config.build_backend):
+Sits under ActorPolicyBackend in the core stack (config.build_backend):
 
-    RecordingBackend(AugmentingBackend(adapter), changelog, actor)
+    ActorPolicyBackend(RecordingBackend(AugmentingBackend(adapter), changelog, actor), actor)
 
 The actor is per-connection/per-process identity (SPEC decision 10): the MCP server is
 started with `--actor kind:name` (or $KANBAN_PRO_ACTOR); everything that connection
@@ -52,6 +52,18 @@ def attention_blocks(card_ext: dict[str, object]) -> bool:
     if not isinstance(flag, dict):
         return False
     return bool(flag.get("severity", ATTENTION_DEFAULT_SEVERITY) == "block")
+
+
+def auto_clear_columns(board: Board) -> list[str]:
+    """Columns where arriving clears a card's attention flag (per-board `ext`).
+
+    These are the resting lanes: a card that reaches one is, by the board's own
+    configuration, not waiting on anybody.
+    """
+    raw = (board.ext or {}).get("auto_clear_attention_columns")
+    if not isinstance(raw, list):
+        return []
+    return [c for c in raw if isinstance(c, str)]
 
 
 #: categories that count as "workable" for the queue (done/canceled/triage are not)
@@ -141,11 +153,16 @@ class RecordingBackend:
 
         Only `block` stops a dispatcher from working the card again. `warn`/`info` are
         signals, not gates — do not use them for a question you actually need answered.
+
+        A `block` flag may NOT be raised on a card resting in an `auto_clear_attention_columns`
+        lane — see `_refuse_blocking_in_resting_lane`.
         """
         if severity not in ATTENTION_SEVERITIES:
             raise Conflict(
                 f"severity must be one of {sorted(ATTENTION_SEVERITIES)}, got {severity!r}"
             )
+        if severity == "block":
+            await self._refuse_blocking_in_resting_lane(card_id)
         flag = {
             "reason": reason,
             "raised_by": self.actor,
@@ -157,6 +174,31 @@ class RecordingBackend:
             "attention", card_id, "raised", reason=reason, for_actor=for_actor, severity=severity
         )
         return card
+
+    async def _refuse_blocking_in_resting_lane(self, card_id: str) -> None:
+        """Reject a `block` flag on a card resting in an auto-clear lane.
+
+        The auto-clear only runs on ARRIVAL (see move_card), so a block raised AFTER the
+        card reached a resting lane is never cleared by anything — and a blocking flag hides
+        the card from every queue. The card ends up parked in a lane the board declares
+        attention-free, invisible to workers, freeable only by a human. (VLM-75, 2026-07-13:
+        a worker handed off to `ready`, the dispatcher then raised a block on the report
+        contract, and the card was stranded.) Refuse loudly instead of stranding it: the
+        caller must move the card out of the resting lane first, or say `warn`/`info` — those
+        don't halt the lane, so they cannot deadlock it.
+        """
+        card = await self._inner.get_card(card_id)
+        for placement in card.placements:
+            board = await self._inner.get_board(placement.board_id)
+            if placement.column_id in auto_clear_columns(board):
+                raise Conflict(
+                    f"cannot raise a blocking attention flag on a card resting in "
+                    f"{placement.column_id!r}: the board auto-clears attention there, so "
+                    f"nothing would ever clear this flag and the card would be stranded. "
+                    f"Move the card out of that column first (e.g. to a blocked/started "
+                    f"lane), or raise it with severity='warn'/'info' to signal without "
+                    f"halting the card."
+                )
 
     async def clear_attention(self, card_id: str, resolution: str | None = None) -> Card:
         """Clear the flag (question answered / decision made)."""
@@ -378,8 +420,7 @@ class RecordingBackend:
         # ── auto-clear attention on certain columns (per-board config) ──────
         try:
             board = await self._inner.get_board(to_board_id)
-            auto_cols: list[str] | None = (board.ext or {}).get("auto_clear_attention_columns")
-            if auto_cols and to_column_id in auto_cols and ATTENTION_EXT_KEY in (moved.ext or {}):
+            if to_column_id in auto_clear_columns(board) and ATTENTION_EXT_KEY in (moved.ext or {}):
                 await self.clear_attention(card_id, resolution=f"moved to {to_column_id}")
         except Exception:
             pass  # best-effort; never fail a move because auto-clear broke

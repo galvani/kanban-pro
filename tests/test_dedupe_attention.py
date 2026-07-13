@@ -16,7 +16,7 @@ from kanban_pro.core import (
     RecordingBackend,
     attention_blocks,
 )
-from kanban_pro.domain import Board, Card, Column, Comment, Placement
+from kanban_pro.domain import Board, BoardPatch, Card, Column, Comment, Placement
 from kanban_pro.ports import Conflict
 
 
@@ -156,3 +156,72 @@ async def _severity() -> None:
         assert "severity must be one of" in str(e)
     else:
         raise AssertionError("an unknown severity must be refused, not silently accepted")
+
+
+async def _resting_board(be: RecordingBackend) -> Board:
+    """A board whose `ready` lane auto-clears attention on arrival (the real default board)."""
+    board = await be.create_board(
+        Board(name="B", columns=[Column(name="ready"), Column(name="running")])
+    )
+    return await be.update_board(
+        board.id, BoardPatch(ext={"auto_clear_attention_columns": [board.columns[0].id]})
+    )
+
+
+def test_move_into_an_auto_clear_column_clears_the_flag() -> None:
+    asyncio.run(_auto_clear_on_arrival())
+
+
+async def _auto_clear_on_arrival() -> None:
+    """A card reaching a resting lane is, by the board's config, waiting on nobody."""
+    be, log = _stack()
+    board = await _resting_board(be)
+    ready, running = board.columns[0].id, board.columns[1].id
+    card = await be.create_card(
+        Card(title="t", placements=[Placement(board_id=board.id, column_id=running)])
+    )
+    await be.raise_attention(card.id, "which auth provider?", severity="block")
+
+    moved = await be.move_card(card.id, board.id, ready, 0)
+    assert ATTENTION_EXT_KEY not in (await be.get_card(moved.id)).ext
+
+    cleared = [e for e in await log.since(0) if e.kind == "attention.cleared"]
+    assert cleared[-1].data == {"resolution": f"moved to {ready}"}
+
+
+def test_blocking_attention_is_refused_in_a_resting_lane() -> None:
+    asyncio.run(_no_block_in_resting_lane())
+
+
+async def _no_block_in_resting_lane() -> None:
+    """The stranding bug (VLM-75, 2026-07-13): auto-clear only runs on ARRIVAL, so a `block`
+    raised on a card ALREADY resting in that lane is cleared by nothing and hides the card from
+    every queue — parked in a lane the board calls attention-free, freeable only by a human.
+    Refuse it; the caller must move the card out first, or use a non-blocking severity."""
+    be, log = _stack()
+    board = await _resting_board(be)
+    ready, running = board.columns[0].id, board.columns[1].id
+    card = await be.create_card(
+        Card(title="t", placements=[Placement(board_id=board.id, column_id=ready)])
+    )
+
+    try:
+        await be.raise_attention(card.id, "work_report incomplete", severity="block")
+    except Conflict as e:
+        assert "resting in" in str(e)
+    else:
+        raise AssertionError("a blocking flag in an auto-clear lane strands the card")
+
+    # refused writes never reach the card OR the log
+    assert ATTENTION_EXT_KEY not in (await be.get_card(card.id)).ext
+    assert not [e for e in await log.since(0) if e.entity == "attention"]
+
+    # the signal is not lost — it just may not HALT a lane that nothing will unhalt
+    noted = await be.raise_attention(card.id, "work_report incomplete", severity="warn")
+    assert noted.ext[ATTENTION_EXT_KEY]["severity"] == "warn"
+    assert not attention_blocks(noted.ext)
+
+    # and the same block is fine once the card is out of the resting lane
+    await be.move_card(card.id, board.id, running, 0)
+    asked = await be.raise_attention(card.id, "work_report incomplete", severity="block")
+    assert attention_blocks(asked.ext)
