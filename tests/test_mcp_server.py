@@ -193,7 +193,10 @@ def test_work_report_is_stamped_with_format_version() -> None:
 async def _legacy_unversioned_report_migrates_on_write() -> None:
     """A report written before versioning has no `_v`; it means v1 and is stamped."""
     _, card = await _make_board_with_card()
-    await kmcp.update_card(card.id, CardPatch(ext={"work_report": {"about": "legacy"}}))
+    # seed a legacy report straight into the store: update_card refuses ext.work_report (it would
+    # clobber the whole report), so a migration fixture goes through the backend
+    backend = await kmcp._get_backend()
+    await backend.update_card(card.id, CardPatch(ext={"work_report": {"about": "legacy"}}))
     await kmcp.record_work_report(card.id, "plan", {"id": "p1", "text": "x", "status": "todo"})
     report = (await kmcp.get_card(card.id)).ext["work_report"]
     assert report["_v"] == WORK_REPORT_VERSION
@@ -207,7 +210,8 @@ def test_legacy_unversioned_report_migrates_on_write() -> None:
 async def _newer_report_version_refuses_overwrite() -> None:
     """Old code must never silently clobber a format it cannot represent."""
     _, card = await _make_board_with_card()
-    await kmcp.update_card(
+    backend = await kmcp._get_backend()  # store-level seed; see the migration test above
+    await backend.update_card(
         card.id, CardPatch(ext={"work_report": {"_v": WORK_REPORT_VERSION + 1, "about": "future"}})
     )
     with pytest.raises(ToolError, match="refusing to overwrite"):
@@ -264,3 +268,30 @@ async def _init_board_guard() -> None:
     # guard this would silently overwrite the board's columns/flow and orphan its cards.
     with pytest.raises(ToolError, match="already exists"):
         await kmcp.init_board("b-flow", preset="blank")
+
+
+async def _update_card_refuses_to_clobber_the_report() -> None:
+    """`ext` merges at the TOP LEVEL, so an update_card carrying `work_report` REPLACES the whole
+    report. A builder did exactly that on 2026-07-13 — stamped its session log with an update_card
+    that still held a stale `work_report` key, wiped its own plan/analysis_log/findings, and then
+    looked to every gate downstream as if it had never reported at all. The instructions always said
+    "don't"; a request is something a model can talk itself out of. This is the rule."""
+    _, card = await _make_board_with_card()
+    await kmcp.record_work_report(card.id, "plan", {"id": "p1", "text": "built it"})
+
+    with pytest.raises(ToolError, match="may not write ext.work_report"):
+        await kmcp.update_card(
+            card.id, CardPatch(ext={"work_report": {"verdict": {"status": "pass"}}})
+        )
+
+    # the refused write never reached the card: the plan is still there
+    report = (await kmcp.get_card(card.id)).ext["work_report"]
+    assert report["plan"][0]["text"] == "built it"
+
+    # ...and the other ext namespaces still work — this guards ONE key, not update_card itself
+    await kmcp.update_card(card.id, CardPatch(ext={"session": {"log": "/tmp/x.log"}}))
+    assert (await kmcp.get_card(card.id)).ext["session"]["log"] == "/tmp/x.log"
+
+
+def test_update_card_refuses_to_clobber_the_report() -> None:
+    asyncio.run(_update_card_refuses_to_clobber_the_report())

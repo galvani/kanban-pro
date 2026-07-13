@@ -34,6 +34,10 @@ from .dedupe import DedupeStore
 from .flow import FREE_ROAM, SCHEME_EXT_KEY, TransitionInfo
 from .work import Claim, ClaimStore, WorkItem, WorkQueue
 
+#: ext key the work report lives under. Duplicated from core.work_report (which imports THIS
+#: module) rather than imported — a one-word constant is not worth a circular import.
+WORK_REPORT_EXT_KEY = "work_report"
+
 #: ext key for the attention signal (methods.md "Card ext conventions")
 ATTENTION_EXT_KEY = "kanban_pro.attention"
 

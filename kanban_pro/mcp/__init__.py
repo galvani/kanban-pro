@@ -258,7 +258,25 @@ async def create_card(card: Card, idempotency_key: str | None = None) -> Card:
 
 @mcp.tool(annotations=_IDEMPOTENT)
 async def update_card(card_id: str, patch: CardPatch) -> Card:
-    """Partially update a card — only the fields set in `patch` are applied."""
+    """Partially update a card — only the fields set in `patch` are applied.
+
+    NOT for the work report: a patch carrying `ext.work_report` is REFUSED (use
+    `record_work_report`, which upserts one section at a time).
+    """
+    if isinstance(patch.ext, dict) and "work_report" in patch.ext:
+        # `ext` merges at the TOP LEVEL only, so this patch would REPLACE the whole report — every
+        # section already filed, deleted. A builder did exactly that on 2026-07-13: it stamped its
+        # session log with an update_card carrying a stale work_report key, wiped its own
+        # plan/analysis_log/findings, and then looked to every gate downstream as though it had
+        # never reported at all. The instructions have always said "never rewrite ext['work_report']
+        # by hand" — but a request is something a model can talk itself out of, and this one did.
+        raise ToolError(
+            "update_card may not write ext.work_report — `ext` merges only at the top level, so "
+            "this would DELETE every section already recorded (plan, findings, analysis_log, "
+            "checks, verdict, handoff). Use record_work_report(card_id, '<section>', {...}): it "
+            "upserts one section (or item) at a time and merges. update_card is for `assignees` "
+            "and for other ext namespaces (ext.session, ext.work)."
+        )
     return await _call((await _get_backend()).update_card(card_id, patch))
 
 
