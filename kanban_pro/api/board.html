@@ -74,7 +74,11 @@
   .chip.todo { border-color: #f0c040; color: #f0c040; }
   .chip.canceled { border-color: #666; color: #666; text-decoration: line-through; }
   dialog { background: var(--panel); color: var(--text); border: 1px solid var(--border);
-           border-radius: 12px; width: min(1026px, 94vw); max-height: 88vh; overflow-y: auto; }
+           border-radius: 12px; width: min(1400px, 96vw); max-height: 90vh; overflow-y: auto; }
+  /* showModal() focuses the first focusable child — which was the assignee <select>, so the
+     dialog opened with a control highlighted and one stray keystroke away from a reassign.
+     `autofocus` on the dialog itself keeps focus on the dialog (and off any control). */
+  dialog:focus, dialog:focus-visible { outline: none; }
   dialog::backdrop { background: rgba(0,0,0,.55); }
   dialog .body { padding: 18px 20px; }
   dialog h3 { margin: 0 0 4px; }
@@ -214,7 +218,7 @@
 </header>
 <div id="board"></div>
 
-<dialog id="cardDlg"><div class="body">
+<dialog id="cardDlg" tabindex="-1" autofocus><div class="body">
   <h3 id="dlgTitle"></h3>
   <div class="sub" id="dlgMeta" style="color:var(--dim);font-size:12px"></div>
   <div id="dlgAttention"></div>
@@ -235,7 +239,7 @@
   <details class="ext" id="dlgExt"><summary>ext (raw)</summary><pre id="dlgExtPre"></pre></details>
 </div></dialog>
 
-<dialog id="logDlg"><div class="body">
+<dialog id="logDlg" tabindex="-1" autofocus><div class="body">
   <h3 id="logTitle">session log <span id="logLive"></span></h3>
   <div class="logView" id="logView"></div>
   <div style="margin-top:12px;display:flex;justify-content:flex-end">
@@ -859,7 +863,12 @@ async function openCard(id) {
   $("dlgExtPre").textContent = JSON.stringify(ext, null, 2);
 
   const dlg = $("cardDlg");
-  if (!dlg.open) dlg.showModal();
+  if (!dlg.open) {
+    dlg.showModal();
+    // some browsers still focus the first control despite `autofocus` on the dialog
+    if (document.activeElement && document.activeElement !== dlg) document.activeElement.blur();
+    dlg.focus();
+  }
 }
 $("cardDlg").addEventListener("close", () => {
   openCardId = null;
