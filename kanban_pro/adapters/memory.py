@@ -22,7 +22,11 @@ from kanban_pro.domain import (
     Relation,
     apply_patch,
 )
+from kanban_pro.domain.ids import parse_scheme
 from kanban_pro.ports import Capability, Conflict, NotFound
+
+#: random-id mint retries before we call a board's id space exhausted (mirrors the native store)
+_MINT_ATTEMPTS = 8
 
 
 def _now() -> datetime:
@@ -60,6 +64,7 @@ class MemoryBackend:
         self._cards: dict[str, Card] = {}
         self._comments: dict[str, Comment] = {}
         self._relations: dict[str, Relation] = {}
+        self._sequences: dict[str, int] = {}  # "board:prefix" -> last number (`seq:` scheme)
 
     # --- boards ---
     async def list_boards(self) -> list[Board]:
@@ -137,11 +142,30 @@ class MemoryBackend:
         except KeyError:
             raise NotFound(f"card {card_id!r} not found") from None
 
-    async def create_card(self, card: Card) -> Card:
+    async def _mint_id(self, card: Card) -> str:
+        """Mint an id in the shape the card's (first) board asks for — `board.id_scheme`."""
+        board = await self.get_board(card.placements[0].board_id)
+        scheme = parse_scheme(board.id_scheme)
+        if not scheme.store_assigned:
+            for _ in range(_MINT_ATTEMPTS):
+                if (candidate := scheme.generate()) not in self._cards:
+                    return candidate
+            raise Conflict(f"could not mint a free id for board {board.id!r} under {scheme.kind!r}")
+        # seq: count per BOARD, skipping numbers already taken (see the native store).
+        counter = f"{board.id}:{scheme.prefix}"
+        while True:
+            self._sequences[counter] = self._sequences.get(counter, 0) + 1
+            if (candidate := f"{scheme.prefix}-{self._sequences[counter]}") not in self._cards:
+                return candidate
+
+    async def create_card(self, card: Card, *, overwrite: bool = False) -> Card:
         if not card.placements:
             raise ValueError("create_card requires at least one placement")
+        card_id = card.id or await self._mint_id(card)
+        if not overwrite and card_id in self._cards:
+            raise Conflict(f"card {card_id!r} already exists")
         stored = card.model_copy(
-            update={"created_at": card.created_at or _now(), "updated_at": _now()}
+            update={"id": card_id, "created_at": card.created_at or _now(), "updated_at": _now()}
         )
         self._cards[stored.id] = stored
         return stored

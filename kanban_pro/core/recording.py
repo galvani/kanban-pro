@@ -278,10 +278,12 @@ class RecordingBackend:
     async def get_card(self, card_id: str) -> Card:
         return await self._inner.get_card(card_id)
 
-    async def create_card(self, card: Card, *, idempotency_key: str | None = None) -> Card:
+    async def create_card(
+        self, card: Card, *, idempotency_key: str | None = None, overwrite: bool = False
+    ) -> Card:
         if idempotency_key and (hit := await self.dedupe.get("card", idempotency_key)):
             return Card.model_validate_json(hit)
-        created = await self._inner.create_card(card)
+        created = await self._inner.create_card(card, overwrite=overwrite)
         if idempotency_key:
             await self.dedupe.put("card", idempotency_key, created.model_dump_json())
         first = created.placements[0] if created.placements else None

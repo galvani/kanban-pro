@@ -88,7 +88,12 @@ and the shared contract suite). In brief:
 `examples/skills/*/SKILL.md` contain a block rendered from the live MCP server. After
 ANY change to the MCP tool surface, regenerate: `uv run python -m tests.toolref
 --write` — `tests/test_toolref.py` fails the suite until you do. Jan's installed
-copies live in `~/.claude/skills/kanban-{worker,orchestrator}` — re-copy on change.
+copies live in `~/.claude/skills/kanban-{worker,orchestrator,retro}` — re-copy on change.
+
+The three skills split by role: **kanban-worker** pulls and works cards ·
+**kanban-orchestrator** plans them onto the board · **kanban-retro** analyses, after the
+fact, how the work actually flowed — and proposes the SOUL/skill/knowledge changes that
+would have prevented what went wrong.
 
 ## Verify
 

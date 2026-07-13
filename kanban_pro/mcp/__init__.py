@@ -50,7 +50,7 @@ from kanban_pro.domain import (
     Placement,
     Relation,
 )
-from kanban_pro.ports import KanbanBackend, KanbanError
+from kanban_pro.ports import KanbanBackend, KanbanError, NotFound
 
 logger = logging.getLogger("kanban_pro.mcp")
 
@@ -357,12 +357,15 @@ async def set_transitions(board_id: str, from_column_id: str, to_column_ids: lis
     `to_column_ids=[]` removes that lane's edges. All ids must be real columns."""
     backend = await _get_backend()
     board = await _call(backend.get_board(board_id))
-    edges = dict(board.flow.transitions) if board.flow else {}
+    current = board.flow or BoardFlow()  # preserve the rest of the flow (e.g. auto_reset)
+    edges = dict(current.transitions)
     if to_column_ids:
         edges[from_column_id] = to_column_ids
     else:
         edges.pop(from_column_id, None)
-    return await _call(backend.set_flow(board_id, BoardFlow(transitions=edges)))
+    return await _call(
+        backend.set_flow(board_id, current.model_copy(update={"transitions": edges}))
+    )
 
 
 @mcp.tool(annotations=_DESTRUCTIVE)
@@ -373,17 +376,38 @@ async def clear_flow(board_id: str) -> Board:
 
 @mcp.tool(annotations=_WRITE)
 async def init_board(
-    board_id: str, name: str | None = None, preset: str = "agent-lifecycle"
+    board_id: str,
+    name: str | None = None,
+    preset: str = "agent-lifecycle",
+    id_scheme: str | None = None,
 ) -> Board:
     """Onboard a NEW board pre-seeded from a preset — columns + a matching workflow, built
     together so they can't drift.
 
     Presets: 'blank' (no columns, free-roam — build it yourself), 'simple-kanban'
     (todo/doing/done), 'docs' (todo/ready/running/done, no review gate), 'agent-lifecycle'
-    (the Hermes swarm lanes). To onboard by IMPORT instead (from Hermes or another store),
-    use the `kanban-pro-migrate` CLI, not this tool. Errors if the board id already exists."""
-    board = build_preset_board(board_id, name or board_id, preset)
-    return await _call((await _get_backend()).create_board(board))
+    (the Hermes swarm lanes).
+
+    `id_scheme` fixes the shape of THIS board's card ids (default: a 32-hex uuid):
+    'short:8' -> k7f3q9xw, 'prefix:KAN:6' -> KAN-k7f3q9, 'seq:KAN' -> KAN-1, KAN-2, KAN-3.
+    Change it later with update_board; existing card ids never change.
+
+    To onboard by IMPORT instead (from Hermes or another store), use the
+    `kanban-pro-migrate` CLI, not this tool. Errors if the board id already exists."""
+    backend = await _get_backend()
+    # guard: create_board upserts, so without this init_board would silently overwrite an
+    # existing board's columns/flow (orphaning its cards). This tool is for NEW boards only.
+    try:
+        await backend.get_board(board_id)
+    except NotFound:
+        pass  # good — the id is free
+    else:
+        raise ToolError(
+            f"conflict: board {board_id!r} already exists —"
+            " edit it with set_flow / create_column instead of init_board"
+        )
+    board = build_preset_board(board_id, name or board_id, preset, id_scheme)
+    return await _call(backend.create_board(board))
 
 
 @mcp.tool(annotations=_WRITE)
@@ -855,7 +879,10 @@ async def domain_resource() -> str:
             },
             "Relation": {
                 "id": "str — '<from_card>-><to_card>'",
-                "kind": "str — parent|child|blocks|blocked_by|relates|duplicates|precedes|follows",
+                "kind": (
+                    "str — parent|child|blocks|blocked_by|relates"
+                    "|duplicates|duplicated_by|precedes|follows"
+                ),
                 "from_card": "str — card id",
                 "to_card": "str — card id",
             },

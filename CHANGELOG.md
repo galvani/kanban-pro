@@ -15,6 +15,14 @@ Everything below has landed on `main` but is not tagged. The package still repor
 
 ### Changed
 
+- **Card ids are minted by the store, not by the caller.** `Card.id` now defaults to `""`
+  — "mint me one" — and `create_card` fills it in the shape the card's board asks for.
+  Pinning an id still works (migration preserves the source's ids); the MCP/HTTP surface is
+  unchanged, since `id` was already optional there.
+- **`create_card` refuses an id that already exists** (`Conflict`) instead of silently
+  overwriting that card — the guard that makes short random ids safe. Re-importing over
+  existing cards is now explicit: `create_card(card, overwrite=True)`, which is what
+  `kanban-pro-migrate` uses to stay a re-runnable upsert.
 - **Workflow is now board data, not a config file.** Transition rules moved out of
   `flows-<profile>.yaml` (retired, along with `$KANBAN_PRO_FLOWS`) and onto the board as
   `board.flow` — allowed moves keyed by **column id**, administered over MCP. New tools:
@@ -27,6 +35,18 @@ Everything below has landed on `main` but is not tagged. The package still repor
   wherever the backend doesn't own its own workflow.
 
 ### Added
+
+- **Card ids are a board setting — `board.id_scheme`.** A 32-hex uuid is more id than a
+  card needs, so a board now says what its cards are called: `short[:N]` (`k7f3q9xw`),
+  `prefix:KAN[:N]` (`KAN-k7f3q9`), or `seq:KAN` (`KAN-1`, `KAN-2`, …); unset stays uuid.
+  It's board data like the flow, set wherever a board is set up — `init_board(…,
+  id_scheme=…)`, `create_board`, the HTTP API — and changeable with `update_board`. Each
+  board counts on its own (`KAN-1` and `OPS-1` coexist), and changing a live board's scheme
+  never rewrites the ids it already handed out. Random ids use a Crockford-style base32
+  alphabet without `i`/`l`/`o`/`u`, so they survive being read aloud. The scheme covers
+  cards only — board/column/comment ids stay uuids. `seq:` counters live in the store, so
+  they survive restarts and skip numbers already taken; `hermes` mints ids its own way and
+  ignores the scheme.
 
 - **`kanban-pro-mcp --install-skills [DIR]`** — copy the example agent skills
   (`kanban-orchestrator`, `kanban-worker`, `kanban-pro-work-reporting`) into a skills dir

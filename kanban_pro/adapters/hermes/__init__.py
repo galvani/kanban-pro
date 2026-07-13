@@ -94,9 +94,13 @@ class HermesAdapter(BaseAdapter):
         slug, row = await self._reader.find_task(card_id)
         return mapping.card_from_row(slug, row)
 
-    async def create_card(self, card: Card) -> Card:
+    async def create_card(self, card: Card, *, overwrite: bool = False) -> Card:
         if not card.placements:
             raise ValueError("create_card requires at least one placement")
+        if overwrite:
+            # hermes mints the task id itself (`hermes kanban create`), so we cannot ask it
+            # to write over a given id — migrating INTO hermes can't be a re-runnable upsert.
+            raise NotSupported("hermes assigns its own card ids; overwrite is not possible")
         target = card.placements[0]
         lane = mapping.lane_of(target.column_id)
         args = ["create", card.title, "--json"]

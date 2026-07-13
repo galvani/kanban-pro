@@ -247,22 +247,23 @@ class AugmentingBackend:
 
         # the board's own flow
         transitions = board.flow.transitions if board.flow else {}
-        note = (
-            "inline flow malformed — fell back to the board flow" if resolution.fell_back else None
+        # a malformed inline flow falls through to here — prefix that fact onto the note.
+        prefix = (
+            "inline flow malformed — fell back to the board flow" if resolution.fell_back else ""
         )
+        sep = "; " if prefix else ""
         if not transitions:
             return TransitionInfo(
                 card_id=card_id, board_id=board_id, current_column_id=current_id,
                 scheme=scheme, resolved_scheme=BOARD, source="free", options=options(None),
-                note=(note or "") + " (no board flow configured — free)" if note else
-                "no board flow configured — free",
+                note=f"{prefix}{sep}no board flow configured — free",
             )  # fmt: skip
         modeled = modeled_columns(transitions)
         if current_id is None or current_id not in modeled:
             return TransitionInfo(
                 card_id=card_id, board_id=board_id, current_column_id=current_id,
                 scheme=scheme, resolved_scheme=BOARD, source="flow", options=options(None),
-                note=(note or "") + " current column not modeled by the board flow — free",
+                note=f"{prefix}{sep}current column not modeled by the board flow — free",
             )  # fmt: skip
         # legal = the lane's explicit edges + any unmodeled column (free to enter)
         legal = set(transitions.get(current_id, [])) | {
@@ -270,7 +271,8 @@ class AugmentingBackend:
         }
         return TransitionInfo(
             card_id=card_id, board_id=board_id, current_column_id=current_id,
-            scheme=scheme, resolved_scheme=BOARD, source="flow", options=options(legal), note=note,
+            scheme=scheme, resolved_scheme=BOARD, source="flow", options=options(legal),
+            note=prefix or None,
         )  # fmt: skip
 
     # --- flow administration (per-board, validated against the board's columns) ---
@@ -340,10 +342,10 @@ class AugmentingBackend:
     async def get_card(self, card_id: str) -> Card:
         return await self._adapter.get_card(card_id)
 
-    async def create_card(self, card: Card) -> Card:
+    async def create_card(self, card: Card, *, overwrite: bool = False) -> Card:
         for placement in card.placements:
             await self._check_wip(placement.board_id, placement.column_id, card.id)
-        return await self._adapter.create_card(card)
+        return await self._adapter.create_card(card, overwrite=overwrite)
 
     async def update_card(self, card_id: str, patch: CardPatch) -> Card:
         return await self._adapter.update_card(card_id, patch)

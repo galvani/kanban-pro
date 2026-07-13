@@ -107,7 +107,10 @@ async def migrate(
             if dry_run:
                 continue
 
-            await dest.create_card(_with_provenance(card, source_name, board.id, position))
+            # overwrite: a re-run re-imports the source's current state onto the same ids.
+            await dest.create_card(
+                _with_provenance(card, source_name, board.id, position), overwrite=True
+            )
             for comment in comments:
                 await dest.add_comment(
                     Comment(

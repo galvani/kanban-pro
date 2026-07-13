@@ -70,7 +70,44 @@ directory — `changelog-<profile>.db`, `claims-<profile>.db`, and `dedupe-<prof
 
 ---
 
-## 2. WIP limits
+## 2. Card ids — what a card is called (`board.id_scheme`)
+
+A card id defaults to a 32-hex uuid, which is a lot to read back or paste into a tool
+call. The shape is a **board setting**, not a server flag: it's chosen when the board is
+created and lives on the board, like its flow.
+
+| `id_scheme` | Example id | What it is |
+|---|---|---|
+| unset / `uuid` | `9f3c1a…` (32 chars) | the default |
+| `short[:N]` | `k7f3q9xwmb` | N random chars, `N=4..32`, default 10 |
+| `prefix:KAN[:N]` | `KAN-k7f3q9` | the same, behind a prefix; `N` default 6 |
+| `seq:KAN` | `KAN-1`, `KAN-2` | a per-board counter — shortest, and the only ordered one |
+
+Set it wherever a board is set up — MCP, the HTTP API, or the shell:
+
+```jsonc
+init_board(board_id="ops", preset="simple-kanban", id_scheme="seq:OPS")
+create_board(board={"name": "notes", "id_scheme": "short:8"})
+update_board("ops", {"id_scheme": "prefix:OPS:6"})   // from here on
+```
+
+Each board counts on its own, so `KAN-1` and `OPS-1` coexist. Changing a live board's
+scheme affects only cards created *afterwards* — existing ids are never rewritten, and
+they keep working, because an id is an opaque string.
+
+The random schemes draw from a Crockford-style base32 alphabet with `i`, `l`, `o` and `u`
+removed, so an id survives being read aloud or re-typed. Eight characters is 40 bits — far
+more than one board needs — and a collision can't corrupt anything anyway: `create_card`
+refuses an id that already exists rather than overwriting the card holding it.
+
+The id is minted by the **store**, which is what lets a `seq:` counter exist at all (it's
+a `sequences` table, so it survives restarts, and it skips numbers already taken — cards
+migrated in carrying `KAN-1` can't have their id reissued). The `native` and `memory`
+profiles do this; a remote backend (`hermes`) mints ids its own way and ignores the scheme.
+
+---
+
+## 3. WIP limits
 
 A WIP limit lives **on the column**, not in the board flow. Set it with `update_column`
 (or in the UI), and every subsequent move into a full column is rejected:
@@ -89,7 +126,7 @@ concept of a WIP limit. Nothing is stored in the backend to make it work.
 
 ---
 
-## 3. Workflow rules (the board flow)
+## 4. Workflow rules (the board flow)
 
 By default a card can move anywhere. A **flow** turns the board into a state machine: it
 names which column→column transitions are legal. The flow is **board data**, not a config
@@ -158,11 +195,11 @@ agent> move_card PRO-12 → done, force=true
 
 `board.flow.auto_reset_attempts_on_reassign: true` (per board, default true) clears a
 card's attempt counter when it changes assignee or lane, so a retried card starts fresh.
-WIP limits live on the column (§2), never on the flow.
+WIP limits live on the column (§3), never on the flow.
 
 ---
 
-## 4. The attention flag — asking for a decision instead of guessing
+## 5. The attention flag — asking for a decision instead of guessing
 
 An agent that hits a decision it isn't entitled to make should neither guess nor die
 quietly. It raises an attention flag, naming **who** should answer:
@@ -201,7 +238,7 @@ agent is entitled to decide.
 
 This matters, and it's easy to get wrong:
 
-- **The change-feed is the delivery mechanism.** Watch it (§5) and filter for
+- **The change-feed is the delivery mechanism.** Watch it (§6) and filter for
   `attention.raised` events whose `for_actor` is you. That is how an agent — or a
   notifier acting for a human — learns a question is waiting. `wait_changes` blocks until
   one arrives.
@@ -236,7 +273,7 @@ await clear_attention(card_id, "answered q1")
 
 ---
 
-## 5. Listeners — getting events out of the board
+## 6. Listeners — getting events out of the board
 
 Every successful write is appended to the change-log with its actor, a monotonic `seq`,
 and a slim payload. A **listener** is anything that reads that log from a cursor it
@@ -280,7 +317,7 @@ to receive events, and it gives you the same resumability.
 
 ---
 
-## 6. Installing into a harness
+## 7. Installing into a harness
 
 The MCP server is spawned by the harness over stdio — no daemon, no port. Print the exact
 registration snippet:
@@ -299,7 +336,7 @@ claude mcp add kanban-pro -s user -- \
 Register the same server from several harnesses — each spawns its own process under its
 own actor, and they share the store.
 
-## 7. The web UI
+## 8. The web UI
 
 Optional, on-demand, never auto-started:
 
@@ -313,7 +350,7 @@ and refreshes to catch what it missed.
 
 ---
 
-## 8. Where your data lives
+## 9. Where your data lives
 
 On the `default` profile kanban-pro *is* the board, so this is simple: everything is in
 `kanban.db`.

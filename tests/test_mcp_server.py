@@ -250,3 +250,17 @@ def test_server_ships_orientation_instructions() -> None:
     assert kmcp.mcp.instructions == kmcp.INSTRUCTIONS
     for rule in ("claim_card", "archive", "force=true", "raise_attention", "wait_changes"):
         assert rule in kmcp.INSTRUCTIONS
+
+
+def test_init_board_seeds_preset_and_refuses_existing() -> None:
+    asyncio.run(_init_board_guard())
+
+
+async def _init_board_guard() -> None:
+    board = await kmcp.init_board("b-flow", preset="simple-kanban")
+    assert {c.name for c in board.columns} == {"todo", "doing", "done"}
+    assert board.flow is not None and board.flow.transitions  # preset wired a flow
+    # a second init on the same id must REFUSE — create_board upserts, so without the
+    # guard this would silently overwrite the board's columns/flow and orphan its cards.
+    with pytest.raises(ToolError, match="already exists"):
+        await kmcp.init_board("b-flow", preset="blank")

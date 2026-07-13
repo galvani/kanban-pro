@@ -199,7 +199,7 @@ One snapshot, then SSE deltas. Drag a card in the browser, watch the agent's
 ## Configure it
 
 Nothing is required — run `kanban-pro-mcp` with no arguments and you get the native
-SQLite board, free movement, and writes attributed to `unknown`. Four settings improve
+SQLite board, free movement, and writes attributed to `unknown`. A few settings improve
 on that, and the [configuration guide](docs/configuration.md) covers each in full.
 
 | Setting | How | Default |
@@ -207,7 +207,21 @@ on that, and the [configuration guide](docs/configuration.md) covers each in ful
 | Which backend | `--profile <name>` / `KANBAN_PRO_PROFILE` | `default` (native SQLite) |
 | Who is writing | `--actor <kind:name>` / `KANBAN_PRO_ACTOR` | `unknown` |
 | Where the board lives | `KANBAN_PRO_DB` | `~/.local/share/kanban-pro/kanban.db` |
+| What a card id looks like | `board.id_scheme` (per board) | `uuid` — 32 hex chars |
 | Which moves are legal | `set_flow` / `set_transitions` (per board) | none — free movement |
+
+### Card ids
+
+A 32-hex uuid is a lot to paste into a tool call, so a board says what its cards are
+called — `id_scheme`, set when the board is created and changeable with `update_board`:
+
+```jsonc
+init_board(board_id="ops", preset="simple-kanban", id_scheme="seq:OPS")   // OPS-1, OPS-2
+```
+
+`short:8` gives `k7f3q9xw`, `prefix:KAN:6` gives `KAN-k7f3q9`, `seq:KAN` counts `KAN-1`,
+`KAN-2`, `KAN-3`. Each board counts on its own, and switching a board's scheme leaves the
+ids it already handed out alone — an id is an opaque string.
 
 ### Workflow rules
 

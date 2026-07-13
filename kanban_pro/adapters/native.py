@@ -35,7 +35,11 @@ from kanban_pro.domain import (
     Relation,
     apply_patch,
 )
+from kanban_pro.domain.ids import IdScheme, parse_scheme
 from kanban_pro.ports import Capability, Conflict, NotFound
+
+#: random-id mint retries before we call a board's id space exhausted (see _mint_id)
+_MINT_ATTEMPTS = 8
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS boards (id TEXT PRIMARY KEY, doc TEXT NOT NULL);
@@ -55,6 +59,7 @@ CREATE TABLE IF NOT EXISTS relations (
 );
 CREATE INDEX IF NOT EXISTS ix_relations_from ON relations(from_card);
 CREATE INDEX IF NOT EXISTS ix_relations_to ON relations(to_card);
+CREATE TABLE IF NOT EXISTS sequences (name TEXT PRIMARY KEY, value INTEGER NOT NULL);
 """
 
 
@@ -243,13 +248,51 @@ class NativeStore:
         async with aiosqlite.connect(self._path) as db:
             return await self._load_card(db, card_id)
 
-    async def create_card(self, card: Card) -> Card:
+    async def _card_exists(self, db: aiosqlite.Connection, card_id: str) -> bool:
+        async with db.execute("SELECT 1 FROM cards WHERE id=?", (card_id,)) as cur:
+            return await cur.fetchone() is not None
+
+    async def _mint_id(self, db: aiosqlite.Connection, card: Card) -> str:
+        """Mint an id in the shape the card's (first) board asks for — `board.id_scheme`."""
+        board = await self._get_board(db, card.placements[0].board_id)
+        scheme = parse_scheme(board.id_scheme)
+        if scheme.store_assigned:
+            return await self._next_seq_id(db, board.id, scheme)
+        for _ in range(_MINT_ATTEMPTS):
+            if not await self._card_exists(db, candidate := scheme.generate()):
+                return candidate
+        raise Conflict(f"could not mint a free id for board {board.id!r} under {scheme.kind!r}")
+
+    async def _next_seq_id(self, db: aiosqlite.Connection, board_id: str, scheme: IdScheme) -> str:
+        """The next `PREFIX-<n>` from this BOARD's counter. Skips numbers already taken — a
+        board can hold ids minted before the counter existed (cards migrated in carrying
+        `KAN-1`, or a scheme switched on mid-life), and reissuing one would collide."""
+        counter = f"{board_id}:{scheme.prefix}"
+        while True:
+            async with db.execute(
+                "INSERT INTO sequences(name, value) VALUES(?, 1) "
+                "ON CONFLICT(name) DO UPDATE SET value = value + 1 RETURNING value",
+                (counter,),
+            ) as cur:
+                row = await cur.fetchone()
+            candidate = f"{scheme.prefix}-{row[0]}"  # type: ignore[index]
+            if not await self._card_exists(db, candidate):
+                return candidate
+
+    async def create_card(self, card: Card, *, overwrite: bool = False) -> Card:
         if not card.placements:
             raise ValueError("create_card requires at least one placement")
-        stored = card.model_copy(
-            update={"created_at": card.created_at or _now(), "updated_at": _now()}
-        )
         async with aiosqlite.connect(self._path) as db:
+            card_id = card.id or await self._mint_id(db, card)
+            if not overwrite and await self._card_exists(db, card_id):
+                raise Conflict(f"card {card_id!r} already exists")
+            stored = card.model_copy(
+                update={
+                    "id": card_id,
+                    "created_at": card.created_at or _now(),
+                    "updated_at": _now(),
+                }
+            )
             await self._save_card(db, stored)
             await db.commit()
         return stored

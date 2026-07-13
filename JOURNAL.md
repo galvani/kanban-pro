@@ -1,5 +1,75 @@
 # kanban-pro — Journal
 
+## 2026-07-12 — `duplicated_by`, and a skill that audits the board's own flow (`kanban-retro`)
+
+- **Why now:** a real incident. The Hermes swarm worked a ticket family (VLM-75) in parallel
+  with a human-driven session and neither knew about the other. Two agents implemented the
+  same feature on different branches; one shipped a fix that was *half* a fix; one pushed a
+  branch whose merge would have **silently reverted** another card's fix (nothing fails —
+  type-check, lint and tests all stay green; only a moderator looking at the screen sees it).
+  Underneath that: seven cards had been marked `done` with **zero commits anywhere**, so the
+  customer kept retesting an old build and reporting everything as still broken.
+- **`RelationKind.DUPLICATED_BY`.** `DUPLICATES` existed but was **unpaired** — you could say
+  "A duplicates B" and never read the fact from B's side, which is the side you're standing on
+  when you ask *"is someone else already doing this?"*. Added the inverse. Note the docstring
+  had claimed "Inverse-paired: BLOCKS<->BLOCKED_BY, …" while **no machinery implemented it** —
+  the pairs are just enum values stored in whichever direction the caller meant. So the
+  addition follows that existing design rather than introducing derivation, and a new test
+  asserts every directional kind has an inverse (RELATES is symmetric, unpaired) so it can't
+  silently rot again.
+- **`examples/skills/kanban-retro`.** The board is an append-only change-log: it *cannot* lie
+  about what happened, while `work_report` verdicts routinely do (a builder recorded
+  `verdict: PASS` on code that crashed the page on render). The skill reconstructs each card's
+  real timeline from `list_changes` — rounds, bounces, forced moves, dispatch loops, attention
+  latency, cycle-vs-touch time — then **verifies every claim against ground truth** (is it
+  committed? merged? does the app render?) and classifies the failure.
+- **The part that matters most:** it attributes failures to a *layer* before proposing a fix —
+  **model-starved** (`history.db`: `context_overflow`, `finish_reason=length`, 429/503 — note
+  `requested_model` ≠ `resolved_model`, so a profile's config does **not** tell you which model
+  ran) vs **instruction** vs **knowledge** vs **infra** vs **routing**. Rewriting a SOUL because
+  the model ran out of context is pure waste, and it's the easiest mistake a retro can make.
+  Output is approve-first diffs to SOULs/skills/knowledge — with knowledge routed by
+  portability (global KB vs `CLAUDE.md` vs `.agents/knowledge/` vs `JOURNAL.md`).
+
+## 2026-07-12 — a board says what its cards are called (`board.id_scheme`)
+
+- **Why:** a `uuid4().hex` card id is 32 characters. Every agent tool call and every human
+  reference to a card carries it, and nobody can hold one in their head or read one out.
+  Jan asked for shorter ids, with a prefixed option.
+- **First attempt, and why it was wrong.** I built it as a server setting: `--id-scheme` /
+  `$KANBAN_PRO_ID_SCHEME`, read per process. Jan rejected it on sight — *"should be part of
+  the config, it must be set when created through mcp or api or shell"* — and he was right:
+  it's the same category error the flow had two days ago. A board's shape is board data,
+  administered through the same surface as the rest of the board. A process flag also can't
+  express the obvious want (`KAN-` here, `OPS-` there), and it makes a card's id depend on
+  *which server happened to create it* — the id of a card, decided by a client's launch
+  flags, is a bug waiting to happen.
+- **Decision:** `board.id_scheme` — `uuid` (default) | `short[:N]` | `prefix:P[:N]` |
+  `seq:P`, parsed in `kanban_pro/domain/ids.py` and validated by the Board model itself, so
+  a bad scheme is refused at `create_board`/`update_board` rather than at the first card.
+  Set it via `init_board(id_scheme=…)`, `create_board`, `update_board`, HTTP — everything
+  that already administers a board. Random ids use Crockford base32 minus `i`/`l`/`o`/`u`
+  so they're safe to re-type. **Cards only:** board/column/comment ids are plumbing nobody
+  quotes, and a `seq:KAN` counter shared across entity kinds would make a board and a card
+  look like the same ticket. Old uuids keep working untouched — ids were always opaque.
+- **The consequence worth naming: ids are now minted by the STORE.** Only the store can
+  read the scheme off the board a card is landing on, and only the store can bump a
+  counter. So `Card.id` defaults to `""` (= "mint me one") instead of carrying a Pydantic
+  `default_factory`, and `create_card` fills it. This is *better* than the flag version,
+  which needed a `""` sentinel only for `seq:` and generated the rest in the domain — one
+  rule now, not two. A pinned id still wins, which is how migration preserves source ids.
+- **Fallout that was worth it:** short random ids are only safe if a collision can't
+  destroy data, so `create_card` refuses an id that already exists (`Conflict`) instead of
+  upserting. That broke `kanban-pro-migrate`, which *documented itself* as an idempotent
+  upsert and relied on the old clobber-on-conflict behavior. Rather than drop the guard,
+  the intent is now explicit in the port: `create_card(card, overwrite=True)`, which only
+  migration passes. An import re-running is a re-import; a colliding id in normal use is an
+  error. `hermes` raises `NotSupported` for `overwrite` — it can't write to an id it didn't
+  mint.
+- **Also:** `seq:` counters are per board (`sequences` keyed `board:prefix`) and skip
+  numbers already taken, so switching a live board to `seq:KAN` — or migrating in cards
+  that already carry `KAN-1` — can't reissue a taken id.
+
 ## 2026-07-10 — flow moves into the DB: transitions become board data, not a config file
 
 - **Why:** working the live `default` board surfaced the category error. Columns live in

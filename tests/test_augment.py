@@ -44,8 +44,8 @@ class StubRemote(BaseAdapter):
     async def get_card(self, card_id: str) -> Card:
         return await self._store.get_card(card_id)
 
-    async def create_card(self, card: Card) -> Card:
-        return await self._store.create_card(card)
+    async def create_card(self, card: Card, *, overwrite: bool = False) -> Card:
+        return await self._store.create_card(card, overwrite=overwrite)
 
     async def move_card(
         self, card_id: str, to_board_id: str, to_column_id: str, position: int

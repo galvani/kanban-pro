@@ -83,7 +83,9 @@ _TRANSITIONS: dict[str, dict[str, list[str]]] = {
 PRESETS: tuple[str, ...] = tuple(_COLUMNS)
 
 
-def build_preset_board(board_id: str, name: str, preset: str) -> Board:
+def build_preset_board(
+    board_id: str, name: str, preset: str, id_scheme: str | None = None
+) -> Board:
     """Materialise a preset into a Board (columns + flow), ids namespaced by board_id."""
     if preset not in _COLUMNS:
         raise ValueError(f"unknown preset {preset!r} (known: {', '.join(PRESETS)})")
@@ -96,4 +98,4 @@ def build_preset_board(board_id: str, name: str, preset: str) -> Board:
         for src, dsts in _TRANSITIONS[preset].items()
     }
     flow = BoardFlow(transitions=transitions) if transitions else None
-    return Board(id=board_id, name=name, columns=columns, flow=flow)
+    return Board(id=board_id, name=name, columns=columns, flow=flow, id_scheme=id_scheme)

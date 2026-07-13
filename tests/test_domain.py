@@ -72,6 +72,22 @@ def test_enums_are_str_and_json_friendly() -> None:
     assert rel.model_dump()["kind"] == "blocks"
 
 
+def test_relation_kinds_are_inverse_paired() -> None:
+    # Every directional kind has a stored inverse so the fact can be told from either
+    # side ("A duplicates B" / "B duplicated_by A"). RELATES is symmetric, so unpaired.
+    inverses = {
+        RelationKind.BLOCKS: RelationKind.BLOCKED_BY,
+        RelationKind.DUPLICATES: RelationKind.DUPLICATED_BY,
+        RelationKind.PARENT: RelationKind.CHILD,
+        RelationKind.PRECEDES: RelationKind.FOLLOWS,
+    }
+    paired = set(inverses) | set(inverses.values())
+    assert paired | {RelationKind.RELATES} == set(RelationKind)
+
+    dup = Relation(kind=RelationKind.DUPLICATED_BY, from_card="keep", to_card="copy")
+    assert dup.model_dump()["kind"] == "duplicated_by"
+
+
 def test_comment_author_is_user_id() -> None:
     c = Comment(card_id="card-1", author="user-1", body="looks good")
     assert c.author == "user-1"

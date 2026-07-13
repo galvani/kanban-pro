@@ -91,7 +91,7 @@ column id. You administer it — workers only follow it.
 - `get_board(board_id)` — Get one board (includes its columns and label registry).
 - `get_card(card_id)` — Get one card (works for archived cards too).
 - `heartbeat_claim(card_id, ttl_seconds?, owner?)` — Renew your live lease on a card while still working it. `owner` must match
-- `init_board(board_id, name?, preset?)` — Onboard a NEW board pre-seeded from a preset — columns + a matching workflow, built
+- `init_board(board_id, name?, preset?, id_scheme?)` — Onboard a NEW board pre-seeded from a preset — columns + a matching workflow, built
 - `list_boards()` — List all boards.
 - `list_cards(board_id, include_archived?)` — List a board's cards. Archived cards are hidden unless include_archived=true
 - `list_changes(since?, limit?)` — Change feed: every recorded write after cursor `since` (audit trail + sync).

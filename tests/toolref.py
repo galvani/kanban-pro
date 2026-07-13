@@ -20,7 +20,7 @@ END = "<!-- /generated:tool-reference -->"
 
 SKILL_FILES = [
     Path(__file__).parent.parent / "examples" / "skills" / name / "SKILL.md"
-    for name in ("kanban-worker", "kanban-orchestrator")
+    for name in ("kanban-worker", "kanban-orchestrator", "kanban-retro")
 ]
 
 

@@ -14,15 +14,21 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import StrEnum
-from typing import Any
-from uuid import uuid4
+from typing import Annotated, Any
 
-from pydantic import BaseModel, Field
+from pydantic import AfterValidator, BaseModel, Field
+
+from kanban_pro.domain.ids import new_id as _new_id
+from kanban_pro.domain.ids import parse_scheme
 
 
-def _new_id() -> str:
-    """Default id generator. Adapters overwrite with the backend's own id."""
-    return uuid4().hex
+def _check_id_scheme(spec: str | None) -> str | None:
+    parse_scheme(spec)  # refuse a bad scheme at create/update, not at the first card
+    return spec
+
+
+#: A `board.id_scheme` spec (see domain.ids), validated wherever it can be set.
+type IdSchemeSpec = Annotated[str | None, AfterValidator(_check_id_scheme)]
 
 
 class ColumnCategory(StrEnum):
@@ -43,15 +49,21 @@ class ColumnCategory(StrEnum):
 class RelationKind(StrEnum):
     """Canonical typed-relation vocabulary (modeled on Vikunja's `relation_kind`).
 
-    Inverse-paired: BLOCKS<->BLOCKED_BY, PARENT<->CHILD, PRECEDES<->FOLLOWS. Adapters map
-    to/from the backend's link types and gate on Capability.RELATIONS. Subtasks = child
-    CARDS via PARENT/CHILD (not checklists).
+    Inverse-paired: BLOCKS<->BLOCKED_BY, DUPLICATES<->DUPLICATED_BY, PARENT<->CHILD,
+    PRECEDES<->FOLLOWS. Adapters map to/from the backend's link types and gate on
+    Capability.RELATIONS. Subtasks = child CARDS via PARENT/CHILD (not checklists).
+
+    Inverses are STORED, not derived: `list_relations` returns every edge touching the
+    card (either side), so the pair exists to let the caller say which way it meant.
+    `A duplicates B` = A is the redundant copy, B is the one to keep; `B duplicated_by A`
+    is the same fact told from the survivor's side. RELATES is symmetric and unpaired.
     """
 
     RELATES = "relates"
     BLOCKS = "blocks"
     BLOCKED_BY = "blocked_by"
     DUPLICATES = "duplicates"
+    DUPLICATED_BY = "duplicated_by"
     PARENT = "parent"
     CHILD = "child"
     PRECEDES = "precedes"
@@ -121,9 +133,14 @@ class Column(BaseModel):
 
 
 class Card(BaseModel):
-    """The unit of work. `labels`/`assignees` are Label/User ids; placement is a set."""
+    """The unit of work. `labels`/`assignees` are Label/User ids; placement is a set.
 
-    id: str = Field(default_factory=_new_id)
+    `id` is empty by default: the STORE mints it in `create_card`, in the shape the card's
+    board asks for (`board.id_scheme`, see domain.ids). Pin an id here only to preserve an
+    existing one — migration does; ordinary callers shouldn't.
+    """
+
+    id: str = ""
     title: str
     description: str | None = None
     labels: list[str] = Field(default_factory=list)  # Label ids (board-scoped)
@@ -166,6 +183,9 @@ class Board(BaseModel):
     labels: list[Label] = Field(default_factory=list)  # board-scoped label registry
     #: the workflow over this board's columns; None / empty ⇒ free-roam (see BoardFlow).
     flow: BoardFlow | None = None
+    #: shape of the ids this board's cards get: uuid | short[:N] | prefix:P[:N] | seq:P
+    #: (None ⇒ uuid). Applies to cards created from now on; existing ids are untouched.
+    id_scheme: IdSchemeSpec = None
     ext: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -217,6 +237,7 @@ def apply_patch[M: BaseModel](entity: M, patch: BaseModel) -> M:
 class BoardPatch(BaseModel):
     name: str | None = None
     description: str | None = None
+    id_scheme: IdSchemeSpec = None
     ext: dict[str, Any] | None = None
 
 

@@ -22,8 +22,15 @@
   header h1 span { color: var(--accent); }
   select { background: var(--card); color: var(--text); border: 1px solid var(--border);
            border-radius: 6px; padding: 4px 8px; }
+  .filters { display: flex; align-items: center; gap: 12px; font-size: 12px; color: var(--dim); }
+  .filters label { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; user-select: none; }
+  .filters input[type=checkbox] { accent-color: var(--accent); cursor: pointer; margin: 0; }
+  .filters select { padding: 2px 6px; font-size: 12px; }
   .meta { margin-left: auto; display: flex; gap: 10px; align-items: center;
           color: var(--dim); font-size: 12px; }
+  /* stale cards (no activity in >7d): dimmed but still there; hover restores. */
+  .card.stale { opacity: .42; }
+  .card.stale:hover { opacity: 1; }
   .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--dim); }
   .dot.live { background: var(--ok); }
   #board { flex: 1; display: flex; gap: 12px; padding: 14px; overflow-x: auto; align-items: flex-start; }
@@ -189,6 +196,17 @@
 <header>
   <h1>kanban<span>-pro</span></h1>
   <select id="boardSel" title="board"></select>
+  <div class="filters">
+    <label title="hide lanes with no visible cards"><input type="checkbox" id="fEmpty"> empty</label>
+    <label title="hide done + won't-do (terminal) lanes"><input type="checkbox" id="fDone"> done</label>
+    <label title="cards with no activity in over 7 days">&gt;7d
+      <select id="fStale">
+        <option value="show">show</option>
+        <option value="dim">dim</option>
+        <option value="hide">hide</option>
+      </select>
+    </label>
+  </div>
   <div class="meta">
     <span id="profile"></span><span id="actor"></span>
     <div class="dot" id="liveDot" title="live event stream"></div>
@@ -290,6 +308,28 @@ function age(ts) {
   return Math.round(s / 86400) + "d";
 }
 
+/* --- view filters (client-only, persisted in localStorage) --- */
+const FILTER_KEY = "kanban-pro-filters", STALE_MS = 7 * 86400 * 1000;
+function filterState() {
+  try { return JSON.parse(localStorage.getItem(FILTER_KEY)) || {}; } catch { return {}; }
+}
+function isStale(card) {                 // no activity in >7 days
+  const ts = card.updated_at || card.created_at;
+  return !!ts && (Date.now() - new Date(ts).getTime()) > STALE_MS;
+}
+function initFilters() {
+  const f = filterState();
+  $("fEmpty").checked = !!f.empty;
+  $("fDone").checked = !!f.done;
+  $("fStale").value = f.stale || "show";
+  const onChange = () => {
+    localStorage.setItem(FILTER_KEY, JSON.stringify(
+      { empty: $("fEmpty").checked, done: $("fDone").checked, stale: $("fStale").value }));
+    refresh();
+  };
+  for (const id of ["fEmpty", "fDone", "fStale"]) $(id).onchange = onChange;
+}
+
 function cardEl(card) {
   const el = document.createElement("div");
   el.className = "card"; el.draggable = true; el.dataset.id = card.id;
@@ -380,9 +420,14 @@ async function refresh() {
   cursor = Math.max(cursor, snap.cursor);
   const root = $("board");
   root.innerHTML = "";
+  const f = filterState();
   for (const col of [...snap.board.columns].sort((a, b) => a.order - b.order)) {
-    const cards = snap.cards.filter(c =>
+    // hide done: terminal lanes (done + canceled/won't-do) — reduces end-of-pipeline clutter
+    if (f.done && (col.category === "done" || col.category === "canceled")) continue;
+    let cards = snap.cards.filter(c =>
       (c.placements || []).some(p => p.board_id === boardId && p.column_id === col.id));
+    if (f.stale === "hide") cards = cards.filter(c => !isStale(c));
+    if (f.empty && !cards.length) continue;   // hide empty: drop lanes with nothing to show
     cards.sort((a, b) => {
       const pa = a.placements.find(p => p.column_id === col.id).position;
       const pb = b.placements.find(p => p.column_id === col.id).position;
@@ -395,7 +440,11 @@ async function refresh() {
     el.innerHTML = `<h2>${esc(col.name)}<span>${cards.length}${col.wip_limit ? "/" + col.wip_limit : ""}</span></h2>`;
     const list = document.createElement("div");
     list.className = "cards";
-    for (const c of cards) list.appendChild(cardEl(c));
+    for (const c of cards) {
+      const cardE = cardEl(c);
+      if (f.stale === "dim" && isStale(c)) cardE.classList.add("stale");  // gray out, keep visible
+      list.appendChild(cardE);
+    }
     el.appendChild(list);
     el.addEventListener("dragover", ev => { ev.preventDefault(); el.classList.add("dragover"); });
     el.addEventListener("dragleave", () => el.classList.remove("dragover"));
@@ -687,12 +736,19 @@ async function openCard(id) {
   const fmt = ts => ts ? new Date(ts).toLocaleString() : "—";
   const provenance = (card.ext || {})["kanban_pro.migrated_from"];
 
-  /* assignee picker: dropdown from knownAssignees, saves on change */
+  /* assignee picker: dropdown from knownAssignees, saves on change.
+     knownAssignees comes from the dispatcher's routing table, so a card can legitimately
+     carry an assignee that is NOT in it (an ad-hoc role, a route in another config, a lane
+     mid-rename). Such a value MUST still appear, and appear selected: without its own option
+     the browser falls back to the first one ("— unassigned —"), which both misreports the
+     card AND silently wipes the real assignee the moment the dialog is saved. */
   function assigneeHtml() {
     const current = (card.assignees || [])[0] || "";
     if (!knownAssignees.length) return esc(current || "unassigned");
-    const opts = knownAssignees.map(a =>
-      `<option value="${esc(a)}"${a === current ? " selected" : ""}>${ASSIGNEE_GLYPHS[a] || ""}${esc(a)}</option>`
+    const known = knownAssignees.slice();
+    if (current && !known.includes(current)) known.push(current);
+    const opts = known.map(a =>
+      `<option value="${esc(a)}"${a === current ? " selected" : ""}>${ASSIGNEE_GLYPHS[a] || ""}${esc(a)}${knownAssignees.includes(a) ? "" : " (unknown)"}</option>`
     );
     opts.unshift(`<option value=""${!current ? " selected" : ""}>— unassigned —</option>`);
     return `<select id="dlgAssignee">${opts.join("")}</select>`;
@@ -883,7 +939,7 @@ document.addEventListener("visibilitychange", () => { if (!document.hidden) refr
 window.addEventListener("online", refresh);
 
 (async () => {
-  try { await loadMeta(); await loadBoards(); await refresh(); }
+  try { initFilters(); await loadMeta(); await loadBoards(); await refresh(); }
   catch (e) { toast(e.message); }
 })();
 </script>
