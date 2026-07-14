@@ -106,7 +106,7 @@ Subtasks = child cards via `PARENT`/`CHILD` relations (`SUBTASKS`).
 
 | Operation | Signature | Notes |
 |---|---|---|
-| work queue | `list_work(assignee?, include_unassigned=True)` | default assignee = the connection's actor; workable = backlog/unstarted/started, cards leased to others excluded, own leases marked; **each item carries its legal transitions inline** |
+| work queue | `list_work(assignee?, include_unassigned=True)` | default assignee = the connection's actor; workable = backlog/unstarted/started, cards leased to others excluded, own leases marked; **each item carries its legal transitions inline**. Ordered by tier (started → unstarted → backlog), then **`card.priority`** (0–10, higher = more urgent), then board position — priority orders *within* a tier and never across it, so an urgent backlog card is never offered ahead of work already in flight |
 | claim | `claim_card(card_id, ttl_seconds=3600, owner?)` | atomic CAS lease (competing consumers); expired leases are silently reclaimable; recorded as `card.claimed` |
 | heartbeat | `heartbeat_claim(card_id, ttl_seconds=3600, owner?)` | renew own live lease (not recorded) |
 | release | `release_claim(card_id, owner?)` | idempotent; recorded as `card.released` |

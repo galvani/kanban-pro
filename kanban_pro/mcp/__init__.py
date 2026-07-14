@@ -624,7 +624,12 @@ async def list_work(assignee: str | None = None, include_unassigned: bool = True
     """What should I work on? Workable cards for `assignee` (default: YOU, this
     connection's actor) — assigned to you or unassigned, in backlog/ready/started
     columns, cards leased to others excluded. Each item carries its legal transitions,
-    so one call gives you the whole plan."""
+    so one call gives you the whole plan.
+
+    Ordered: started work first, then actionable, then queued — and WITHIN each of those,
+    by `card.priority` (0-10, higher = more urgent; 0 = unprioritised). Priority does not
+    outrank the tiers: a P10 backlog card is not offered ahead of the P2 card you already
+    have in flight. Take the top item."""
     return await _call(_recording(await _get_backend()).list_work(assignee, include_unassigned))
 
 

@@ -270,9 +270,14 @@ class RecordingBackend:
                         transitions=await self._inner.transitions(card.id, board.id),
                     )
                 )
+        # tier first, priority second, board position last. Priority orders WITHIN a tier and
+        # deliberately does NOT outrank it: a P10 backlog card must not out-sort the P2 card
+        # this agent already has in flight, or every urgent arrival abandons work in progress.
+        # (-priority because higher = more urgent, and sort is ascending.)
         items.sort(
             key=lambda i: (
                 _CATEGORY_RANK.get(ColumnCategory(i.column_category), 9),
+                -i.card.priority,
                 next(p.position for p in i.card.placements if p.board_id == i.board_id),
             )
         )

@@ -143,6 +143,12 @@ class Card(BaseModel):
     id: str = ""
     title: str
     description: str | None = None
+    #: 0-10, HIGHER = more urgent (matches the hermes backend's `ORDER BY priority DESC`).
+    #: 0 = unprioritised, and it is the default, so a card nobody ranked never jumps the queue.
+    #: Orders the work queue WITHIN a category tier — it does not outrank the tiers themselves
+    #: (see `list_work`): started work is still offered before a shinier unstarted card, or an
+    #: agent would abandon whatever it's holding every time something urgent lands.
+    priority: int = Field(default=0, ge=0, le=10)
     labels: list[str] = Field(default_factory=list)  # Label ids (board-scoped)
     assignees: list[str] = Field(default_factory=list)  # User ids
     start_date: datetime | None = None
@@ -252,6 +258,7 @@ class ColumnPatch(BaseModel):
 class CardPatch(BaseModel):
     title: str | None = None
     description: str | None = None
+    priority: int | None = Field(default=None, ge=0, le=10)  # 0-10, higher = more urgent
     labels: list[str] | None = None
     assignees: list[str] | None = None
     start_date: datetime | None = None

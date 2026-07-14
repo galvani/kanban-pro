@@ -357,7 +357,9 @@ function cardEl(card) {
     const glyph = ASSIGNEE_GLYPHS[a] || "";
     chips.push(`<span class="chip ${esc(a)}${cls}">${glyph}${esc(a)}</span>`);
   }
-  const prio = (ext.hermes || {}).priority ?? (ext.work || {}).priority;
+  // first-class card.priority (0-10, higher = more urgent) wins; the ext.hermes/ext.work
+  // priorities are the older backend-supplied ones, kept as a fallback for legacy cards.
+  const prio = card.priority || ((ext.hermes || {}).priority ?? (ext.work || {}).priority);
   if (prio != null && prio !== 0) chips.push(`<span class="chip">p${esc(prio)}</span>`);
   if (ext["kanban_pro.scheme"]) chips.push(`<span class="chip">${esc(ext["kanban_pro.scheme"])}</span>`);
   const work = ext.work || {};
@@ -837,7 +839,8 @@ async function openCard(id) {
       `<button class="linkbtn" onclick="openLog('${esc(id)}', ${running})">${running ? "▶ watch live" : "view log"} ↗</button>`, true]);
   if (att) rows.push(["action", `<button type="button" onclick="retryCard('${esc(id)}')">Retry</button>`, true]);
   const hermes = (card.ext || {}).hermes;
-  if (hermes && hermes.priority != null) rows.push(["priority", String(hermes.priority)]);
+  if (card.priority) rows.push(["priority", `${card.priority} / 10`]);
+  else if (hermes && hermes.priority != null) rows.push(["priority", String(hermes.priority)]);
   $("dlgGrid").innerHTML = rows.map(([k, v, raw]) =>
     `<span class="mi${k === "assignees" || k === "session log" ? " wide" : ""}"><span class="mk">${esc(k)}</span><span class="mv" title="${esc(String(v).replace(/<[^>]*>/g, ""))}">${raw ? v : esc(v)}</span></span>`).join("");
   /* wire up assignee dropdown (only present when knownAssignees is non-empty) */

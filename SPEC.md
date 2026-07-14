@@ -60,7 +60,9 @@ The minimum a kanban needs, kept deliberately small and backend-neutral:
   NOT resting, because a card sits there precisely until a human decides something. The
   questions are "can it be worked?" (category) and "is anyone waiting here?" (resting), and
   a `done` column merely happens to answer yes to both.
-- **Card** — `id`, `title`, `description`, `labels[]`, `assignees[]` (User ids),
+- **Card** — `id`, `title`, `description`, **`priority`** (0–10, higher = more urgent;
+  0 = unprioritised, the default — it orders the work queue *within* a category tier and
+  never across it), `labels[]`, `assignees[]` (User ids),
   `start_date?`, `due_date?` (both nullable), `checklists[]`, `attachments[]`,
   `archived` (bool — archive-first, decision 7), `created_at`, `updated_at`, `ext` (see
   passthrough), and **`placements[]`** — a set of

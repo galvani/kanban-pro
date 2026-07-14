@@ -1,5 +1,23 @@
 # kanban-pro — Journal
 
+## 2026-07-14 — `Card.priority` (0–10), and why it does NOT outrank the queue tiers
+
+- First-class `priority: int` on the Card (0–10, **higher = more urgent**, 0 = unprioritised
+  and the default). Direction follows the hermes backend, which already sorted
+  `ORDER BY priority DESC` — inventing the opposite convention next to it would have been a
+  guaranteed bug. Bounded 0–10 at the model, so no caller can win the queue forever with 9999.
+- **`list_work` sorts tier → priority → position, and the tier stays first on purpose.** The
+  tempting reading of "order by the number" is that a P10 backlog card outranks a P2 card that
+  is already in progress. That is exactly the behaviour you don't want: every urgent arrival
+  would make agents drop what they're holding, and half-done work would pile up in `started`
+  forever. Priority orders *within* started, then within unstarted, then within backlog.
+- Not a port change, so no adapter work: `Card`/`CardPatch` carry it, the MCP `create_card`/
+  `update_card` tools inherit it from the models for free, and the native store persists it
+  because cards are stored as JSON docs. Verified against the live board: all 101 existing
+  cards load with `priority: 0`, so there is nothing to migrate.
+- The UI's card chip preferred `ext.hermes.priority` / `ext.work.priority`; the first-class
+  field now wins, with those kept as a fallback for legacy cards.
+
 ## 2026-07-14 — "Done" is two different questions, and neither of them needed a feature
 
 - Chasing cross-board completion ("tell the other board when I'm finished") surfaced that
