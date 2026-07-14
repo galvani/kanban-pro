@@ -1629,7 +1629,7 @@ function reportSectionOrderFor(card) {
   return reportSectionOrder.length ? reportSectionOrder : Object.keys(REPORT_SECTION_LABELS);
 }
 
-function renderWorkReport(report, cardId, requiredSections = [], sectionOrder = Object.keys(REPORT_SECTION_LABELS)) {
+function renderWorkReport(report, cardId, requiredSections = [], sectionOrder = Object.keys(REPORT_SECTION_LABELS), hasContract = false) {
   report = report && typeof report === "object" ? report : {};
   const contentKeys = Object.keys(report).filter(k => !k.startsWith("_"));  // `_v` isn't content
   if (!contentKeys.length && !requiredSections.length) return "";
@@ -1642,6 +1642,7 @@ function renderWorkReport(report, cardId, requiredSections = [], sectionOrder = 
   const known = new Set(Object.keys(REPORT_SECTION_LABELS));
   const ordered = [...sectionOrder, ...Object.keys(REPORT_SECTION_LABELS)].filter((section, index, list) => list.indexOf(section) === index);
   for (const section of ordered) {
+    if (section === "checks" && hasContract) continue;  // superseded — see below
     parts.push(renderReportValue(REPORT_SECTION_LABELS[section], report[section], cardId, section));
   }
   for (const [section, value] of Object.entries(report)) {
@@ -1649,6 +1650,21 @@ function renderWorkReport(report, cardId, requiredSections = [], sectionOrder = 
     if (!known.has(section) && !section.startsWith("_")) {
       parts.push(renderReportValue(section, value, cardId, section));
     }
+  }
+  /* The narrative `work_report.checks` is the worker's SELF-REPORT: free text it writes about
+     itself, gating nothing. `card.checks` is the verification CONTRACT, which gates the flow.
+     Showing both side by side is actively dangerous — on AIR-2915 the report tab displayed six
+     green "pass" rows from a stale run while the real contract said browser-verify: BLOCKED, and
+     the board looked verified. So once a card has a contract, the self-report is demoted: folded
+     shut, labelled for what it is, and never again drawn as if it were evidence. */
+  if (hasContract && Array.isArray(report.checks) && report.checks.length) {
+    parts.push(`<details class="rpSection">
+      <summary class="rpHead dim">Self-reported checks (${report.checks.length}) — <b>not the gate</b></summary>
+      <div class="rpBody dim" style="padding:6px 0">The worker wrote these about its own run. They
+        gate nothing and may be stale. The card's real verification contract is the
+        <b>Checks</b> section above.</div>
+      ${renderReportChecks("", report.checks, "checks")}
+    </details>`);
   }
   const html = parts.filter(Boolean).join("");
   return html ? `<h4>Work report</h4>${html}` : "";
@@ -1978,7 +1994,8 @@ async function openCard(id) {
   const desc = card.description || "";
   $("dlgDesc").innerHTML = desc.trim().startsWith("```json") ? "" : md(desc);
   $("dlgDesc").style.display = $("dlgDesc").innerHTML ? "" : "none";
-  const reportHtml = renderWorkReport((card.ext || {}).work_report, id, reportRequiredFor(card), reportSectionOrderFor(card));
+  const reportHtml = renderWorkReport((card.ext || {}).work_report, id, reportRequiredFor(card),
+    reportSectionOrderFor(card), Array.isArray(card.checks) && card.checks.length > 0);
   $("dlgWorkReport").innerHTML = "";
   // the contract first, the narrative second — a reader must see what was PROVEN before what
   // was claimed about it
