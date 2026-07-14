@@ -1,5 +1,47 @@
 # kanban-pro — Journal
 
+## 2026-07-14 — A gate any stale process can disarm is not a gate
+
+**What broke.** Hours after `checks` shipped, AIR-2915's verification contract *vanished off the
+card*. `declare_checks` had put `browser-verify` on it at 14:00; by 16:25 the card read
+`checks: []`, and the engineer — reading the card honestly — reported that browser-verify had
+never been declared. It had. Something erased it.
+
+**Root cause: Pydantic's default `extra="ignore"`, plus a long-lived process.** The native store
+persists a card as one JSON doc — read → validate → mutate → dump → write. The Hermes MCP servers
+had been up since **02:21**; `checks` landed at **15:40**. Python builds a class at import time, so
+those processes were serving the board with a thirteen-hour-old `Card` class that has no `checks`
+field. Every write through them parsed the card, silently dropped the key it didn't recognise, and
+wrote the card back without it. Nobody deleted anything. The field fell out of a hole in an old
+class on the way through — and the gate quietly disarmed itself.
+
+**The fix: `Card` now ALLOWS extras; `CardPatch` FORBIDS them.** Strict at the boundary, permissive
+in storage. An old process can no longer erase a field it predates — it carries what it cannot
+understand straight through, which makes staleness *harmless* instead of destructive. A typo'd key
+in caller input is still an error rather than silently-stored garbage. Proved with a repro that
+simulates the old model: `BEFORE (extra=ignore): ERASED` / `AFTER (extra=allow): ['browser-verify']`.
+Regression test in `test_domain.py` — it must NOT be "fixed" by teaching `OldCard` the new field;
+the whole point is that it never learns.
+
+**Considered and rejected: schema versioning / a write fence.** A version stamp tells you a doc is
+old; it does not stop old code from writing it. To protect anything it must *refuse* the write —
+which converts silent corruption into a hard outage: every field addition becomes a mandatory
+fleet-wide restart, and every stale agent stops working entirely. Versioning is for when a field's
+*meaning* changes and you need a migration (`work_report._v` already does that). It is the wrong
+instrument for "don't drop what you don't understand".
+
+**Note the ordering trap:** the fix only protects processes that *have* it. The 02:21 servers were
+still running the destructive class and had to be restarted before the contract could be re-declared
+— otherwise the next write would have wiped it again.
+
+**Also fixed, same session — the Retry button was a placebo.** It cleared `ext.work.attempts`, but
+the dispatcher's cycle cap counts `ext.work.dispatches`. So Retry *did* clear the flag and move the
+card to `ready`; the dispatcher then read `dispatches: 10 ≥ cap 10` and re-blocked it within the
+second. Round-trip too fast to see, so the button looked dead. It now clears both counters. Resolve
+re-renders the banner it just removed (it was working, but left the banner on screen, which reads as
+"nothing happened"), and all three attention buttons carry tooltips saying what they actually do —
+Comment talks, Resolve dismisses without restarting, Retry dismisses *and* re-queues.
+
 ## 2026-07-14 — Checks: the gate stops being a story the worker tells about itself
 
 **What broke.** AIR-2915 reached the rebaser with the exact bug it was opened for — a hydration

@@ -107,3 +107,18 @@ Run this (and fix what it flags) before every commit/push.
 ## Journaling
 
 Record notable decisions in [JOURNAL.md](JOURNAL.md) (newest-first, what + why).
+
+## Agent notes
+
+- **A long-lived MCP server serves the board with the class it imported at startup.** Python builds
+  classes at import time, so a server started before a field existed will never see that field, no
+  matter how many times you edit the file. Add a field to `Card` → restart every kanban-pro MCP
+  server (Hermes gateways, dashboards, dispatcher, *and any other Claude session*) or they keep
+  running the old model. `Card` now allows extras so a stale process can no longer ERASE a field it
+  predates (2026-07-14, AIR-2915 lost its `checks` this way), but it still cannot *write* one.
+- **`hermes-gateway-engineer.service` takes ~3 minutes to stop** — it drains in-flight agent
+  sessions. `systemctl --user restart` will look hung; it isn't. Be patient, and never kill it by
+  command-line pattern.
+- **The dispatcher's cycle cap counts `ext.work.dispatches`, not `ext.work.attempts`** — two
+  different counters. Anything that "resets" a stuck card must clear both, or the dispatcher
+  re-blocks it on the very next tick (this is what made the UI's Retry button a placebo).
