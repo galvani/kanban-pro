@@ -1486,19 +1486,28 @@ function renderFindings(title, rows, kind) {
    sitting on unproven checks slips through. */
 /* NB: distinct from renderChecks(card.checks) above — that one draws the card's VERIFICATION
    CONTRACT (which gates the flow); this draws the work report's narrative `checks` section. */
+/* Workers file a check's result under whichever key their SOUL taught them — `verdict: "pass"` is
+   the one the builder/reviewer contract actually emits, and it was the one key this renderer did
+   not read: every row rendered "NOT RUN" and the tally read 0/6 on a run where all six passed.
+   Read them all; a report section we cannot parse is worse than no section, because it invents a
+   failure that never happened. (The card's CONTRACT has a typed status and needs none of this —
+   see renderChecks.) */
+const checkOutcome = c => String(c.outcome || c.status || c.result || c.verdict || "").toLowerCase();
+
 function renderReportChecks(title, rows, kind) {
-  const pass = rows.filter(c => checkPassed(c.status || c.outcome)).length;
+  const pass = rows.filter(c => checkPassed(checkOutcome(c))).length;
   const head = `<div class="rpTally">${pass}/${rows.length} passed</div>`;
   return reportSection(kind, title, head + `<div class="rpChecks">` + rows.map(c => {
-    const out = String(c.outcome || c.status || c.result || "").toLowerCase();
+    const out = checkOutcome(c);
     const ok = checkPassed(out), bad = checkFailed(out);
     const box = ok ? "✓" : bad ? "✗" : "⚠";
     const state = ok ? "ok" : bad ? "bad" : "unrun";
+    const detail = c.details || c.evidence || c.text;
     return `<div class="rpCheck ${state}">
       <span class="rpBox">${box}</span>
       <div class="rpCheckBody">
-        <div class="rpCheckName">${esc(c.name || c.id || "")}</div>
-        ${c.details || c.evidence ? `<div class="rpBody dim">${md(String(c.details || c.evidence))}</div>` : ""}
+        <div class="rpCheckName">${esc(c.name || c.id || c.key || "")}</div>
+        ${detail ? `<div class="rpBody dim">${md(String(detail))}</div>` : ""}
       </div>
       ${pill(OUTCOME[out], out || "not run")}
     </div>`;
