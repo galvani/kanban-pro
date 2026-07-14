@@ -1,5 +1,31 @@
 # kanban-pro — Journal
 
+## 2026-07-14 — "Done" is two different questions, and neither of them needed a feature
+
+- Chasing cross-board completion ("tell the other board when I'm finished") surfaced that
+  **`Column.category` and `auto_clear_attention_columns` both read as "done" and are not the
+  same concept.** I proposed deriving the resting lanes from `category ∈ {done, canceled}` to
+  give "done" one meaning, and Jan approved it. **We then didn't build it, and shouldn't
+  have.** The two answer different questions:
+  - `category` → **the queue**: may a worker be handed this card? (`list_work`/`_READYISH`)
+  - `auto_clear_attention_columns` → **attention**: is anyone waiting on anybody here?
+
+  A `done` column answers yes to both, which is exactly why they look mergeable. But `ready`
+  **rests without being done** (nobody's waiting; the work isn't finished) and `scheduled` is
+  the reverse — unworkable-looking yet emphatically not resting, because a card sits there
+  *until a human decides*. Deriving one from the other silently costs both cases. Documented
+  the distinction in SPEC (the Column bullet claimed category was "what done-ness queries and
+  workflow rules key off" — it isn't; flow keys off column **ids**), methods.md,
+  configuration.md, and at both call sites in `core/recording.py`.
+- **And the feature that started it wasn't needed either.** "Notify the other board when the
+  card completes" needs no terminal concept in the core: every move already emits `card.moved`
+  on the change-feed with actor + board + column, so a watcher decides what "finished" means.
+  That meaning is a property of the two boards' relationship, not of kanban-pro — it belongs
+  in the notifier/dispatcher. Same verdict retired the lane-mirroring feature (built, then
+  dropped unpushed): policy about a board PAIR does not belong in the engine.
+- Net: the session added ONE feature Jan actually asked for (`copy_card`), fixed three latent
+  multi-board bugs, and consciously built nothing else.
+
 ## 2026-07-14 — Two boards, one card: share it (`add_placement`) or copy it (`copy_card`), never both
 
 - **The question was "can I have a second local board with local storage".** Storage: no —

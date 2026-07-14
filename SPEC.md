@@ -44,8 +44,22 @@ The minimum a kanban needs, kept deliberately small and backend-neutral:
   via id), `ext`.
 - **Column** (a.k.a. list/lane/status) — `id`, `name`, `order`, **`category`** (fixed
   semantic enum: triage/backlog/unstarted/started/done/canceled, from Linear — names are
-  free-form per backend, the category is what "done-ness" queries and workflow rules key
-  off), optional `wip_limit`.
+  free-form per backend, so the category is what survives translation across them),
+  optional `wip_limit`.
+
+  **What `category` does and does not govern.** It answers exactly one question: *may a
+  worker be handed this card?* `list_work` treats backlog/unstarted/started as workable and
+  done/canceled/triage as not, which is what stops the queue from offering finished cards
+  forever. It does NOT drive the flow (transitions are declared between column **ids**, in
+  `board.flow`), and it does NOT decide the **resting lanes** (that is the board's
+  `auto_clear_attention_columns`, and it governs *attention*, not the queue).
+
+  Those two look like one concept called "done" and are not, so do not merge them: a
+  `ready` lane rests without being done — nobody is waiting on anybody, but the work isn't
+  finished — while a `scheduled` lane is the reverse, unworkable-looking yet emphatically
+  NOT resting, because a card sits there precisely until a human decides something. The
+  questions are "can it be worked?" (category) and "is anyone waiting here?" (resting), and
+  a `done` column merely happens to answer yes to both.
 - **Card** — `id`, `title`, `description`, `labels[]`, `assignees[]` (User ids),
   `start_date?`, `due_date?` (both nullable), `checklists[]`, `attachments[]`,
   `archived` (bool — archive-first, decision 7), `created_at`, `updated_at`, `ext` (see

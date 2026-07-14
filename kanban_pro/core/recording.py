@@ -63,6 +63,12 @@ def auto_clear_columns(board: Board) -> list[str]:
 
     These are the resting lanes: a card that reaches one is, by the board's own
     configuration, not waiting on anybody.
+
+    NOT derivable from `category: done`, though it looks like it should be (we nearly did it,
+    2026-07-14). `category` answers "may a worker be handed this card?" — it gates the QUEUE
+    (`_READYISH`, below). This list answers "is anyone waiting on anybody here?" — it gates
+    ATTENTION. A `done` column answers yes to both, which is what makes them look like one
+    concept; `ready` is the counterexample that matters, since it rests without being done.
     """
     raw = (board.ext or {}).get("auto_clear_attention_columns")
     if not isinstance(raw, list):
@@ -70,7 +76,9 @@ def auto_clear_columns(board: Board) -> list[str]:
     return [c for c in raw if isinstance(c, str)]
 
 
-#: categories that count as "workable" for the queue (done/canceled/triage are not)
+#: categories that count as "workable" for the queue (done/canceled/triage are not).
+#: This is the ONLY thing Column.category governs — not the flow (that is board.flow, by
+#: column id) and not the resting lanes (that is auto_clear_columns, above).
 _READYISH = {ColumnCategory.BACKLOG, ColumnCategory.UNSTARTED, ColumnCategory.STARTED}
 #: queue ordering: my in-flight work first, then actionable, then queued
 _CATEGORY_RANK = {ColumnCategory.STARTED: 0, ColumnCategory.UNSTARTED: 1, ColumnCategory.BACKLOG: 2}

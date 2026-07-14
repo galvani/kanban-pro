@@ -229,6 +229,20 @@ Two board-level policies live in `board.ext` (set at `init_board`, changed with
 | `anonymous_writes` | `"refuse"` (default) / `"allow"` | may a connection with no actor write to this board? `refuse` → every write from an unidentified connection is a `conflict`; reads always work |
 | `auto_clear_attention_columns` | `[column_id, …]` (default none) | the resting lanes: arriving there clears the card's attention flag. A `block` flag cannot be raised on a card already resting in one (it would be stranded). Never list a lane where cards WAIT on a human (e.g. `scheduled`) — the move would wipe the flag asking for the decision |
 
+**The resting lanes are NOT `category: done`, and the two must not be merged.** They answer
+different questions:
+
+| | governs | asks |
+|---|---|---|
+| `Column.category` | the **queue** (`list_work`) | *may a worker be handed this card?* — backlog/unstarted/started yes, done/canceled/triage no |
+| `auto_clear_attention_columns` | **attention** | *is anyone waiting on anybody here?* — if not, arriving clears the flag, and a `block` raised here is refused |
+
+A `done` column happens to answer yes to both, which is what makes them look like one
+concept called "done". They aren't: a `ready` lane **rests without being done** (nobody is
+waiting, but the work isn't finished), and a `scheduled` lane is the reverse — it looks
+restful and is not, because a card sits there precisely until a human decides something.
+Deriving one from the other would cost you exactly those two cases.
+
 Liveness is **derived**, never stored: a card reads as "running" because a live claim
 (`ext._claim`) exists, so a crashed lease correctly reads as done once it expires. The
 log pointer lives on `ext.session` (it must outlive the claim); liveness comes from the

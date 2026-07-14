@@ -157,6 +157,13 @@ recording an `attention.cleared` event with `resolution: "moved to <column>"`). 
 declaration means: *a card that reaches this lane is, by this board's own definition, not
 waiting on anybody.* Typically `ready` / `todo` / `done`.
 
+**This list is deliberately explicit, not derived from `category: done`.** The two answer
+different questions — `category` decides whether the **queue** may hand a worker the card
+(`list_work`), the resting list decides whether **attention** rests. A `done` column says
+yes to both, which is why they get confused, but `ready` is the common case that breaks the
+equivalence: it rests (nobody is waiting) without being done (the work isn't finished). And
+`scheduled` breaks it the other way. So you must name the lanes; nothing infers them.
+
 ```jsonc
 update_board("ops", {"ext": {"auto_clear_attention_columns": ["ready", "todo", "done"]}})
 ```
