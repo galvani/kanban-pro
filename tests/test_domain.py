@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from datetime import datetime
 
+import pytest
+from pydantic import BaseModel, ConfigDict, ValidationError
+
 from kanban_pro.domain import (
     Attachment,
     Board,
@@ -113,3 +116,35 @@ def test_apply_patch_does_not_alias_the_callers_mutable_values() -> None:
     assert [c.key for c in card.checks] == ["static"]  # the card did not grow a check
     assert card.checks[0].status is CheckStatus.PENDING  # nor did its result change
     assert isinstance(card.checks[0], Check)  # and it is a Check, not a dict (no re-validation)
+
+
+def test_card_preserves_fields_an_older_model_does_not_know_about() -> None:
+    """A stale process must not be able to ERASE a field it predates.
+
+    The native store persists a card as one JSON doc: read -> validate -> mutate -> dump -> write.
+    Under Pydantic's default (`extra="ignore"`) a long-lived server running older code drops every
+    field its `Card` lacks and writes the card back without them. That is how AIR-2915 lost its
+    verification contract on 2026-07-14: an MCP server started before `checks` existed wrote a
+    comment, and `browser-verify` was gone — the gate silently disarmed itself.
+
+    `Card` therefore ALLOWS extras: an old model carries what it cannot understand straight
+    through. This test simulates that old model; it must not be "fixed" by adding the new field
+    to `OldCard` — the whole point is that OldCard never learns about it.
+    """
+
+    class OldCard(BaseModel):  # yesterday's model: it has never heard of `checks`
+        model_config = ConfigDict(extra="allow")
+        id: str = ""
+        title: str
+
+    doc = Card(id="c1", title="t", checks=[Check(key="browser-verify", text="render it")])
+    round_tripped = OldCard.model_validate_json(doc.model_dump_json()).model_dump_json()
+
+    assert [c.key for c in Card.model_validate_json(round_tripped).checks] == ["browser-verify"]
+
+
+def test_card_patch_rejects_an_unknown_field() -> None:
+    """Strict at the boundary, permissive in storage: `Card` carries unknown fields, but a PATCH
+    is caller input, so a typo'd key is an error — not silently-stored garbage."""
+    with pytest.raises(ValidationError):
+        CardPatch(assignee="reviewer")  # the field is `assignees`

@@ -260,8 +260,9 @@ def create_app(
         path = (_AGENTS_DIR / f"{name}.svg").resolve()
         if not path.is_file() or path.parent != _AGENTS_DIR.resolve():
             raise NotFound(f"no animation for {name!r}")
-        return Response(path.read_text(), media_type="image/svg+xml",
-                        headers={"Cache-Control": "max-age=3600"})
+        return Response(
+            path.read_text(), media_type="image/svg+xml", headers={"Cache-Control": "max-age=3600"}
+        )
 
     # --- meta / boards ---
 
@@ -507,7 +508,12 @@ def create_app(
         card = await be.get_card(card_id)
         ext = dict(card.ext or {})
         work = dict(ext.get("work") or {})
+        # BOTH counters, or Retry is a placebo: `attempts` is the per-run failure count, but the
+        # dispatcher's cycle cap counts `dispatches` (loop.py: _dispatches). Clearing only
+        # `attempts` sent the card back to `ready` still holding dispatches >= cap, so the very
+        # next dispatcher tick re-raised the block flag — the button appeared to do nothing.
         work.pop("attempts", None)
+        work.pop("dispatches", None)
         work.pop("retry_at", None)
         patch_ext: dict[str, object] = {"work": work}
         if "kanban_pro.attention" in ext:

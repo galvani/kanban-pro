@@ -1788,9 +1788,14 @@ async function openCard(id) {
         <div class="attnActs">
           <input type="text" id="attnReply" autocomplete="off"
                  placeholder="${pendingQ ? "Answer the question…" : "Reply, then resolve…"}">
-          <button type="button" class="flowBtn" id="attnSend" style="--lane-h:250"><span class="cdot"></span>${pendingQ ? "Answer" : "Comment"}</button>
-          <button type="button" class="flowBtn" id="attnResolve" style="--lane-h:150"><span class="cdot"></span>Resolve</button>
-          <button type="button" class="flowBtn" id="attnRetry" style="--lane-h:70" title="clear the flag, reset attempts and send the card back to ready"><span class="cdot"></span>Retry</button>
+          <button type="button" class="flowBtn" id="attnSend" style="--lane-h:250"
+                  title="${pendingQ
+                    ? "Answer the agent's question — your text goes into the work report, where the agent reads it. The card stays blocked; use Resolve or Retry to unblock it."
+                    : "Add a comment. Talking only — the card stays blocked and nothing is re-run."}"><span class="cdot"></span>${pendingQ ? "Answer" : "Comment"}</button>
+          <button type="button" class="flowBtn" id="attnResolve" style="--lane-h:150"
+                  title="Dismiss the flag: the problem is handled, but do NOT restart the work. The card does not move and no agent is spawned. Use this when you (or someone else) will take it from here."><span class="cdot"></span>Resolve</button>
+          <button type="button" class="flowBtn" id="attnRetry" style="--lane-h:70"
+                  title="Dismiss the flag AND put the card back to work: clears the attempt/dispatch counters and moves it to ready, so the dispatcher spawns the assigned agent again. Only useful if you changed something that will make the next run go differently."><span class="cdot"></span>Retry</button>
         </div>
       </div>`;
     const reply = $("attnReply");
@@ -1820,6 +1825,8 @@ async function openCard(id) {
         await api(`/api/cards/${id}/attention/clear`, { method: "POST",
           headers: {"content-type": "application/json"}, body: JSON.stringify({}) });
         toast("attention cleared");
+        await refresh();
+        await openCard(id);  // the banner IS the thing you just removed — re-render, or it lingers
       } catch (e) { toast(e.message); }
     };
     $("attnRetry").onclick = () => retryCard(id);

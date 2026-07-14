@@ -17,7 +17,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Annotated, Any
 
-from pydantic import AfterValidator, BaseModel, Field
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field
 
 from kanban_pro.domain.ids import new_id as _new_id
 from kanban_pro.domain.ids import parse_scheme
@@ -189,7 +189,23 @@ class Card(BaseModel):
     `id` is empty by default: the STORE mints it in `create_card`, in the shape the card's
     board asks for (`board.id_scheme`, see domain.ids). Pin an id here only to preserve an
     existing one — migration does; ordinary callers shouldn't.
+
+    UNKNOWN FIELDS ARE PRESERVED, and that is load-bearing. The native store persists a card as
+    one JSON doc: read -> validate -> mutate -> dump -> write. Under Pydantic's default
+    (`extra="ignore"`) a process running OLDER code silently DROPS every field its model lacks
+    and writes the card back without them. That is not theoretical: on 2026-07-14 a
+    long-lived MCP server (started before `checks` existed) erased the verification contract off
+    AIR-2915 — the card's `browser-verify` check vanished mid-flight, and the next agent read
+    `checks: []` and correctly concluded there was no gate. A gate any stale process can disarm
+    is not a gate.
+
+    `extra="allow"` makes an old process HARMLESS instead: it carries the fields it does not
+    understand straight through. Note the asymmetry — this is the STORAGE model, so it is
+    permissive; `CardPatch` is the INPUT model and stays strict, so a typo'd field name at the
+    API boundary is still an error rather than silently-stored garbage.
     """
+
+    model_config = ConfigDict(extra="allow")
 
     id: str = ""
     title: str
@@ -323,6 +339,10 @@ class ColumnPatch(BaseModel):
 
 
 class CardPatch(BaseModel):
+    # Strict at the BOUNDARY, permissive in STORAGE (see Card): a patch is caller input, so an
+    # unrecognised key is a typo to reject, not a field to carry.
+    model_config = ConfigDict(extra="forbid")
+
     title: str | None = None
     description: str | None = None
     priority: int | None = Field(default=None, ge=0, le=10)  # 0-10, higher = more urgent
