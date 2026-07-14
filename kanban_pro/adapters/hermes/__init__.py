@@ -48,6 +48,16 @@ _MOVE_VERBS = {"done": "complete", "blocked": "block", "ready": "promote"}
 class HermesAdapter(BaseAdapter):
     """KanbanBackend over the Hermes multi-agent board (SQLite reads, CLI writes)."""
 
+    #: Declare ONLY what the adapter can really do — a capability is a promise the core acts
+    #: on, not a wish. `CUSTOM_FIELDS` used to be listed here and was a lie: Hermes's `tasks`
+    #: table is fixed columns with no JSON bag, so `ext["hermes"]` is a READ-ONLY projection
+    #: of those columns and there is nowhere to put kanban-pro's own ext. Because the claim
+    #: said NATIVE, `AugmentingBackend` never polyfilled it and `update_card` then refused the
+    #: write — so `raise_attention` and `record_work_report`, which both patch `ext`, died with
+    #: `not_supported` on this profile. Now it is honestly absent: `kanban://capabilities`
+    #: reports custom_fields as UNAVAILABLE, and callers learn the truth before they rely on it.
+    #: (Fixing it for real means the Tier-2 overlay — deliberately not built for a backend
+    #: kanban-pro has replaced; see the 2026-07-14 journal entry.)
     capabilities = frozenset(
         {
             Capability.COMMENTS,
@@ -55,7 +65,6 @@ class HermesAdapter(BaseAdapter):
             Capability.RELATIONS,
             Capability.SUBTASKS,
             Capability.ARCHIVE,
-            Capability.CUSTOM_FIELDS,
             Capability.WORKFLOW,  # the engine really enforces its lifecycle
         }
     )
@@ -137,9 +146,16 @@ class HermesAdapter(BaseAdapter):
     async def update_card(self, card_id: str, patch: CardPatch) -> Card:
         data = patch.model_dump(exclude_unset=True)
         if set(data) != {"assignees"}:
+            # The `hermes kanban` CLI (the only write path — reads go direct to its SQLite,
+            # writes go through the CLI so Hermes's own invariants/events fire) exposes
+            # `reassign` and nothing else. `ext` has no home at all here: the tasks table is
+            # fixed columns, and its TEXT columns (body/result/skills) are owned + displayed by
+            # Hermes, so writing our JSON into them would corrupt a system of record we do not
+            # own, not extend it.
             raise NotSupported(
-                "hermes CLI supports only assignee updates"
-                " (title/body edits: use the Hermes dashboard)"
+                f"hermes supports only assignee updates; refused {sorted(data)}."
+                " Its CLI has no verb for these, and `ext` has nowhere to live (fixed columns,"
+                " no JSON bag) — see kanban://capabilities. Title/body edits: Hermes dashboard."
             )
         slug, _ = await self._reader.find_task(card_id)
         profile = data["assignees"][0] if data["assignees"] else "none"

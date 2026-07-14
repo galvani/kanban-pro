@@ -51,11 +51,34 @@ created_at) — so no REORDER_CARDS.
 
 ## HermesAdapter capability declaration (honest)
 
-Native: `COMMENTS`, `ASSIGNEES`, `RELATIONS` (+`SUBTASKS`), `ARCHIVE`, `CUSTOM_FIELDS`,
+Native: `COMMENTS`, `ASSIGNEES`, `RELATIONS` (+`SUBTASKS`), `ARCHIVE`,
 `WORKFLOW` (the engine really enforces lifecycle transitions — e.g. complete only from
-running/ready). Not native (polyfill/unavailable): `MULTI_ASSIGNEE` (single
-`assignee`), `LABELS`, `CHECKLISTS`, `REORDER_*`, `WIP_LIMITS`, `MULTI_BOARD_MEMBERSHIP`,
-`ATTACHMENTS` (file-based, revisit), `WEBHOOKS` (notify-subs exist; not our push shape).
+running/ready). Not native (polyfill/unavailable): `CUSTOM_FIELDS` (**polyfilled** — see
+below), `MULTI_ASSIGNEE` (single `assignee`), `LABELS`, `CHECKLISTS`, `REORDER_*`,
+`WIP_LIMITS`, `MULTI_BOARD_MEMBERSHIP`, `ATTACHMENTS` (file-based, revisit), `WEBHOOKS`
+(notify-subs exist; not our push shape).
+
+### `ext` is POLYFILLED here, not native (fixed 2026-07-14)
+
+`CUSTOM_FIELDS` was declared native and **that was a lie**: the `tasks` table is fixed
+columns with no JSON bag, so `ext["hermes"]` is a *read-only projection* of those columns
+and there is nowhere to put kanban-pro's own ext. Because the claim said NATIVE, the core
+never polyfilled it and `update_card` then refused the write — so `raise_attention` and
+`record_work_report`, which both patch `ext`, died with `not_supported` on this profile.
+
+There is no honest place to encode it either: `body` is the human description (and the CLI
+can only set it at *create*, so updates would be lost), `result` is Hermes's own outcome
+field read by its dispatcher, and a hidden marker comment would be user-visible and
+rewritten on every report update. Writing our state into fields Hermes owns and displays
+would corrupt a system of record we don't own.
+
+So the **core stores it** (Tier-2, SPEC decision 2): `core/ext_store.py`, a per-profile
+SQLite sidecar keyed by card id — the same pattern as the change-log, claims and dedupe,
+none of which Hermes could hold either. It is merged onto the card on read, so ext behaves
+exactly as if the backend had stored it.
+
+`priority` is deliberately *not* overlaid: Hermes has a real `priority` column its own
+dispatcher schedules on, so shadowing it here would fork the truth. It stays unwritable.
 
 ## Adapter access path (proposal)
 

@@ -1,5 +1,40 @@
 # kanban-pro — Journal
 
+## 2026-07-14 — The Tier-2 ext overlay: we store what the backend has no home for
+
+- **`raise_attention` and `record_work_report` were dead on the hermes profile**, and had been
+  since they shipped. Both patch `ext`; hermes's `update_card` accepts only `{"assignees"}`, so
+  both raised `not_supported`. The root cause wasn't the refusal — it was that hermes **declared
+  `Capability.CUSTOM_FIELDS`**, i.e. "ext works natively". `AugmentingBackend` believed the
+  declaration, marked it NATIVE, stepped aside, and the adapter then refused the write. A
+  capability is a promise the core *acts on*, not a wish.
+- **Hermes has nowhere to put ext, and no amount of adapter work changes that.** Its `tasks`
+  table is 37 fixed columns with no JSON bag, so `ext["hermes"]` is a READ-ONLY projection of
+  those columns. Considered and rejected: stuffing our JSON into `body` (it's the human
+  description, shown and edited in Hermes's dashboard — and the `hermes kanban` CLI, the only
+  write path, can set a body only at *create*, so every subsequent work-report update would be
+  lost), into `result` (Hermes's own outcome field, read by its dispatcher), or as a hidden
+  marker comment (user-visible, and the report is rewritten constantly). Encoding our state into
+  fields a foreign system owns and displays corrupts a system of record we don't own.
+- **So the core stores it — which is what SPEC decision 2 always said** (Tier-2 *overlay data*,
+  keyed to the backend's entity ids). New `core/ext_store.py`: a per-profile SQLite sidecar,
+  exactly the pattern already used for the change-log, claims and dedupe — none of which Hermes
+  could hold either. `AugmentingBackend` merges it onto the card on read (`get_card`, and a
+  single bulk query in `list_cards`, not N), routes ext writes to it, strips ext from the patch
+  the adapter sees, and purges on delete so a recycled id can't inherit a dead card's report.
+  `CUSTOM_FIELDS` now reports POLYFILLED on hermes, NATIVE on the native store.
+- **Only for backends that need it.** The native store keeps ext in the card row where it
+  belongs; giving it a sidecar too would be a second source of truth for data it already holds.
+  `build_backend` attaches the store only when the adapter lacks `CUSTOM_FIELDS`.
+- **The subtle bug this nearly shipped with:** the flow engine reads the escapes
+  (`kanban_pro.scheme` free-roam, `kanban_pro.flow` inline) out of `ext` — via
+  `self._adapter.get_card`, which does NOT see overlay ext. On a polyfilled profile a card's
+  free-roam escape would have been silently ignored. `_check_flow` and `transitions` now read
+  through `self.get_card` (merged).
+- `priority` is deliberately NOT overlaid: Hermes has a real `priority` column its own
+  dispatcher schedules on. Shadowing it in our sidecar would fork the truth — the board would
+  show one number while Hermes scheduled on another. It stays honestly unwritable there.
+
 ## 2026-07-14 — `Card.priority` (0–10), and why it does NOT outrank the queue tiers
 
 - First-class `priority: int` on the Card (0–10, **higher = more urgent**, 0 = unprioritised

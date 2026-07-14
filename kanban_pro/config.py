@@ -24,9 +24,10 @@ from kanban_pro.core import (
     ChangeLog,
     ClaimStore,
     DedupeStore,
+    ExtStore,
     RecordingBackend,
 )
-from kanban_pro.ports import KanbanBackend
+from kanban_pro.ports import Capability, KanbanBackend
 
 PROFILE_ENV = "KANBAN_PRO_PROFILE"
 DB_ENV = "KANBAN_PRO_DB"
@@ -72,6 +73,15 @@ def dedupe_path(profile: str) -> Path | None:
     return path
 
 
+def ext_path(profile: str) -> Path | None:
+    """Per-profile Tier-2 ext overlay db (backends that can't store ext); None = in-memory."""
+    if profile == "memory":
+        return None
+    path = _data_dir() / f"ext-{profile}.db"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return path
+
+
 async def _open_native() -> KanbanBackend:
     path = default_db_path()
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -103,8 +113,8 @@ async def build_backend(profile: str | None = None, actor: str | None = None) ->
     — augmenting = delegate/polyfill/enforce (decision 2); recording = every write
     stamped into the per-profile change-log with the actor (decisions 9 & 10);
     actor-policy = an unidentified connection may read but not write (decision 10).
-    Store profiles need no overlay (full-capability); remote profiles will pass a
-    NativeStore overlay when they need Tier-2 polyfills.
+    Store profiles need no overlay (full-capability); a backend that cannot hold `ext`
+    gets the Tier-2 ExtStore, so work reports / attention / origin work anyway.
     """
     name = profile or os.environ.get(PROFILE_ENV) or "default"
     try:
@@ -113,9 +123,16 @@ async def build_backend(profile: str | None = None, actor: str | None = None) ->
         known = ", ".join(sorted(REGISTRY))
         raise ValueError(f"unknown profile {name!r} (known: {known})") from None
     resolved_actor = actor or os.environ.get(ACTOR_ENV) or "unknown"
+    adapter = await factory()
+    # Give the adapter an ext overlay ONLY if it can't store ext itself. A native store keeps
+    # ext in the card row where it belongs — a sidecar there would be a second source of truth
+    # for data the backend already holds perfectly well.
+    ext_store = (
+        None if Capability.CUSTOM_FIELDS in adapter.capabilities else ExtStore(ext_path(name))
+    )
     # workflow lives on the board (board.flow), administered over MCP — no config file.
     recording = RecordingBackend(
-        AugmentingBackend(await factory()),
+        AugmentingBackend(adapter, ext_store=ext_store),
         ChangeLog(changelog_path(name)),
         resolved_actor,
         claims=ClaimStore(claims_path(name)),

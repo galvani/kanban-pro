@@ -18,6 +18,7 @@ from kanban_pro.core.actor_policy import (
 from kanban_pro.core.augment import AugmentingBackend, fulfilments
 from kanban_pro.core.changelog import ChangeEvent, ChangeLog, WaitResult
 from kanban_pro.core.dedupe import DedupeStore
+from kanban_pro.core.ext_store import ExtStore
 from kanban_pro.core.flow import (
     FREE_ROAM,
     SCHEME_EXT_KEY,
@@ -49,6 +50,7 @@ __all__ = [
     "Claim",
     "ClaimStore",
     "DedupeStore",
+    "ExtStore",
     "FREE_ROAM",
     "SCHEME_EXT_KEY",
     "RecordingBackend",

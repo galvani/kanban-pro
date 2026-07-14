@@ -9,8 +9,10 @@ This is what the interfaces actually call. Per capability it decides:
 - UNAVAILABLE -> neither possible -> canonical NotSupported.
 
 Tier-1 enforcement here: WIP limits + the flow engine (core/flow.py — per-card
-schemes, free-roam, audited force). Tier-2 overlay: comments/relations. Still to
-come: ARCHIVE flag polyfill, write-through encoding, reconciliation GC for
+schemes, free-roam, audited force). Tier-2 overlay: comments/relations (the `overlay`
+store) and **`ext`** (the `ext_store` — see core/ext_store.py: a backend with no JSON
+bag, like hermes, still gets work reports, attention and origin, because we hold them).
+Still to come: ARCHIVE flag polyfill, write-through encoding, reconciliation GC for
 out-of-band backend deletes, flow hooks/validators.
 """
 
@@ -18,6 +20,7 @@ from __future__ import annotations
 
 from typing import Protocol, runtime_checkable
 
+from kanban_pro.core.ext_store import ExtStore
 from kanban_pro.core.flow import (
     BOARD,
     FLOW_EXT_KEY,
@@ -61,9 +64,13 @@ class AugmentingBackend:
         self,
         adapter: KanbanBackend,
         overlay: KanbanBackend | None = None,
+        ext_store: ExtStore | None = None,
     ) -> None:
         self._adapter = adapter
         self._overlay = overlay
+        #: Tier-2 home for `ext` when the adapter can't store it (see core/ext_store.py).
+        #: Its presence is what turns CUSTOM_FIELDS from UNAVAILABLE into POLYFILLED.
+        self._ext_store = ext_store
         self._fulfilments = self._compute_fulfilments()
         #: port conformance: everything not UNAVAILABLE is callable on this backend.
         self.capabilities: frozenset[Capability] = frozenset(
@@ -81,9 +88,34 @@ class AugmentingBackend:
                 out[cap] = Fulfilment.POLYFILLED  # Tier-1: the flow engine (per-board flow)
             elif cap in _OVERLAY_CAPS and self._overlay is not None:
                 out[cap] = Fulfilment.POLYFILLED
+            elif cap is Capability.CUSTOM_FIELDS and self._ext_store is not None:
+                out[cap] = Fulfilment.POLYFILLED  # Tier-2: ext lives in our own store
             else:
                 out[cap] = Fulfilment.UNAVAILABLE
         return out
+
+    def _ext_polyfilled(self) -> bool:
+        """True when WE hold the card's ext because the adapter has nowhere to put it."""
+        return (
+            self._ext_store is not None
+            and self._fulfilments[Capability.CUSTOM_FIELDS] is Fulfilment.POLYFILLED
+        )
+
+    async def _with_ext(self, card: Card) -> Card:
+        """Merge our overlay ext onto a card the adapter returned.
+
+        Overlay wins per key: the adapter's `ext` is its own projection of its own columns
+        (hermes exposes `ext["hermes"]` this way), while ours holds the keys it cannot store.
+        They don't collide in practice, and if they did, the value we were asked to persist is
+        the one the caller last wrote.
+        """
+        if not self._ext_polyfilled():
+            return card
+        assert self._ext_store is not None
+        stored = await self._ext_store.get(card.id)
+        if not stored:
+            return card
+        return card.model_copy(update={"ext": {**(card.ext or {}), **stored}})
 
     def fulfilments(self) -> dict[Capability, Fulfilment]:
         """Per-capability fulfilment — the `capabilities` resource payload."""
@@ -145,7 +177,10 @@ class AugmentingBackend:
         repositioning."""
         if Capability.WORKFLOW in self._adapter.capabilities:
             return
-        card = await self._adapter.get_card(card_id)
+        # self.get_card, NOT the adapter's: the flow escapes (`kanban_pro.scheme` free-roam,
+        # `kanban_pro.flow` inline) live in ext, and on a polyfilled profile that ext is in OUR
+        # store — reading the adapter directly would silently ignore both.
+        card = await self.get_card(card_id)
         resolution = self._resolve_flow(card)
         if resolution.resolved == FREE_ROAM:
             return
@@ -191,7 +226,7 @@ class AugmentingBackend:
 
     async def transitions(self, card_id: str, board_id: str | None = None) -> TransitionInfo:
         """What moves are legal for this card, and under which resolved flow."""
-        card = await self._adapter.get_card(card_id)
+        card = await self.get_card(card_id)  # merged ext — the flow escapes live there
         if board_id is None:
             if not card.placements:
                 raise Conflict(f"card {card_id!r} has no placement — nothing to move")
@@ -346,18 +381,48 @@ class AugmentingBackend:
     # --- cards: delegate + WIP checks on column entry ---
 
     async def list_cards(self, board_id: str, include_archived: bool = False) -> list[Card]:
-        return await self._adapter.list_cards(board_id, include_archived)
+        cards = await self._adapter.list_cards(board_id, include_archived)
+        if not self._ext_polyfilled() or not cards:
+            return cards
+        assert self._ext_store is not None
+        stored = await self._ext_store.get_many([c.id for c in cards])  # one query, not N
+        return [
+            c.model_copy(update={"ext": {**(c.ext or {}), **stored[c.id]}}) if c.id in stored else c
+            for c in cards
+        ]
 
     async def get_card(self, card_id: str) -> Card:
-        return await self._adapter.get_card(card_id)
+        return await self._with_ext(await self._adapter.get_card(card_id))
 
     async def create_card(self, card: Card, *, overwrite: bool = False) -> Card:
         for placement in card.placements:
             await self._check_wip(placement.board_id, placement.column_id, card.id)
-        return await self._adapter.create_card(card, overwrite=overwrite)
+        if not self._ext_polyfilled() or not card.ext:
+            return await self._with_ext(await self._adapter.create_card(card, overwrite=overwrite))
+        # The adapter can't hold ext, so don't hand it any — it would drop it silently (or, on
+        # hermes, quietly consume the `ext["hermes"]` keys it DOES map onto create flags).
+        # Create bare, then persist ext against the id the store minted.
+        created = await self._adapter.create_card(
+            card.model_copy(update={"ext": {}}), overwrite=overwrite
+        )
+        assert self._ext_store is not None
+        merged = await self._ext_store.merge(created.id, card.ext)
+        return created.model_copy(update={"ext": {**(created.ext or {}), **merged}})
 
     async def update_card(self, card_id: str, patch: CardPatch) -> Card:
-        return await self._adapter.update_card(card_id, patch)
+        if not self._ext_polyfilled() or patch.ext is None:
+            return await self._with_ext(await self._adapter.update_card(card_id, patch))
+        assert self._ext_store is not None
+        # ext is OURS on this profile: strip it from the patch (the adapter would refuse the
+        # whole call — hermes accepts only `assignees`) and merge it into our store instead.
+        # Shallow-merge with None-removes, the same semantics as a native ext patch (Q17).
+        rest = patch.model_copy(update={"ext": None})
+        fields = rest.model_dump(exclude_unset=True)
+        fields.pop("ext", None)
+        if fields:
+            await self._adapter.update_card(card_id, rest)  # the non-ext half, if any
+        await self._ext_store.merge(card_id, patch.ext)
+        return await self.get_card(card_id)  # re-read so the merge is reflected exactly once
 
     async def archive_card(self, card_id: str) -> Card:
         return await self._adapter.archive_card(card_id)
@@ -370,6 +435,9 @@ class AugmentingBackend:
         if self._overlay is not None:
             # GC polyfilled rows keyed to the purged card (comments/relations cascade).
             await self._overlay.delete_card(card_id)
+        if self._ext_store is not None:
+            # ...and our ext, or a recycled id would inherit a dead card's work report.
+            await self._ext_store.delete(card_id)
 
     async def move_card(
         self,
