@@ -314,6 +314,14 @@
   .statusLine .sdot { width: 8px; height: 8px; border-radius: 50%; flex: none;
                       background: oklch(0.75 0.14 var(--s-h, 260)); }
   .statusLine .stext { flex: 1; min-width: 0; }
+  /* what the card itself says should happen next — the move, not the state */
+  .nextLine { display: flex; align-items: baseline; gap: 8px; margin-top: 6px; padding: 7px 11px;
+              border-radius: 8px; background: oklch(0.22 0.012 260);
+              border: 1px solid var(--border); font-size: 12.5px; line-height: 1.45; }
+  .nlabel { flex: none; font-size: 10px; font-weight: 700; letter-spacing: .07em;
+            text-transform: uppercase; color: oklch(0.54 0.01 260); }
+  .ntext { color: oklch(0.88 0.006 260); min-width: 0; }
+  .ntext p { margin: 0; }
   .statusLine .sact { flex: none; font-size: 10px; font-weight: 800; letter-spacing: .05em;
                       text-transform: uppercase; padding: 2px 8px; border-radius: 5px;
                       background: var(--warn); color: oklch(0.24 0.06 70); }
@@ -469,6 +477,10 @@
   .rpFix { margin-top: 7px; padding: 7px 10px; border-radius: 7px; background: oklch(0.25 0.012 260);
            font-size: 12.5px; line-height: 1.45; color: oklch(0.83 0.006 260); }
   .rpFix b { color: oklch(0.72 0.12 150); }
+  /* a plan carried as steps[] on one item — numbered, readable, not a wall */
+  .rpSteps { margin: 4px 0 0; padding-left: 20px; color: var(--fg); }
+  .rpSteps li { margin: 3px 0; line-height: 1.45; }
+  .rpSteps li::marker { color: var(--dim); font-variant-numeric: tabular-nums; }
   .rpRule { font-size: 11.5px; margin-top: 7px; color: oklch(0.6 0.02 250); }
   .rpChecks { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
   .rpCheck { display: flex; gap: 12px; padding: 11px 13px; align-items: flex-start;
@@ -1251,6 +1263,13 @@ const pill = (meta, fallback) => {
 function statusLine(card, ext, claim, missing) {
   const att = ext["kanban_pro.attention"];
   const wr = ext.work_report || {};
+  /* "Blocked — waiting on X" tells you the STATE and not the MOVE. The card usually already says
+     what it wants doing — the handoff's instruction, or the reason on the flag — and burying that
+     two panes away is what makes a card feel like it suggests nothing. */
+  const ho = wr.handoff && typeof wr.handoff === "object" ? wr.handoff : {};
+  const short = t => { t = String(t || ""); return t.length > 150 ? t.slice(0, 148) + "…" : t; };
+  const doNext = ho.explicit_instruction || ho.instruction || ho.next || ho.text || "";
+  const nextActor = ho.next_actor ? String(ho.next_actor).split(":").pop() : "";
   /* The gate is `card.checks` — the declared contract, resolved with evidence. `wr.checks` is
      legacy narrative the worker wrote about itself, and reading it here is what let a card look
      verified while its required check had never run (AIR-2915). Fall back to it ONLY for cards
@@ -1270,10 +1289,11 @@ function statusLine(card, ext, claim, missing) {
 
   if (att && (att.severity || "block") === "block") {
     const who = att.for ? String(att.for).split(":").pop() : "you";
+    const ask = openQ
+      ? `Blocked — an agent asked a question and is waiting on ${who}. Answer it above and the card resumes.`
+      : `Blocked — waiting on ${who}: ${short(att.reason)}`;
     return { h: 15, act: !att.for || /jan|human/.test(String(att.for)),
-             text: openQ
-               ? `Blocked — an agent asked a question and is waiting on ${who}. Answer it above and the card resumes.`
-               : `Blocked — waiting on ${who}. Nothing will move until the flag is resolved.` };
+             text: ask, next: doNext || "", nextActor };
   }
   if (claim) {
     return { h: 200, act: false,
@@ -1292,10 +1312,12 @@ function statusLine(card, ext, claim, missing) {
              text: `Unverified — ${unrun.length} required check${unrun.length > 1 ? "s" : ""} did not pass (${unrun.map(name).join(", ")}), so any verdict above is unproven.` };
   }
   if (verdict && /pass|approve|ok|complete|done/i.test(verdict)) {
-    return { h: 150, act: false, text: `Verified — verdict "${verdict}", all ${checks.length} checks passed. Done unless you disagree.` };
+    return { h: 150, act: false, next: doNext, nextActor,
+             text: `Verified — verdict "${verdict}", all ${checks.length} checks passed. Done unless you disagree.` };
   }
   if (verdict) {
-    return { h: 70, act: false, text: `Verdict "${verdict}" — not a pass, so this is for a next pass, not a merge.` };
+    return { h: 70, act: false, next: doNext, nextActor,
+             text: `Verdict "${verdict}" — not a pass, so this is for a next pass, not a merge.` };
   }
   if (doing) return { h: 200, act: false, text: `In progress — plan step "${doing.text}" is underway; no agent holds the lease right now.` };
   if (plan.length && plan.every(p => p.status === "done")) {
@@ -1316,10 +1338,25 @@ function renderVerdict(title, v, kind) {
      ${summary ? `<div class="rpBody">${md(String(summary))}</div>` : ""}`);
 }
 
+/* A TYPED renderer must never be pickier than the writers it renders.
+   This one read `title|summary` + `scenario|evidence` and nothing else — so a finding written as
+   `{id, severity, text}` (the reviewer's shape) drew its pill and its id and then a blank row, and
+   a `{id, summary, detail}` finding (the analyst's shape) silently lost the detail. The report was
+   complete the whole time; the reader was not. `body` therefore falls back across every field the
+   fleet actually writes, and `_unrendered` catches whatever it still doesn't know rather than
+   dropping it on the floor — a report you cannot read is indistinguishable from work not done. */
+const FINDING_HEAD = new Set(["id", "severity", "sev", "concern", "category", "file", "line",
+                              "title", "summary", "text", "detail", "scenario", "evidence",
+                              "fix", "rule"]);
 function renderFindings(title, rows, kind) {
   return reportSection(kind, title, rows.map(f => {
     const sev = SEV[String(f.severity || f.sev || "").toLowerCase()];
     const loc = f.file ? `${f.file}${f.line ? ":" + f.line : ""}` : "";
+    const head = f.title || f.summary || "";
+    // the long-form content, under whichever name its author used
+    const body = f.detail || f.text || f.scenario || f.evidence || (head ? "" : reportText(f));
+    const extra = Object.entries(f).filter(([k, v]) =>
+      !FINDING_HEAD.has(k) && v != null && v !== "" && !(Array.isArray(v) && !v.length));
     return `<div class="rpFinding" style="--f-h:${sev ? sev.h : 260}">
       <div class="rpFindHead">
         ${pill(sev, f.severity || "finding")}
@@ -1327,10 +1364,15 @@ function renderFindings(title, rows, kind) {
         ${f.id ? `<span class="rpId">${esc(f.id)}</span>` : ""}
         ${loc ? `<span class="rpLoc">${esc(loc)}</span>` : ""}
       </div>
-      ${f.title || f.summary ? `<div class="rpFindTitle">${esc(f.title || f.summary)}</div>` : ""}
-      ${f.scenario || f.evidence ? `<div class="rpBody dim">${md(String(f.scenario || f.evidence))}</div>` : ""}
+      ${head ? `<div class="rpFindTitle">${esc(head)}</div>` : ""}
+      ${body ? `<div class="rpBody${head ? " dim" : ""}">${md(String(body))}</div>` : ""}
       ${f.fix ? `<div class="rpFix"><b>fix · </b>${md(String(f.fix))}</div>` : ""}
       ${f.rule ? `<div class="rpRule"><b>rule · </b>${esc(f.rule)}</div>` : ""}
+      ${extra.length ? `<div class="objGrid" style="margin-top:4px">${extra.map(([k, v]) =>
+          `<span class="objKey">${esc(k.replace(/_/g, " "))}</span><span class="objVal">${
+            typeof v === "string" ? md(v)
+            : Array.isArray(v) ? v.map(i => typeof i === "string" ? esc(i) : renderInlineItem(i)).join("<br>")
+            : esc(JSON.stringify(v))}</span>`).join("")}</div>` : ""}
     </div>`;
   }).join(""));
 }
@@ -1368,15 +1410,48 @@ const PLAN_STATE = {
   blocked: { box: "⚠", cls: "bad",   label: "blocked" },
   todo:    { box: "☐", cls: "todo",  label: "to do" },
 };
+/* Flatten the plan into ONE ROW PER STEP.
+
+   The schema says `plan: [{id, text, status}]`, but what workers actually file is often a single
+   item holding the whole plan in a nested `steps[]` (prepare and the builders both do it). Kept
+   nested, that rendered as ONE checkbox reading "0/1 done" with four steps buried inside it — the
+   tally was a lie, no step could carry its own state, and the card looked like it had no plan.
+   A step is a step, whoever nested it. (Steps that came from a nested list inherit their parent's
+   status, since they have none of their own — being honest about that beats inventing one.) */
+function planRows(rows) {
+  const out = [];
+  for (const r of rows) {
+    const steps = Array.isArray(r.steps) ? r.steps : null;
+    if (!steps || !steps.length) { out.push(r); continue; }
+    const lead = r.text || r.summary || "";
+    if (lead) out.push({ ...r, text: lead, steps: null });
+    for (const s of steps) {
+      const text = typeof s === "string" ? s : (s.text || s.summary || reportText(s));
+      out.push({
+        // the strings usually start with their own "1. " — an <ol> on top gave "1. 1. …"
+        text: String(text).replace(/^\s*\d+[.)]\s*/, ""),
+        status: (typeof s === "object" && s.status) || r.status,
+        evidence: typeof s === "object" ? s.evidence : undefined,
+        _nested: true,
+      });
+    }
+  }
+  return out;
+}
+
 function renderPlan(title, rows, kind) {
-  const done = rows.filter(r => r.status === "done").length;
-  const head = `<div class="rpTally">${done}/${rows.length} done</div>`;
-  return reportSection(kind, title, head + `<div class="rpChecks">` + rows.map(r => {
+  const items = planRows(rows);
+  const done = items.filter(r => r.status === "done").length;
+  const head = `<div class="rpTally">${done}/${items.length} done</div>`;
+  return reportSection(kind, title, head + `<div class="rpChecks">` + items.map(r => {
     const st = PLAN_STATE[r.status] || PLAN_STATE.todo;
+    const name = r.text || r.summary || r.id || "";
+    const next = r.recommended_next || r.next || "";
     return `<div class="rpCheck ${st.cls}">
       <span class="rpBox">${st.box}</span>
       <div class="rpCheckBody">
-        <div class="rpCheckName${r.status === "done" ? " struck" : ""}">${esc(r.text || r.summary || r.id || "")}</div>
+        ${name ? `<div class="rpCheckName${r.status === "done" ? " struck" : ""}">${md(String(name))}</div>` : ""}
+        ${next ? `<div class="rpBody dim"><b>next · </b>${md(String(next))}</div>` : ""}
         ${r.evidence ? `<div class="rpBody dim">${md(String(r.evidence))}</div>` : ""}
       </div>
       <span class="rpState ${st.cls}">${st.label}</span>
@@ -1795,7 +1870,21 @@ async function openCard(id) {
        <span class="sdot"></span>
        <span class="stext">${esc(st.text)}</span>
        ${st.act ? `<span class="sact">needs you</span>` : ""}
-     </div>`;
+       ${att ? `<button type="button" class="flowBtn" id="stClear" style="--lane-h:150"
+                  title="clear the flag — the card resumes"><span class="cdot"></span>Clear attention</button>` : ""}
+     </div>
+     ${st.next ? `<div class="nextLine"><span class="nlabel">next</span>
+        ${st.nextActor ? agentChip(st.nextActor) : ""}
+        <span class="ntext">${md(String(st.next))}</span></div>` : ""}`;
+  // clear the flag straight from the one-line status — the most common thing you want to do to it
+  if ($("stClear")) $("stClear").onclick = async () => {
+    try {
+      await api(`/api/cards/${id}/attention/clear`, { method: "POST",
+        headers: {"content-type": "application/json"}, body: JSON.stringify({}) });
+      toast("attention cleared");
+      openCard(id);
+    } catch (e) { toast(e.message); }
+  };
 
   /* Build info (surfaced from ext — visible without opening raw ext) */
   /* `ext` is declared up by the attention banner — it needs it first. */
