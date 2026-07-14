@@ -570,6 +570,14 @@
   .md-p { margin: 6px 0; }
   .md-p:first-child { margin-top: 0; }
   .md-list { margin: 6px 0; padding-left: 22px; }
+  /* tables: wide ones scroll inside their own box rather than stretching the panel */
+  .md-tw { overflow-x: auto; margin: 8px 0; }
+  .md-tbl { border-collapse: collapse; font-size: 12.5px; width: 100%; }
+  .md-tbl th, .md-tbl td { border: 1px solid var(--border); padding: 5px 9px; text-align: left;
+                           vertical-align: top; }
+  .md-tbl th { background: oklch(0.24 0.012 260); font-weight: 700; color: oklch(0.9 0.01 260);
+               white-space: nowrap; }
+  .md-tbl tr:nth-child(even) td { background: oklch(0.205 0.01 260); }
   .md-list li { margin: 2px 0; }
   .md-ic { background: #14161a; border: 1px solid var(--border); border-radius: 4px;
            padding: 0 4px; font-family: ui-monospace, monospace; font-size: 12px; }
@@ -957,6 +965,13 @@ function mdInline(s) {                          /* s is already HTML-escaped */
   s = s.replace(/(^|[\s(])(https?:\/\/[^\s<)]+)/g, (_, pre, url) => pre + stash(`<a href="${url}" target="_blank" rel="noopener">${url}</a>`));
   return s.replace(/\u0000(\d+)\u0000/g, (_, n) => toks[n]);
 }
+/* GFM pipe tables. Agents put their check matrices and comparisons in tables, and without this
+   they rendered as a wall of pipes and dashes — the one shape whose whole point is being read at
+   a glance. A table is a header row, a |---|---| separator, then body rows. */
+const TABLE_SEP = /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)+\|?\s*$/;
+const isTableRow = l => /\|/.test(l) && l.trim().length > 0;
+const tableCells = l => l.trim().replace(/^\||\|$/g, "").split("|").map(c => c.trim());
+
 function md(src) {
   const lines = String(src ?? "").replace(/\r\n?/g, "\n").split("\n");
   const isBlock = l => /^(#{1,6})\s|^```|^\s*\d+\.\s|^\s*[-*+]\s|^\s*$/.test(l);
@@ -965,6 +980,19 @@ function md(src) {
   while (i < lines.length) {
     const line = lines[i];
     let m;
+    if (isTableRow(line) && i + 1 < lines.length && TABLE_SEP.test(lines[i + 1])) {
+      const head = tableCells(line);
+      i += 2;                                    /* skip the header and the separator */
+      const body = [];
+      while (i < lines.length && isTableRow(lines[i])) body.push(tableCells(lines[i++]));
+      out.push(
+        `<div class="md-tw"><table class="md-tbl"><thead><tr>` +
+        head.map(c => `<th>${mdInline(esc(c))}</th>`).join("") +
+        `</tr></thead><tbody>` +
+        body.map(r => `<tr>${head.map((_, n) => `<td>${mdInline(esc(r[n] ?? ""))}</td>`).join("")}</tr>`).join("") +
+        `</tbody></table></div>`);
+      continue;
+    }
     if (/^```/.test(line)) {                    /* fenced code — verbatim, no inline md */
       const buf = []; i++;
       while (i < lines.length && !/^```\s*$/.test(lines[i])) buf.push(lines[i++]);
