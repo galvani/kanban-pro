@@ -202,9 +202,8 @@
      and the Resolve button was being pushed off the edge */
   .attnCard .foot { display: flex; align-items: center; gap: 6px; margin-top: 10px; flex-wrap: wrap;
                     font-size: 11px; color: var(--dim); }
-  .attnCard .resolve { margin-left: auto; padding: 4px 12px; border-radius: 7px; font-size: 11.5px;
-                       font-weight: 700; cursor: pointer; background: oklch(0.4 0.08 150 / 0.3);
-                       border: 1px solid oklch(0.5 0.09 150 / 0.4); color: oklch(0.84 0.1 150); }
+  /* the rail's Resolve is the same .flowBtn as everywhere else — it only needs its position */
+  .attnCard .resolve { margin-left: auto; }
   .sevPill { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 5px;
              font-size: 10px; font-weight: 800; letter-spacing: .04em;
              background: oklch(0.72 0.16 var(--sev-h, 70)); color: oklch(0.22 0.05 var(--sev-h, 70)); }
@@ -310,12 +309,17 @@
   /* Move-to: a legal target is lit in its lane's hue; an ILLEGAL one is still shown, dashed and
      dimmed, because hiding it hides the flow. ⌘/Ctrl-click forces it (audited, never silent). */
   .moveBtns { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-  .moveBtns button { display: inline-flex; align-items: center; gap: 7px; padding: 5px 12px;
+  /* one button shape for every hue-carrying action (the flow lanes, and the attention actions):
+     a pill tinted by --lane-h with a dot in the same hue. Defined once, used by both. */
+  .moveBtns button, .flowBtn {
+                     display: inline-flex; align-items: center; gap: 7px; padding: 5px 12px;
                      border-radius: 8px; font-size: 12px; font-weight: 600; white-space: nowrap;
+                     cursor: pointer;
                      border: 1px solid oklch(0.52 0.08 var(--lane-h, 260) / 0.45);
                      background: oklch(0.30 0.055 var(--lane-h, 260) / 0.4);
                      color: oklch(0.87 0.10 var(--lane-h, 260)); }
-  .moveBtns button .cdot { width: 6px; height: 6px; border-radius: 50%; flex: none;
+  .moveBtns button:hover, .flowBtn:hover { background: oklch(0.36 0.07 var(--lane-h, 260) / 0.5); }
+  .moveBtns button .cdot, .flowBtn .cdot { width: 6px; height: 6px; border-radius: 50%; flex: none;
                            background: oklch(0.76 0.13 var(--lane-h, 260)); }
   .moveBtns button.illegal { border: 1px dashed oklch(0.3 0.008 260); background: transparent;
                              color: oklch(0.44 0.01 260); opacity: .55; }
@@ -1200,9 +1204,9 @@ async function openCard(id) {
         <div class="attnActs">
           <input type="text" id="attnReply" autocomplete="off"
                  placeholder="${pendingQ ? "Answer the question…" : "Reply, then resolve…"}">
-          <button type="button" class="linkbtn" id="attnSend">${pendingQ ? "Answer" : "Comment"}</button>
-          <button type="button" class="linkbtn" id="attnResolve">Resolve</button>
-          <button type="button" class="linkbtn" id="attnRetry" title="clear the flag, reset attempts and send the card back to ready">Retry</button>
+          <button type="button" class="flowBtn" id="attnSend" style="--lane-h:250"><span class="cdot"></span>${pendingQ ? "Answer" : "Comment"}</button>
+          <button type="button" class="flowBtn" id="attnResolve" style="--lane-h:150"><span class="cdot"></span>Resolve</button>
+          <button type="button" class="flowBtn" id="attnRetry" style="--lane-h:70" title="clear the flag, reset attempts and send the card back to ready"><span class="cdot"></span>Retry</button>
         </div>
       </div>`;
     const reply = $("attnReply");
@@ -1495,12 +1499,12 @@ function renderAttnRail() {
       ${q ? `<div class="q">${esc(q.question || q.text || "")}</div>` : ""}
       <div class="reply">
         <textarea rows="1" placeholder="${q ? "Answer the agent…" : "Reply to the agent…"}"></textarea>
-        <button type="button" class="linkbtn send">Send</button>
+        <button type="button" class="flowBtn send" style="--lane-h:250"><span class="cdot"></span>${q ? "Answer" : "Send"}</button>
       </div>
       <div class="foot">
         <span>raised by</span>${agentChip(a.raised_by || "?")}
         ${a.for ? `<span>for</span>${agentChip(a.for)}` : ""}
-        <button type="button" class="resolve">Resolve</button>
+        <button type="button" class="flowBtn resolve" style="--lane-h:150"><span class="cdot"></span>Resolve</button>
       </div>`;
     const open = () => { $("dashDlg").close(); openCard(card.id); };
     el.querySelector(".key").onclick = open;
