@@ -50,8 +50,15 @@
   .filters label { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; user-select: none; }
   .filters input[type=checkbox] { accent-color: var(--accent); cursor: pointer; margin: 0; }
   .filters select { padding: 2px 6px; font-size: 12px; }
-  .meta { margin-left: auto; display: flex; gap: 10px; align-items: center;
+  .meta { margin-left: auto; display: flex; gap: 12px; align-items: center;
           color: var(--dim); font-size: 12px; }
+  .hdrDiv { width: 1px; height: 20px; background: oklch(0.32 0.01 260); flex: none; }
+  /* profile/actor read as one identity pill, not two stray strings pushed to the far right */
+  .pill { display: inline-flex; align-items: center; gap: 7px; padding: 4px 11px;
+          border: 1px solid oklch(0.32 0.01 260); border-radius: 8px;
+          background: oklch(0.24 0.012 260); font-size: 12.5px; font-weight: 600; }
+  .pillKey { color: oklch(0.58 0.01 260); font-size: 11px; text-transform: uppercase;
+             letter-spacing: .05em; font-weight: 700; }
   /* stale cards (no activity in >7d): dimmed but still there; hover restores. */
   .card.stale { opacity: .42; }
   .card.stale:hover { opacity: 1; }
@@ -134,8 +141,121 @@
               background: oklch(0.32 0.06 var(--lane-h, 260) / 0.45);
               color: oklch(0.82 0.12 var(--lane-h, 260));
               border: 1px solid oklch(0.55 0.09 var(--lane-h, 260) / 0.4); }
+  /* --- dashboard ------------------------------------------------------------------- */
+  .dashBtn { display: inline-flex; align-items: center; gap: 8px; padding: 5px 12px;
+             border-radius: 8px; font-size: 12.5px; font-weight: 700; cursor: pointer;
+             border: 1px solid oklch(0.32 0.01 260); background: oklch(0.24 0.012 260);
+             color: var(--text); }
+  .dashBtn:hover { border-color: var(--accent); }
+  .dashBtn .cdot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+  .attnCount { min-width: 20px; text-align: center; padding: 1px 7px; border-radius: 20px;
+               font-size: 11px; font-weight: 800; background: oklch(0.68 0.16 15 / 0.22);
+               color: oklch(0.82 0.14 15); border: 1px solid oklch(0.6 0.14 15 / 0.4); }
+  #dashDlg { width: min(1680px, 97vw); height: 92vh; padding: 0;
+             flex-direction: column; overflow: hidden; }   /* display: only when [open] — see #cardDlg */
+  #dashDlg[open] { display: flex; }
+  .dashHead { display: flex; align-items: center; gap: 14px; padding: 15px 22px; flex: none;
+              border-bottom: 1px solid oklch(0.28 0.01 260); }
+  .dashTitle { font-size: 16px; font-weight: 800; letter-spacing: -0.01em; }
+  .dashSub { font-size: 12px; color: var(--dim); margin-top: 2px; }
+  .xbtn { margin-left: auto; width: 30px; height: 30px; border-radius: 8px; flex: none;
+          border: 1px solid oklch(0.32 0.01 260); background: oklch(0.24 0.012 260);
+          color: oklch(0.8 0.01 260); font-size: 14px; cursor: pointer; padding: 0; }
+  .dashBody { display: flex; flex: 1; min-height: 0; }
+  .dashCol { display: flex; flex-direction: column; min-width: 0;
+             border-right: 1px solid oklch(0.28 0.01 260); }
+  /* attention is the column you ACT in — it carries a reply box, two actor chips and a button,
+     so it gets the room. Activity is SCANNED, not worked, and takes what is left. */
+  #dashAttnCol { width: 500px; flex: none; }
+  .dashMain { flex: 1; min-width: 300px; }
+  .dashSess { width: 440px; flex: none; border-right: 0; }
+  /* a card title can be long; keep one event on one line so the feed stays scannable */
+  .feedRow .ref { max-width: 340px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .dashColHead { display: flex; align-items: center; gap: 9px; padding: 12px 18px; flex: none;
+                 border-bottom: 1px solid oklch(0.26 0.01 260); }
+  .dashColTitle { font-size: 11.5px; font-weight: 800; letter-spacing: .07em;
+                  color: oklch(0.72 0.01 260); }
+  .dashColNote { font-size: 11.5px; color: oklch(0.55 0.01 260); }
+  .liveTag { margin-left: auto; display: inline-flex; align-items: center; gap: 6px;
+             font-size: 11px; font-weight: 600; color: var(--ok); }
+  .liveTag .cdot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); }
+  .dashScroll { flex: 1; overflow-y: auto; padding: 14px 16px 34px; }
+  .attnCard { border: 1px solid oklch(0.5 0.1 var(--sev-h, 70) / 0.45);
+              border-left: 3px solid oklch(0.75 0.15 var(--sev-h, 70));
+              border-radius: 10px; background: oklch(0.24 0.02 var(--sev-h, 70) / 0.35);
+              padding: 12px 14px; margin-bottom: 10px; }
+  .attnCard .row { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
+  .attnCard .age { margin-left: auto; font-size: 11px; font-weight: 600; color: var(--dim); }
+  .attnCard .key { font-family: var(--mono); font-size: 11.5px; font-weight: 700;
+                   color: oklch(0.78 0.08 250); cursor: pointer; }
+  .attnCard .ttl { font-size: 13px; font-weight: 600; line-height: 1.35; margin-top: 3px;
+                   cursor: pointer; text-wrap: pretty; }
+  .attnCard .why { font-size: 12px; line-height: 1.45; margin-top: 6px; color: oklch(0.72 0.01 260); }
+  .attnCard .q { margin-top: 9px; padding: 9px 11px; border-radius: 7px; font-size: 12px;
+                 line-height: 1.42; background: oklch(0.27 0.014 260);
+                 border: 1px solid oklch(0.33 0.02 250); color: oklch(0.87 0.03 250); }
+  .attnCard .reply { display: flex; gap: 7px; margin-top: 10px; }
+  .attnCard textarea { flex: 1; min-width: 0; resize: none; padding: 7px 10px; border-radius: 7px;
+                       border: 1px solid oklch(0.34 0.01 260); background: oklch(0.2 0.01 260);
+                       color: var(--text); font: inherit; font-size: 12px; }
+  /* wraps: "raised by <chip> for <chip>" plus a button does not fit the 380px rail on one line,
+     and the Resolve button was being pushed off the edge */
+  .attnCard .foot { display: flex; align-items: center; gap: 6px; margin-top: 10px; flex-wrap: wrap;
+                    font-size: 11px; color: var(--dim); }
+  .attnCard .resolve { margin-left: auto; padding: 4px 12px; border-radius: 7px; font-size: 11.5px;
+                       font-weight: 700; cursor: pointer; background: oklch(0.4 0.08 150 / 0.3);
+                       border: 1px solid oklch(0.5 0.09 150 / 0.4); color: oklch(0.84 0.1 150); }
+  .sevPill { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 5px;
+             font-size: 10px; font-weight: 800; letter-spacing: .04em;
+             background: oklch(0.72 0.16 var(--sev-h, 70)); color: oklch(0.22 0.05 var(--sev-h, 70)); }
+  .feedRow { display: flex; gap: 10px; padding: 7px 2px; line-height: 1.35;
+             border-bottom: 1px solid oklch(0.225 0.008 260); }
+  .feedRow .t { flex: none; width: 54px; text-align: right; font-family: var(--mono);
+                font-size: 10.5px; color: oklch(0.52 0.01 260); padding-top: 2px; }
+  .feedRow .bits { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 5px 6px; }
+  .opPill { display: inline-flex; align-items: center; padding: 1px 7px; border-radius: 5px;
+            font-size: 10px; font-weight: 800; letter-spacing: .03em;
+            background: oklch(0.32 0.05 var(--op-h, 260) / 0.55);
+            color: oklch(0.85 0.11 var(--op-h, 260)); }
+  .feedRow .ref { font-family: var(--mono); font-size: 11px; color: oklch(0.74 0.07 250); cursor: pointer; }
+  .feedRow .txt { font-size: 12px; color: oklch(0.8 0.008 260); }
   dialog { background: var(--panel); color: var(--text); border: 1px solid var(--border);
            border-radius: 12px; width: min(1400px, 96vw); max-height: 90vh; overflow-y: auto; }
+  /* The card dialog is a FIXED frame: same size on every card and on every tab. It used to be
+     sized by its content, so switching tabs (or a card with a short report) made the panel jump
+     and resize under the cursor — the buttons you were aiming at moved. The frame stays put and
+     the CONTENT scrolls inside it. */
+  /* NB: `display` goes ONLY in the [open] rule. A bare `display:flex` here overrides the UA's
+     `dialog { display: none }` for the CLOSED state, so the dialog stays in the layer, invisible
+     but swallowing every click on the board behind it. */
+  #cardDlg { height: 88vh; flex-direction: column; padding: 0; }
+  #cardDlg[open] { display: flex; }
+  #cardDlg .body { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden;
+                   padding: 0; }
+  #cardDlg .tabPane { flex: 1; min-height: 0; overflow-y: auto; padding: 18px 24px 28px; }
+  /* the head is FIXED: identity, attention, meta and the move row never scroll away. On a long
+     work report you could previously lose the card's own title and its Move-to buttons. */
+  .dlgHead { flex: none; padding: 18px 24px 0; border-bottom: 1px solid var(--border);
+             background: var(--panel); }
+  .dlgIdRow { display: flex; align-items: center; gap: 10px; }
+  .dlgKey { font-family: var(--mono); font-size: 13px; font-weight: 700;
+            color: oklch(0.8 0.08 250); }
+  #cardDlg h3 { font-size: 19px; font-weight: 800; line-height: 1.25; margin: 9px 0 0;
+                color: oklch(0.97 0.005 260); text-wrap: pretty; }
+  .dlgSub { font-family: var(--mono); font-size: 11.5px; color: oklch(0.54 0.01 260);
+            margin-top: 6px; }
+  .dlgIdRow .xbtn { margin-left: auto; }
+  /* meta reads as labelled columns (LABEL above value), not a run of "key: value" pairs */
+  #dlgGrid { display: flex; flex-wrap: wrap; gap: 14px 28px; padding: 16px 0 14px; align-items: flex-start; }
+  #dlgGrid .mi { display: flex; flex-direction: column; gap: 6px; min-width: 0; flex: none; }
+  #dlgGrid .mk { font-size: 10px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase;
+                 color: oklch(0.54 0.01 260); }
+  #dlgGrid .mv { font-size: 13px; color: oklch(0.86 0.006 260); max-width: 320px;
+                 overflow: hidden; text-overflow: ellipsis; }
+  .moveRow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+             padding: 13px 0; border-top: 1px solid var(--border); }
+  .mvLabel { font-size: 10px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase;
+             color: oklch(0.54 0.01 260); flex: none; }
   /* showModal() focuses the first focusable child — which was the assignee <select>, so the
      dialog opened with a control highlighted and one stray keystroke away from a reassign.
      `autofocus` on the dialog itself keeps focus on the dialog (and off any control). */
@@ -241,8 +361,14 @@
             border: 1px solid #2a6b3f; }
   .answerBox { display: flex; gap: 6px; margin-top: 6px; }
   .answerBox input { min-width: 0; }
-  .activity { font-size: 12px; max-height: 220px; overflow-y: auto; }
-  .activity .ev { display: flex; gap: 8px; padding: 2px 0; border-top: 1px solid #22262e; }
+  /* ~10 rows, then scroll: the change-log on a long-lived card is hundreds of rows and would
+     otherwise push the comments (and the reply box) off the bottom of the pane. */
+  .activity { font-size: 12px; max-height: 232px; overflow-y: auto;
+              border: 1px solid var(--border); border-radius: 8px; padding: 4px 10px;
+              background: var(--sunken); }
+  .activity .ev { display: flex; gap: 8px; padding: 4px 0; align-items: center; flex-wrap: wrap;
+                  border-top: 1px solid oklch(0.26 0.01 260); }
+  .activity .ev:first-child { border-top: 0; }
   .activity .t { color: var(--dim); white-space: nowrap; }
   .activity .who { color: var(--accent); white-space: nowrap; }
   .activity .forced { color: var(--danger); font-weight: 600; }
@@ -263,10 +389,6 @@
                    padding: 2px 8px; font-size: 12px; border-radius: 6px; cursor: pointer; }
   button.linkbtn:hover { border-color: var(--accent); }
   /* session-log viewer */
-  #logTitle { display: flex; align-items: center; gap: 10px; }
-  #logLive { font-size: 11px; padding: 1px 8px; border-radius: 10px; font-weight: 600; }
-  #logLive.live { background: #123a1f; color: var(--ok); border: 1px solid #2a6b3f; }
-  #logLive.done { background: #22262e; color: var(--dim); border: 1px solid var(--border); }
   .logView { font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; background: #14161a;
              border: 1px solid var(--border); border-radius: 8px; padding: 10px; margin-top: 10px;
              max-height: 62vh; overflow-y: auto; white-space: pre-wrap; word-break: break-word; }
@@ -299,37 +421,92 @@
 <body>
 <header>
   <h1>kanban<span>-pro</span></h1>
-  <select id="boardSel" title="board"></select>
-  <div class="filters">
-    <label title="hide lanes with no visible cards"><input type="checkbox" id="fEmpty"> empty</label>
-    <label title="hide done + won't-do (terminal) lanes"><input type="checkbox" id="fDone"> done</label>
-    <label title="cards with no activity in over 7 days">&gt;7d
-      <select id="fStale">
-        <option value="show">show</option>
-        <option value="dim">dim</option>
-        <option value="hide">hide</option>
-      </select>
-    </label>
+  <div class="hdrDiv"></div>
+  <div class="pill" title="active profile · actor">
+    <span class="pillKey">profile</span><span id="profile"></span>
+    <span class="pillKey">actor</span><span id="actor"></span>
   </div>
+  <select id="boardSel" title="board"></select>
   <div class="meta">
-    <span id="profile"></span><span id="actor"></span>
+    <button type="button" id="dashBtn" class="dashBtn" title="attention, activity and the running session">
+      <span class="cdot"></span>Dashboard<span class="attnCount" id="hdrAttn" hidden>0</span>
+    </button>
+    <div class="filters">
+      <label title="hide lanes with no visible cards"><input type="checkbox" id="fEmpty"> empty</label>
+      <label title="hide done + won't-do (terminal) lanes"><input type="checkbox" id="fDone"> done</label>
+      <label title="cards with no activity in over 7 days">&gt;7d
+        <select id="fStale">
+          <option value="show">show</option>
+          <option value="dim">dim</option>
+          <option value="hide">hide</option>
+        </select>
+      </label>
+    </div>
     <div class="dot" id="liveDot" title="live event stream"></div>
   </div>
 </header>
 <div id="board"></div>
 
-<dialog id="cardDlg" tabindex="-1" autofocus><div class="body">
-  <h3 id="dlgTitle"></h3>
-  <div class="sub" id="dlgMeta" style="color:var(--dim);font-size:12px"></div>
-  <div id="dlgAttention"></div>
-  <dl class="metaGrid" id="dlgGrid"></dl>
-  <h4>Move to</h4>
-  <div class="moveBtns" id="dlgMoves"></div>
+<!-- Dashboard: the control plane. Three rails — what needs a human, what the fleet is doing,
+     and what is running right now. It answers "is anything waiting on me?" without opening a
+     single card, which the board alone could never do. -->
+<dialog id="dashDlg" tabindex="-1" autofocus>
+  <div class="dashHead">
+    <div>
+      <div class="dashTitle">Dashboard</div>
+      <div class="dashSub">kanban-pro · live control plane</div>
+    </div>
+    <button type="button" class="xbtn" id="dashClose">✕</button>
+  </div>
+  <div class="dashBody">
+    <aside class="dashCol" id="dashAttnCol">
+      <div class="dashColHead">
+        <span class="dashColTitle">NEEDS YOUR ATTENTION</span>
+        <span class="attnCount" id="dashAttnCount">0</span>
+      </div>
+      <div class="dashScroll" id="dashAttn"></div>
+    </aside>
+    <main class="dashCol dashMain">
+      <div class="dashColHead">
+        <span class="dashColTitle">ACTIVITY</span>
+        <span class="dashColNote">append-only change-feed</span>
+        <span class="liveTag" id="dashLive"><span class="cdot pulse"></span>live</span>
+      </div>
+      <div class="dashScroll" id="dashActivity"></div>
+    </main>
+    <aside class="dashCol dashSess">
+      <div class="dashColHead">
+        <span class="dashColTitle">RUNNING SESSION</span>
+        <span class="liveTag" id="dashSessAge"></span>
+      </div>
+      <div class="dashScroll" id="dashSession"></div>
+    </aside>
+  </div>
+</dialog>
 
-  <!-- tabs: one pane at a time. The work report is the default — it is the card's current
-       truth, and in the old single-scroll dialog it sat below the description and above the
-       comments, i.e. exactly where nobody looked. -->
-  <div class="tabs" id="dlgTabs"></div>
+<dialog id="cardDlg" tabindex="-1" autofocus><div class="body">
+  <!-- Header: identity first (key + lane), then the title, then the machine detail. The old
+       header led with the title and buried the id and lane in a grey run-on line. -->
+  <div class="dlgHead">
+    <div class="dlgIdRow">
+      <span class="dlgKey" id="dlgKey"></span>
+      <span id="dlgLane"></span>
+      <button type="button" class="xbtn" id="dlgClose" title="Close (Esc)">✕</button>
+    </div>
+    <h3 id="dlgTitle"></h3>
+    <div class="dlgSub" id="dlgMeta"></div>
+    <div id="dlgAttention"></div>
+    <dl class="metaGrid" id="dlgGrid"></dl>
+    <div class="moveRow">
+      <span class="mvLabel">Move&nbsp;to</span>
+      <div class="moveBtns" id="dlgMoves"></div>
+    </div>
+
+    <!-- tabs: one pane at a time. The work report is the default — it is the card's current
+         truth, and in the old single-scroll dialog it sat below the description and above the
+         comments, i.e. exactly where nobody looked. -->
+    <div class="tabs" id="dlgTabs"></div>
+  </div><!-- /dlgHead: fixed; only the panes below scroll -->
   <div class="tabPane" id="paneReport">
     <div id="dlgWorkReport"></div>
     <div id="dlgRelations"></div>
@@ -341,26 +518,22 @@
     <div id="dlgSessionMeta"></div>
     <div class="logView" id="dlgSessionLog"></div>
   </div>
+  <!-- Discussion = activity + comments in one place. They were two tabs telling one story:
+       the change-log says what HAPPENED, the comments say what people SAID about it, and
+       reading either alone left you guessing. Activity sits on top, capped and scrollable. -->
   <div class="tabPane" id="paneComments" hidden>
+    <h4>Activity</h4>
+    <div class="activity" id="dlgActivity"></div>
+    <h4>Comments</h4>
     <div id="dlgComments"></div>
     <form id="commentForm">
       <input type="text" id="commentBody" placeholder="add a comment…" autocomplete="off">
       <button type="submit">Send</button>
     </form>
-  </div>
-  <div class="tabPane" id="paneActivity" hidden>
-    <div class="activity" id="dlgActivity"></div>
     <details class="ext" id="dlgExt"><summary>ext (raw)</summary><pre id="dlgExtPre"></pre></details>
   </div>
 </div></dialog>
 
-<dialog id="logDlg" tabindex="-1" autofocus><div class="body">
-  <h3 id="logTitle">session log <span id="logLive"></span></h3>
-  <div class="logView" id="logView"></div>
-  <div style="margin-top:12px;display:flex;justify-content:flex-end">
-    <button id="logClose" class="linkbtn">Close</button>
-  </div>
-</div></dialog>
 <div id="toast"></div>
 
 <script>
@@ -413,6 +586,28 @@ function ageOpacity(ts) {
   if (h >= 168) return 0.4;
   return +(1 - ((h - 24) / 144) * 0.6).toFixed(3);
 }
+//: a uuid is unreadable in a feed; 8 chars is enough to recognise and to click
+const shortId = id => { const s = String(id || ""); return s.length > 12 ? s.slice(0, 8) + "…" : s; };
+/* The change-log spans the whole PROFILE, so a feed row can name a lane on a board we are not
+   looking at. A hermes column id is "<board>:<lane>" — say the lane, not the id. */
+const laneLabel = colId => {
+  const c = (lastBoard ? lastBoard.columns : []).find(x => x.id === colId);
+  if (c) return c.name;
+  const raw = String(colId || "");
+  return raw.includes(":") ? raw.split(":").pop() : shortId(raw);
+};
+/* Titles for cards that aren't on the current board, fetched once and remembered — the feed is
+   about WHAT happened to WHICH work, and an 8-char uuid does not tell you the second part. */
+const titleCache = new Map();
+async function enrichTitles(ids) {
+  const missing = [...new Set(ids)].filter(id => id && !titleCache.has(id));
+  if (!missing.length) return false;
+  await Promise.all(missing.map(async id => {
+    try { const d = await api(`/api/cards/${id}`); titleCache.set(id, d.card.title); }
+    catch { titleCache.set(id, null); }        // remember the failure; don't re-ask every render
+  }));
+  return true;
+}
 const agentChip = (actor, extra = "") => {
   const name = String(actor ?? "").split(":").pop();
   return `<span class="chip ${extra}" style="--chip-h:${agentHue(name)}"><span class="cdot"></span>${esc(name)}</span>`;
@@ -435,8 +630,8 @@ const toast = msg => {
 
 async function loadMeta() {
   const m = await api("/api/meta");
-  $("profile").textContent = "profile: " + m.profile;
-  $("actor").textContent = "actor: " + m.actor;
+  $("profile").textContent = m.profile;
+  $("actor").textContent = m.actor;
   knownAssignees = m.known_assignees || [];
   reportRequiredByAssignee = m.report_required_by_assignee || {};
   reportSectionOrder = m.report_section_order || [];
@@ -608,7 +803,10 @@ async function refresh() {
   if (!boardId) return;
   const snap = await api(`/api/boards/${boardId}`);
   lastBoard = snap.board;          // the dialog needs every lane (incl. flow-illegal ones)
+  dashCards = snap.cards;          // the dashboard rails read the same snapshot
   cursor = Math.max(cursor, snap.cursor);
+  refreshAttnBadge();
+  if ($("dashDlg").open) renderDash();   // keep the dashboard live while it is open
   const root = $("board");
   root.innerHTML = "";
   const f = filterState();
@@ -949,9 +1147,10 @@ async function openCard(id) {
   ]);
   const card = d.card;
   $("dlgTitle").textContent = card.title;
+  $("dlgKey").textContent = card.id;
 
   const scheme = trans ? (trans.resolved_scheme || "backend workflow") : "?";
-  $("dlgMeta").textContent = `${card.id} · scheme: ${scheme}` + (card.archived ? " · ARCHIVED" : "");
+  $("dlgMeta").textContent = `scheme: ${scheme}` + (card.archived ? " · ARCHIVED" : "");
 
   const att = (card.ext || {})["kanban_pro.attention"];
   $("dlgAttention").innerHTML = att
@@ -979,22 +1178,19 @@ async function openCard(id) {
     return `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(id || url)} ↗</a>`;
   }
 
-  /* assignee picker: dropdown from knownAssignees, saves on change.
-     knownAssignees comes from the dispatcher's routing table, so a card can legitimately
-     carry an assignee that is NOT in it (an ad-hoc role, a route in another config, a lane
-     mid-rename). Such a value MUST still appear, and appear selected: without its own option
-     the browser falls back to the first one ("— unassigned —"), which both misreports the
-     card AND silently wipes the real assignee the moment the dialog is saved. */
+  /* Assignee: a FREE-TEXT combobox, not a closed dropdown.
+     `knownAssignees` comes from the dispatcher's routing.yaml — it is the set of assignees the
+     dispatcher has a ROUTE for, not the set of assignees that exist. A dropdown built from it
+     made every other actor unassignable (`hermes-engineer` has no route, so it could not be
+     picked at all), and it silently wiped an off-list assignee the moment the dialog saved.
+     The list is now a suggestion (datalist) and any actor can be typed. */
   function assigneeHtml() {
     const current = (card.assignees || [])[0] || "";
-    if (!knownAssignees.length) return esc(current || "unassigned");
-    const known = knownAssignees.slice();
-    if (current && !known.includes(current)) known.push(current);
-    const opts = known.map(a =>
-      `<option value="${esc(a)}"${a === current ? " selected" : ""}>${ASSIGNEE_GLYPHS[a] || ""}${esc(a)}${knownAssignees.includes(a) ? "" : " (unknown)"}</option>`
-    );
-    opts.unshift(`<option value=""${!current ? " selected" : ""}>— unassigned —</option>`);
-    return `<select id="dlgAssignee">${opts.join("")}</select>`;
+    const opts = knownAssignees.map(a => `<option value="${esc(a)}"></option>`).join("");
+    return `<input type="text" id="dlgAssignee" list="assigneeList" value="${esc(current)}"
+                   placeholder="unassigned" autocomplete="off" spellcheck="false"
+                   style="max-width:220px">
+            <datalist id="assigneeList">${opts}</datalist>`;
   }
 
   const colId = (trans && trans.current_column_id ? trans.current_column_id : (card.placements[0] || {}).column_id) || "";
@@ -1004,9 +1200,9 @@ async function openCard(id) {
   const colObj = (lastBoard ? lastBoard.columns : []).find(c => c.id === colId);
   const colName = colObj ? colObj.name : (colId.includes(":") ? colId.split(":").pop() : colId);
   const colHue = colObj ? laneHue(colObj) : 260;
+  $("dlgLane").innerHTML = `<span class="lanePill" style="--lane-h:${colHue}">${esc(colName)}</span>`;
   const rows = [
     ["assignees", assigneeHtml(), true],
-    ["column", `<span class="lanePill" style="--lane-h:${colHue}">${esc(colName)}</span>`, true],
     ["created", fmt(card.created_at)], ["updated", fmt(card.updated_at)],
   ];
   if (origin && typeof origin === "object") rows.push(["origin", originHtml(origin), true]);
@@ -1021,19 +1217,19 @@ async function openCard(id) {
   const sess = (card.ext || {}).session || {};
   const running = !!d.claim;   // a live claim == an agent is working it right now
   if (d.claim) rows.push(["claimed by", `${d.claim.owner} · lease until ${fmt(d.claim.expires_at)}`]);
-  if (sess.log || (work && work.log))
-    rows.push(["session log",
-      `<button class="linkbtn" onclick="openLog('${esc(id)}', ${running})">${running ? "▶ watch live" : "view log"} ↗</button>`, true]);
-  if (att) rows.push(["action", `<button type="button" onclick="retryCard('${esc(id)}')">Retry</button>`, true]);
+  // no "view log" button: the Session tab IS the log, and a second surface for it was one
+  // click and one pop-out dialog too many.
+  if (att) rows.push(["action", `<button type="button" class="linkbtn" onclick="retryCard('${esc(id)}')">Retry</button>`, true]);
   const hermes = (card.ext || {}).hermes;
   if (card.priority) rows.push(["priority", `${card.priority} / 10`]);
   else if (hermes && hermes.priority != null) rows.push(["priority", String(hermes.priority)]);
   $("dlgGrid").innerHTML = rows.map(([k, v, raw]) =>
     `<span class="mi${k === "assignees" || k === "session log" ? " wide" : ""}"><span class="mk">${esc(k)}</span><span class="mv" title="${esc(String(v).replace(/<[^>]*>/g, ""))}">${raw ? v : esc(v)}</span></span>`).join("");
-  /* wire up assignee dropdown (only present when knownAssignees is non-empty) */
+  /* assignee combobox: saves on Enter/blur. Any actor is accepted — the datalist only suggests. */
   const dlgAssign = $("dlgAssignee");
   if (dlgAssign) dlgAssign.onchange = async () => {
-    const assignees = dlgAssign.value ? [dlgAssign.value] : [];
+    const v = dlgAssign.value.trim();
+    const assignees = v ? [v] : [];
     try {
       await api(`/api/cards/${id}`, {
         method: "PATCH", headers: {"content-type": "application/json"},
@@ -1110,13 +1306,17 @@ async function openCard(id) {
     `<div class="comment"><div class="who">${boldAgent(esc(c.author))} · ${c.created_at ? new Date(c.created_at).toLocaleString() : ""}</div>${formatComment(c.body)}</div>`
   ).join("") || `<div class="comment" style="color:var(--dim)">no comments</div>`;
 
+  /* Same digest as the dashboard feed — one card's history should read the same way the fleet's
+     does. This is the card's OWN history, though, so nothing is suppressed as noise: the `ext`
+     bookkeeping the digest drops from the dashboard is exactly what you come here to audit. */
   $("dlgActivity").innerHTML = [...activity].reverse().map(e => {
-    const what = e.data && e.data.forced
-      ? `<span class="forced">forced move → ${esc(e.data.column_id || "")}</span>`
-      : `${esc(e.entity)}.${esc(e.op)}` + (e.data && e.data.column_id ? ` → ${esc(String(e.data.column_id).split(":").pop())}` : "")
-        + (e.data && e.data.reason ? ` — ${esc(e.data.reason)}` : "");
-    return `<div class="ev"><span class="t">${new Date(e.ts).toLocaleString()}</span>
-            <span class="who">${boldAgent(esc(e.actor))}</span><span>${what}</span></div>`;
+    const g = digest(e) || { label: (e.data && e.data.fields || []).join(", ") || e.op,
+                             hue: 260, text: "" };
+    return `<div class="ev">
+      <span class="t">${new Date(e.ts).toLocaleString()}</span>
+      ${agentChip(e.actor)}
+      <span class="opPill" style="--op-h:${g.hue}">${esc(g.label)}</span>
+      <span>${esc(g.text || "")}</span></div>`;
   }).join("") || `<div style="color:var(--dim)">no recorded activity</div>`;
 
   $("dlgExt").style.display = Object.keys(ext).length ? "" : "none";
@@ -1127,8 +1327,8 @@ async function openCard(id) {
     spec: !!$("dlgDesc").innerHTML,
     session: !!((ext.session || {}).log || (ext.work || {}).log),
     live: !!d.claim,
-    comments: d.comments.length,
-    activity: activity.length,
+    // one Discussion tab now: it has content if EITHER side does
+    comments: d.comments.length + activity.length,
   });
 
   const dlg = $("cardDlg");
@@ -1139,12 +1339,228 @@ async function openCard(id) {
     dlg.focus();
   }
 }
+$("dlgClose").onclick = () => $("cardDlg").close();
 $("cardDlg").addEventListener("close", () => {
   openCardId = null;
   if (logTarget === $("dlgSessionLog")) { clearInterval(logTimer); logTimer = null; logCardId = null; logTarget = null; }
   clearTimeout(detailRefreshTimer);
   detailRefreshTimer = null;
 });
+
+/* --- dashboard: attention · activity · running session --------------------------------
+   The board answers "what is the work?". The dashboard answers "is anything waiting on ME,
+   what has the fleet just done, and what is running right now?" — three questions you could
+   previously only answer by opening cards one at a time. It reads the board snapshot we
+   already hold plus the change-feed; the only writes are reply (a comment, or an answer to a
+   work-report question) and resolve (clear the attention flag). */
+let dashCards = [];                              // cards from the latest snapshot, for the rail
+
+//: hue per change-log op — the feed is scannable by colour before it is read
+const OP_HUE = { moved: 220, created: 150, updated: 260, raised: 15, cleared: 150,
+                 claimed: 200, released: 25, added: 175, archived: 25, deleted: 25 };
+
+function attentionCards() {
+  return dashCards
+    .filter(c => (c.ext || {})["kanban_pro.attention"])
+    .sort((a, b) => {                            // blocks first — they are the ones that HALT work
+      const rank = c => ({ block: 0, warn: 1, info: 2 }[(c.ext["kanban_pro.attention"].severity) || "block"]);
+      return rank(a) - rank(b) || String(b.updated_at ?? "").localeCompare(String(a.updated_at ?? ""));
+    });
+}
+
+/* The count is the BLOCKING flags only. A warn/info badge that inflates the number teaches you
+   to ignore the badge, which is exactly what the severity split exists to prevent. */
+function refreshAttnBadge() {
+  const blocking = attentionCards().filter(c =>
+    ((c.ext["kanban_pro.attention"].severity) || "block") === "block").length;
+  const badge = $("hdrAttn");
+  badge.hidden = !blocking;
+  badge.textContent = blocking;
+  $("dashAttnCount").textContent = attentionCards().length;
+}
+
+const SEV_HUE = { block: 15, warn: 70, info: 250 };
+
+function renderAttnRail() {
+  const host = $("dashAttn");
+  const items = attentionCards();
+  $("dashAttnCount").textContent = items.length;
+  if (!items.length) {
+    host.innerHTML = `<div class="emptyPane"><div class="glyph" style="border-radius:50%;border-color:oklch(0.5 0.1 150);color:oklch(0.75 0.12 150)">✓</div>
+      <div class="lead">Nothing needs you</div>
+      <div class="sub">Every attention flag is cleared. The fleet is running unattended.</div></div>`;
+    return;
+  }
+  host.innerHTML = "";
+  for (const card of items) {
+    const a = card.ext["kanban_pro.attention"];
+    const sev = a.severity || "block";
+    // an unanswered work-report question is the actual thing being asked — show it verbatim
+    const q = ((card.ext.work_report || {}).questions || []).find(x => x && !x.answer);
+    const el = document.createElement("div");
+    el.className = "attnCard";
+    el.style.setProperty("--sev-h", SEV_HUE[sev] ?? 70);
+    el.innerHTML = `
+      <div class="row">
+        <span class="sevPill">${esc(sev.toUpperCase())}</span>
+        ${(card.assignees || []).map(x => agentChip(x)).join("")}
+        <span class="age">${age(card.updated_at || card.created_at)}</span>
+      </div>
+      <div class="key">${esc(card.id)}</div>
+      <div class="ttl">${esc(card.title)}</div>
+      <div class="why">${esc(a.reason || "")}</div>
+      ${q ? `<div class="q">${esc(q.question || q.text || "")}</div>` : ""}
+      <div class="reply">
+        <textarea rows="1" placeholder="${q ? "Answer the agent…" : "Reply to the agent…"}"></textarea>
+        <button type="button" class="linkbtn send">Send</button>
+      </div>
+      <div class="foot">
+        <span>raised by</span>${agentChip(a.raised_by || "?")}
+        ${a.for ? `<span>for</span>${agentChip(a.for)}` : ""}
+        <button type="button" class="resolve">Resolve</button>
+      </div>`;
+    const open = () => { $("dashDlg").close(); openCard(card.id); };
+    el.querySelector(".key").onclick = open;
+    el.querySelector(".ttl").onclick = open;
+    const ta = el.querySelector("textarea");
+    const send = async () => {
+      const text = ta.value.trim();
+      if (!text) return;
+      try {
+        // a question gets ANSWERED (it lands in the report, where the agent reads it);
+        // anything else is a comment. Replying into the void would be worse than useless.
+        if (q) {
+          await api(`/api/cards/${card.id}/work-report/questions/${encodeURIComponent(q.id)}/answer`,
+            { method: "POST", headers: {"content-type": "application/json"},
+              body: JSON.stringify({ answer: text }) });
+        } else {
+          await api(`/api/cards/${card.id}/comments`, { method: "POST",
+            headers: {"content-type": "application/json"}, body: JSON.stringify({ body: text }) });
+        }
+        ta.value = "";
+        toast(q ? "answer recorded on the work report" : "comment added");
+      } catch (e) { toast(e.message); }
+    };
+    el.querySelector(".send").onclick = send;
+    ta.addEventListener("keydown", ev => {           // ⌘/Ctrl+Enter sends; Enter alone is a newline
+      if (ev.key === "Enter" && (ev.metaKey || ev.ctrlKey)) { ev.preventDefault(); send(); }
+    });
+    el.querySelector(".resolve").onclick = async () => {
+      try {
+        await api(`/api/cards/${card.id}/attention/clear`, { method: "POST",
+          headers: {"content-type": "application/json"}, body: JSON.stringify({}) });
+        toast("attention cleared");
+      } catch (e) { toast(e.message); }
+    };
+    host.appendChild(el);
+  }
+}
+
+/* Turn one change-log event into a sentence a human can skim.
+   The raw event is (entity, op, slim payload) — rendering that literally gives you rows like
+   "rebaser updated e8798148…f12d work_report", which is technically complete and tells you
+   nothing. Every event type already carries the bit that MATTERS (the lane it moved to, the
+   report section it filed, the severity and reason of an attention flag); this digs it out and
+   says it, against the card's TITLE rather than its uuid. */
+function digest(e) {
+  const d = e.data || {};
+  const cardId = d.card_id || e.entity_id;                 // comment events are keyed by comment id
+  const card = dashCards.find(c => c.id === cardId);
+  const lane = (lastBoard ? lastBoard.columns : []).find(c => c.id === d.column_id);
+  const kind = `${e.entity}.${e.op}`;
+  const short = s => { s = String(s || ""); return s.length > 90 ? s.slice(0, 88) + "…" : s; };
+  switch (kind) {
+    case "card.moved":
+      return { label: d.forced ? "FORCED" : "moved", hue: d.forced ? 25 : 220, cardId,
+               text: "→ " + laneLabel(d.column_id) };
+    case "card.created":
+      return { label: "created", hue: 150, cardId, text: short(d.title) };
+    case "card.claimed":
+      return { label: "claimed", hue: 200, cardId, text: "lease taken" };
+    case "card.released":
+      return { label: "released", hue: 25, cardId, text: "lease dropped" };
+    case "card.updated": {
+      const f = d.fields || [];
+      // A patch whose ONLY field is `ext` is bookkeeping — a worker stamping its session pointer,
+      // the dispatcher bumping an attempt counter. It is the single most common event on the
+      // board and it says nothing a human wants to read, so the feed drops it. (The card's own
+      // Discussion tab still shows every event; this is the digest, not the audit trail.)
+      if (f.length === 1 && f[0] === "ext") return null;
+      const what = f.includes("assignees") ? "reassigned"
+                 : f.includes("priority") ? "re-prioritised"
+                 : f.length ? `edited ${f.join(", ")}` : "edited";
+      return { label: what, hue: 260, cardId, text: card ? (card.assignees || []).join(", ") : "" };
+    }
+    case "work_report.updated": {
+      const verb = d.op === "remove" ? "removed" : "filed";
+      return { label: "report", hue: 305, cardId,
+               text: `${verb} ${d.section || ""}${d.item_id ? " · " + d.item_id : ""}` };
+    }
+    case "comment.added":
+      return { label: "commented", hue: 175, cardId, text: "" };
+    case "attention.raised":
+      return { label: (d.severity || "block").toUpperCase(), hue: d.severity === "warn" ? 70 : d.severity === "info" ? 250 : 15,
+               cardId, text: short(d.reason) + (d.for_actor ? ` → ${String(d.for_actor).split(":").pop()}` : "") };
+    case "attention.cleared":
+      return { label: "resolved", hue: 150, cardId, text: short(d.resolution) };
+    default:
+      return { label: e.op, hue: OP_HUE[e.op] ?? 260, cardId, text: e.entity };
+  }
+}
+
+async function renderFeed() {
+  let events = [];
+  // `since` is a CURSOR, not an offset: since=0 replays from the dawn of the board and the
+  // "live" feed rendered the oldest 60 events ever recorded. Wind back from the current cursor.
+  const FEED = 60;
+  const since = Math.max(0, cursor - FEED);
+  try { events = await api(`/api/changes?since=${since}&limit=${FEED}`); } catch { return; }
+  $("dashActivity").innerHTML = [...events].reverse().map(e => {
+    const g = digest(e);
+    if (!g) return "";                       // suppressed as noise (see digest)
+    const card = dashCards.find(c => c.id === g.cardId);
+    const title = card ? card.title : (titleCache.get(g.cardId) || shortId(g.cardId));
+    return `<div class="feedRow">
+      <span class="t">${new Date(e.ts).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"})}</span>
+      <div class="bits">
+        ${agentChip(e.actor)}
+        <span class="opPill" style="--op-h:${g.hue}">${esc(g.label)}</span>
+        ${title ? `<span class="ref" onclick="openCard('${esc(g.cardId)}')" title="${esc(g.cardId)}">${esc(title)}</span>` : ""}
+        ${g.text ? `<span class="txt">${esc(g.text)}</span>` : ""}
+      </div></div>`;
+  }).join("") || `<div class="emptyPane"><div class="lead">No activity yet</div></div>`;
+
+  // paint immediately with what we know, then fill in off-board titles and repaint once
+  const unknown = events.map(e => (e.data || {}).card_id || e.entity_id)
+                        .filter(id => id && !dashCards.some(c => c.id === id));
+  if (await enrichTitles(unknown) && $("dashDlg").open) renderFeed();
+}
+
+async function renderRunningSession() {
+  const running = dashCards.filter(c => (c.ext || {})._claim);
+  const host = $("dashSession");
+  $("dashSessAge").innerHTML = "";
+  if (!running.length) {
+    host.innerHTML = `<div class="emptyPane"><div class="glyph">⏸</div>
+      <div class="lead">No active session</div>
+      <div class="sub">No worker holds a lease right now. Claimed cards tail here live.</div></div>`;
+    return;
+  }
+  host.innerHTML = running.map(c => {
+    const claim = c.ext._claim;
+    return `<div class="attnCard" style="--sev-h:150;cursor:pointer" onclick="$('dashDlg').close();openCard('${esc(c.id)}')">
+      <div class="row">${agentChip(claim.owner)}<span class="age">lease until ${new Date(claim.expires_at).toLocaleTimeString()}</span></div>
+      <div class="key">${esc(c.id)}</div>
+      <div class="ttl">${esc(c.title)}</div>
+      <div class="why">Open the card to tail its session log.</div>
+    </div>`;
+  }).join("");
+  $("dashSessAge").innerHTML = `<span class="cdot pulse"></span>${running.length} running`;
+}
+
+function renderDash() { renderAttnRail(); renderFeed(); renderRunningSession(); }
+$("dashBtn").onclick = () => { renderDash(); $("dashDlg").showModal(); };
+$("dashClose").onclick = () => $("dashDlg").close();
 
 /* --- the detail tabs -----------------------------------------------------------------
    Each tab keeps its own hue (report=blue, spec=violet, session=green, comments=teal,
@@ -1155,8 +1571,7 @@ const TABS = [
   { id: "report",   pane: "paneReport",   label: "Work report", hue: 250 },
   { id: "spec",     pane: "paneSpec",     label: "Spec",        hue: 305 },
   { id: "session",  pane: "paneSession",  label: "Session log", hue: 150 },
-  { id: "comments", pane: "paneComments", label: "Comments",    hue: 175 },
-  { id: "activity", pane: "paneActivity", label: "Activity",    hue: 70  },
+  { id: "comments", pane: "paneComments", label: "Discussion",  hue: 175 },
 ];
 function renderTabs(cardId, has) {
   const strip = $("dlgTabs");
@@ -1166,7 +1581,7 @@ function renderTabs(cardId, has) {
   if (!has[activeTab] && !(activeTab === "report" && !has.report)) activeTab = "report";
   if (activeTab === "report" && !has.report && has.spec) activeTab = "spec";
   for (const t of TABS) {
-    const count = t.id === "comments" ? has.comments : t.id === "activity" ? has.activity : 0;
+    const count = t.id === "comments" ? has.comments : 0;
     const b = document.createElement("button");
     b.type = "button";
     b.dataset.tab = t.id;
@@ -1230,13 +1645,7 @@ function logEntryEl(e) {
   div.innerHTML = (label ? `<span class="role">${esc(label)}</span>` : "") + esc(e.text || "");
   return div;
 }
-function setLogLive(running) {
-  const b = $("logLive");
-  if (!b) return;                       // the Session tab has its own status line, not this badge
-  b.textContent = running ? "LIVE" : "done";
-  b.className = running ? "live" : "done";
-}
-function stopLogPolling() { clearInterval(logTimer); logTimer = null; setLogLive(false); }
+function stopLogPolling() { clearInterval(logTimer); logTimer = null; }
 
 async function pollLog(initial) {
   if (!logCardId) return;
@@ -1245,11 +1654,12 @@ async function pollLog(initial) {
     data = await api(`/api/cards/${logCardId}/session-log?after=${initial ? -1 : logOffset}`);
   } catch (e) {
     stopLogPolling();
-    const v = logTarget || $("logView");
+    const v = logTarget;
     if (initial && v) v.innerHTML = `<div class="le">could not load log — ${esc(e.message)}</div>`;
     return;
   }
-  const view = logTarget || $("logView");
+  const view = logTarget;
+  if (!view) return;
   const atBottom = view.scrollHeight - view.scrollTop - view.clientHeight < 40;
   for (const e of data.entries) view.appendChild(logEntryEl(e));
   logOffset = data.eof_offset;
@@ -1257,18 +1667,6 @@ async function pollLog(initial) {
   if (atBottom || initial) view.scrollTop = view.scrollHeight;
 }
 
-async function openLog(id, running) {
-  logCardId = id; logOffset = 0; logTarget = $("logView");
-  clearInterval(logTimer); logTimer = null;
-  $("logView").innerHTML = "";
-  setLogLive(running);
-  const dlg = $("logDlg");
-  if (!dlg.open) dlg.showModal();
-  await pollLog(true);
-  if (running) logTimer = setInterval(() => pollLog(false), 2000);
-}
-$("logClose").onclick = () => $("logDlg").close();
-$("logDlg").addEventListener("close", () => { clearInterval(logTimer); logTimer = null; logCardId = null; });
 $("commentForm").addEventListener("submit", async ev => {
   ev.preventDefault();
   const body = $("commentBody").value.trim();

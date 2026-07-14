@@ -460,6 +460,20 @@ def create_app(
             author=body.author or actor or "unknown",
         )
 
+    @app.post("/api/cards/{card_id}/attention/clear")
+    async def clear_attention_api(card_id: str, body: RetryRequest) -> Card:
+        """Resolve an attention flag WITHOUT retrying — the dashboard's "resolve" action.
+
+        `retry` also clears attention, but it additionally wipes the attempt counter and moves
+        the card to `ready`; that is a different decision. Answering a question or simply
+        acknowledging a warn should not relaunch the card.
+        """
+        be = await _backend()
+        if not core.unwrap(be, core.RecordingBackend):
+            raise NotSupported("clearing attention needs the core stack")
+        await be.clear_attention(card_id, body.resolution or "resolved from the dashboard")
+        return await be.get_card(card_id)
+
     @app.post("/api/cards/{card_id}/retry")
     async def retry_card(card_id: str, body: RetryRequest) -> Card:
         be = await _backend()

@@ -1,5 +1,52 @@
 # kanban-pro — Journal
 
+## 2026-07-14 — The Dashboard, and a change-feed that says something
+
+Second pass on the redesign (the first shipped the board + card detail; the **dashboard was
+omitted, which was the point of the comp**).
+
+- **Dashboard** (`#dashDlg`): three rails — *needs your attention* (every flagged card, blocking
+  first, with a reply box and a Resolve button), the *activity* change-feed, and the *running
+  session*. The board says what the work IS; the dashboard answers "is anything waiting on me,
+  and what has the fleet just done" — which previously took opening cards one at a time.
+- **The header badge counts BLOCKING flags only.** A count inflated by `warn`/`info` teaches you
+  to ignore the badge, which is precisely what the severity split exists to prevent.
+- **Reply does the right thing per card:** an unanswered `questions[]` item is ANSWERED (it lands
+  in the work report, where the agent reads it); anything else becomes a comment. Replying into a
+  channel the agent never reads would be worse than not replying.
+- **New endpoint `POST /api/cards/{id}/attention/clear`** — `retry` also clears attention but
+  additionally wipes the attempt counter and moves the card to `ready`. Acknowledging a warn must
+  not relaunch the card.
+- **The feed is a DIGEST, not a dump.** Rendering the raw change-log gives you rows like
+  "rebaser updated e8798148…f12d work_report" — complete, and useless. Every event already carries
+  the bit that matters (the lane it moved to, the report section it filed, the severity + reason of
+  a flag), so the digest digs that out and says it against the card's TITLE. Two bugs fixed while
+  doing it: the feed asked `since=0` (a CURSOR, not an offset) and so rendered the *oldest* 60
+  events ever recorded as "live"; and a card.updated whose only field is `ext` is bookkeeping — the
+  most common event on the board, and worth nothing to a reader — so the dashboard drops it (the
+  card's own Discussion tab still shows everything: that is the audit trail, this is the digest).
+- Cross-board rows resolve properly: the change-log spans the whole PROFILE, so an event can name a
+  card or lane that isn't on the board being viewed. Titles are fetched once and cached; a hermes
+  `<board>:<lane>` column id renders as the lane, not the id.
+
+Also, from Jan's review of the first pass:
+- Card detail **header redesigned** to the comp: id + lane pill + close, then the title, then the
+  machine detail; meta as labelled columns. The head is FIXED — on a long report you could
+  previously scroll the card's own title and its Move-to buttons off the screen.
+- **The dialog no longer resizes.** It was sized by its content, so switching tabs made the panel
+  jump and the buttons move under the cursor. Fixed frame, content scrolls inside.
+- **Activity + Comments merged into one "Discussion" tab** (activity on top, capped ~10 rows and
+  scrollable). They were two tabs telling one story: the log says what happened, the comments say
+  what people said about it.
+- **Assignee is a free-text combobox now.** `known_assignees` comes from the dispatcher's
+  routing.yaml — it is the set of assignees that have a ROUTE, not the set that exists. As a closed
+  dropdown it made every other actor unassignable (`hermes-engineer` has no route, so it could not
+  be picked at all) and silently wiped an off-list assignee on save.
+- "view log" pop-out removed (the Session tab is the log); Retry restyled to match the other buttons.
+- **A CSS trap worth remembering:** `#cardDlg { display: flex }` overrides the UA's
+  `dialog { display: none }` for the CLOSED state, so the dialog stayed in the layer — invisible,
+  and swallowing every click on the board behind it. `display` belongs ONLY in the `[open]` rule.
+
 ## 2026-07-14 — Board UI redesign: colour carries meaning, and the work report stops being buried
 
 Implemented the "Redesign for readability" comp (claude.ai/design, `Kanban Board.dc.html`) into
