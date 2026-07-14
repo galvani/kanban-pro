@@ -1333,12 +1333,20 @@ function statusLine(card, ext, claim, missing) {
 function renderVerdict(title, v, kind) {
   const status = typeof v === "string" ? v : (v.status || v.verdict || "");
   const summary = typeof v === "string" ? "" : (v.summary || v.text || "");
+  // Case-INsensitively: workers write "APPROVE", "pass", "verify-incomplete-e2e". Matching
+  // case-sensitively made "APPROVE" match nothing, so the pill fell back to echoing the status
+  // and the status then printed again — "APPROVE APPROVE".
+  const st = String(status).toLowerCase();
   // a verdict starting "verify-incomplete" is NOT a pass, whatever else it says
-  const key = /^verify-incomplete|incomplete|blocked/.test(status) ? "skipped"
-            : /fail|needs-fix|reject/.test(status) ? "failed"
-            : /pass|ok|approve/.test(status) ? "passed" : "";
+  const key = /^verify-incomplete|incomplete|blocked/.test(st) ? "skipped"
+            : /fail|needs-fix|reject/.test(st) ? "failed"
+            : /pass|ok|approve/.test(st) ? "passed" : "";
+  const meta = OUTCOME[key];
+  // don't say the same word twice: the pill already carries the verdict when they agree
+  const echoes = meta && meta.label.toLowerCase() === st;
   return reportSection(kind, title,
-    `<div class="rpVerdict">${pill(OUTCOME[key], status)}<span class="rpStatus">${esc(status)}</span></div>
+    `<div class="rpVerdict">${pill(meta, status)}
+       ${echoes ? "" : `<span class="rpStatus">${esc(status)}</span>`}</div>
      ${summary ? `<div class="rpBody">${md(String(summary))}</div>` : ""}`);
 }
 
