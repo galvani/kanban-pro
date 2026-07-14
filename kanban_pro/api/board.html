@@ -848,8 +848,15 @@ async function showAgentAnim(actor) {
   host.title = `${String(actor).split(":").pop()} is working this card`;
   host.hidden = false;
   if (!animCache.has(name)) {
-    try { animCache.set(name, await (await fetch(`/agents/${name}.svg`)).text()); }
-    catch { host.hidden = true; return; }
+    try {
+      const res = await fetch(`/agents/${name}.svg`);
+      const text = await res.text();
+      // check res.ok AND that it really is an SVG: an un-restarted server has no /agents route, so
+      // the fetch 404s and the body is `{"detail":"Not Found"}` — which, injected unchecked, rendered
+      // a JSON error into the card header. A missing icon must degrade to NOTHING, never to garbage.
+      if (!res.ok || !text.trimStart().startsWith("<svg")) throw new Error("no icon");
+      animCache.set(name, text);
+    } catch { host.hidden = true; host.innerHTML = ""; return; }
   }
   host.innerHTML = animCache.get(name);
 }
