@@ -474,6 +474,10 @@
            color: oklch(0.68 0.05 250); word-break: break-all; }
   .rpFindTitle { font-size: 13.5px; font-weight: 600; line-height: 1.4; margin-top: 8px;
                  color: oklch(0.93 0.005 260); text-wrap: pretty; }
+  /* closed, not hidden: the record stays, but it stops competing with the open work */
+  .rpFinding.fixed { opacity: .62; }
+  .rpFinding.fixed:hover { opacity: 1; }
+  .rpFinding.fixed .rpFindTitle { text-decoration: line-through; color: oklch(0.72 0.01 260); }
   .rpFix { margin-top: 7px; padding: 7px 10px; border-radius: 7px; background: oklch(0.25 0.012 260);
            font-size: 12.5px; line-height: 1.45; color: oklch(0.83 0.006 260); }
   .rpFix b { color: oklch(0.72 0.12 150); }
@@ -1348,8 +1352,16 @@ function renderVerdict(title, v, kind) {
 const FINDING_HEAD = new Set(["id", "severity", "sev", "concern", "category", "file", "line",
                               "title", "summary", "text", "detail", "scenario", "evidence",
                               "fix", "rule"]);
+/* A finding that has been FIXED is not a finding any more — it is a receipt. Left looking
+   identical to the open ones, it makes a card read as if nothing was done, and the next agent
+   re-derives (or re-fixes) work that is already merged. Struck through and dimmed: still there,
+   still auditable, visibly closed. */
+const FIXED = /^(fixed|resolved|done|applied|closed|pass(ed)?)$/i;
 function renderFindings(title, rows, kind) {
-  return reportSection(kind, title, rows.map(f => {
+  const open = rows.filter(f => !FIXED.test(String(f.status || ""))).length;
+  const tally = `<div class="rpTally">${open} open · ${rows.length - open} fixed</div>`;
+  return reportSection(kind, title, tally + rows.map(f => {
+    const fixed = FIXED.test(String(f.status || ""));
     const sev = SEV[String(f.severity || f.sev || "").toLowerCase()];
     const loc = f.file ? `${f.file}${f.line ? ":" + f.line : ""}` : "";
     const head = f.title || f.summary || "";
@@ -1357,9 +1369,9 @@ function renderFindings(title, rows, kind) {
     const body = f.detail || f.text || f.scenario || f.evidence || (head ? "" : reportText(f));
     const extra = Object.entries(f).filter(([k, v]) =>
       !FINDING_HEAD.has(k) && v != null && v !== "" && !(Array.isArray(v) && !v.length));
-    return `<div class="rpFinding" style="--f-h:${sev ? sev.h : 260}">
+    return `<div class="rpFinding${fixed ? " fixed" : ""}" style="--f-h:${fixed ? 150 : (sev ? sev.h : 260)}">
       <div class="rpFindHead">
-        ${pill(sev, f.severity || "finding")}
+        ${fixed ? `<span class="rpPill" style="--p-h:150">FIXED</span>` : pill(sev, f.severity || "finding")}
         ${f.concern || f.category ? `<span class="rpTag">${esc(f.concern || f.category)}</span>` : ""}
         ${f.id ? `<span class="rpId">${esc(f.id)}</span>` : ""}
         ${loc ? `<span class="rpLoc">${esc(loc)}</span>` : ""}

@@ -17,6 +17,7 @@ each connection would get a *separate* in-memory db; use a file path.
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -395,9 +396,22 @@ class NativeStore:
     # --- comments ---
     async def list_comments(self, card_id: str) -> list[Comment]:
         async with aiosqlite.connect(self._path) as db:
-            async with db.execute("SELECT doc FROM comments WHERE card_id=?", (card_id,)) as cur:
+            async with db.execute(
+                "SELECT id, card_id, doc FROM comments WHERE card_id=?", (card_id,)
+            ) as cur:
                 rows = await cur.fetchall()
-        return [Comment.model_validate_json(r[0]) for r in rows]
+        # The COLUMNS are the source of truth for identity, not the doc blob: the row cannot exist
+        # without a card_id (NOT NULL), but the doc can be missing one — two rows imported from
+        # hermes were, and every read of those cards then raised a ValidationError, which surfaced
+        # as a 500 on the card-detail endpoint and a card you simply could not open in the UI
+        # (2026-07-14). One malformed comment must not make a card unreadable.
+        out = []
+        for row_id, row_card_id, doc in rows:
+            data = json.loads(doc)
+            data.setdefault("id", row_id)
+            data["card_id"] = row_card_id
+            out.append(Comment.model_validate(data))
+        return out
 
     async def add_comment(self, comment: Comment) -> Comment:
         stored = comment.model_copy(update={"created_at": comment.created_at or _now()})
