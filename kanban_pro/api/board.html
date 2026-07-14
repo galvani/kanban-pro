@@ -232,6 +232,12 @@
   #cardDlg .body { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden;
                    padding: 0; }
   #cardDlg .tabPane { flex: 1; min-height: 0; overflow-y: auto; padding: 18px 24px 28px; }
+  /* The Session pane had TWO scrollers: the pane itself, and the .logView's own max-height. You
+     ended up scrolling the section, not the log — and the log could never sit at the bottom.
+     The pane doesn't scroll; the log box fills it and is the only thing that does. */
+  #cardDlg #paneSession { display: flex; flex-direction: column; overflow: hidden; padding-bottom: 18px; }
+  #cardDlg #paneSession[hidden] { display: none; }
+  #dlgSessionLog { flex: 1; min-height: 0; max-height: none; margin-top: 0; }
   /* the head is FIXED: identity, attention, meta and the move row never scroll away. On a long
      work report you could previously lose the card's own title and its Move-to buttons. */
   .dlgHead { flex: none; padding: 18px 24px 0; border-bottom: 1px solid var(--border);
@@ -296,6 +302,10 @@
   /* the tab that HOLDS the thing being asked of you — an unanswered question is inside the work
      report, and a banner that says "answer me" while the answer lives two clicks away is a
      dead end. The tab wears the same amber as the flag. */
+  /* unseen: this tab gained something while you were looking at another one */
+  .tabs button.unseen { color: oklch(0.92 0.02 260); opacity: 1 !important; }
+  .tabs button.unseen .cdot { opacity: 1; animation: kpPulse 1.4s ease-in-out infinite;
+                              box-shadow: 0 0 0 3px oklch(0.74 0.13 var(--tab-h, 260) / 0.22); }
   .tabs button.flagged { color: oklch(0.9 0.08 70); }
   .tabs button.flagged .cdot { background: var(--warn); opacity: 1;
                                box-shadow: 0 0 0 3px oklch(0.78 0.16 70 / 0.2); }
@@ -371,6 +381,43 @@
   .hdr-needs       { background: #3d2d2d; color: #f0b0b0; }
   .hdr-questions   { background: #2d2d3d; color: #c0c0f0; }
   .hdr-unknown     { background: #2d323e; color: #d4d7de; }
+  /* --- typed work-report shapes (see renderVerdict/renderFindings/renderChecks) --- */
+  .rpPill { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 5px;
+            font-size: 10px; font-weight: 800; letter-spacing: .04em; white-space: nowrap;
+            background: oklch(0.72 0.16 var(--p-h, 260)); color: oklch(0.22 0.05 var(--p-h, 260)); }
+  .rpPill.flat { background: oklch(0.32 0.05 var(--p-h, 260) / 0.5);
+                 color: oklch(0.82 0.08 var(--p-h, 260));
+                 border: 1px solid oklch(0.5 0.06 var(--p-h, 260) / 0.4); }
+  .rpVerdict { display: flex; align-items: center; gap: 9px; }
+  .rpStatus { font-family: var(--mono); font-size: 12.5px; color: oklch(0.86 0.006 260); }
+  .rpBody { font-size: 13px; line-height: 1.55; margin-top: 8px; color: oklch(0.85 0.006 260); }
+  .rpBody.dim { color: oklch(0.68 0.01 260); font-size: 12.5px; }
+  /* a finding is a CARD, not a table row: severity leads, the fix is the thing you act on */
+  .rpFinding { border: 1px solid oklch(0.5 0.08 var(--f-h, 260) / 0.35);
+               border-left: 3px solid oklch(0.66 0.15 var(--f-h, 260));
+               border-radius: 9px; background: oklch(0.225 0.012 260);
+               padding: 11px 13px; margin-top: 10px; }
+  .rpFinding:first-child { margin-top: 0; }
+  .rpFindHead { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .rpTag { font-size: 10px; font-weight: 700; letter-spacing: .03em; text-transform: uppercase;
+           padding: 2px 8px; border-radius: 5px; background: oklch(0.3 0.008 260);
+           color: oklch(0.72 0.01 260); }
+  .rpId { font-family: var(--mono); font-size: 10.5px; color: oklch(0.55 0.01 260); }
+  .rpLoc { margin-left: auto; font-family: var(--mono); font-size: 11px;
+           color: oklch(0.68 0.05 250); word-break: break-all; }
+  .rpFindTitle { font-size: 13.5px; font-weight: 600; line-height: 1.4; margin-top: 8px;
+                 color: oklch(0.93 0.005 260); text-wrap: pretty; }
+  .rpFix { margin-top: 9px; padding: 9px 11px; border-radius: 7px; background: oklch(0.25 0.012 260);
+           font-size: 12.5px; line-height: 1.5; color: oklch(0.83 0.006 260); }
+  .rpFix b { color: oklch(0.72 0.12 150); }
+  .rpRule { font-size: 11.5px; margin-top: 7px; color: oklch(0.6 0.02 250); }
+  .rpChecks { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+  .rpCheck { display: flex; gap: 12px; padding: 11px 13px; align-items: flex-start;
+             border-top: 1px solid oklch(0.26 0.01 260); }
+  .rpCheck:first-child { border-top: 0; }
+  .rpCheckName { font-size: 13px; font-weight: 600; color: oklch(0.9 0.005 260); }
+  .rpCheckBody { flex: 1; min-width: 0; }
+  .rpCheckBody .rpBody { margin-top: 3px; }
   .reportItem { border-top: 1px solid #252a33; padding: 7px 0; }
   .reportItem:first-of-type { border-top: 0; }
   .reportItem .rid { color: var(--dim); font-size: 11px; font-family: ui-monospace, monospace; }
@@ -563,7 +610,7 @@
 
 <script>
 /* Push-fed board: one snapshot per board switch, then SSE deltas. No polling timers. */
-let boardId = null, lastBoard = null, activeTab = 'report', cursor = 0, es = null, refreshTimer = null, reconnectTimer = null, detailRefreshTimer = null, openCardId = null, knownAssignees = [], reportRequiredByAssignee = {}, reportSectionOrder = [], reportSectionOrderByAssignee = {}, maxRetries = 5;
+let boardId = null, lastBoard = null, activeTab = 'report', lastHas = null, cursor = 0, es = null, refreshTimer = null, reconnectTimer = null, detailRefreshTimer = null, openCardId = null, knownAssignees = [], reportRequiredByAssignee = {}, reportSectionOrder = [], reportSectionOrderByAssignee = {}, maxRetries = 5;
 
 const A = (paths) => `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${paths}</svg> `;
 const ASSIGNEE_GLYPHS = {
@@ -1033,8 +1080,79 @@ function isReportSectionEmpty(value) {
   return false;
 }
 
+/* --- typed report renderers (the design's shapes) --------------------------------------
+   The generic renderer prints ANY section as a key/value grid, which is why the report read
+   like a spreadsheet: a finding's severity, its file:line and its fix all looked exactly like
+   its id. kanban-pro can't stop being generic — a worker may file any section it likes — but
+   the sections we DO know the shape of deserve their real shape. Known → typed; unknown →
+   the generic grid, unchanged. */
+const OUTCOME = {
+  passed:      { h: 150, label: "PASS" },
+  pass:        { h: 150, label: "PASS" },
+  ok:          { h: 150, label: "PASS" },
+  failed:      { h: 15,  label: "FAIL" },
+  fail:        { h: 15,  label: "FAIL" },
+  "needs-fix": { h: 15,  label: "NEEDS FIX" },
+  skipped:     { h: 260, label: "SKIPPED", flat: true },
+  blocked:     { h: 70,  label: "BLOCKED" },
+};
+const SEV = { high: { h: 15, label: "HIGH" }, critical: { h: 15, label: "CRITICAL" },
+              med: { h: 70, label: "MED" }, medium: { h: 70, label: "MED" },
+              low: { h: 250, label: "LOW", flat: true }, info: { h: 250, label: "INFO", flat: true } };
+const pill = (meta, fallback) => {
+  const m = meta || { h: 260, label: String(fallback || "").toUpperCase(), flat: true };
+  return `<span class="rpPill${m.flat ? " flat" : ""}" style="--p-h:${m.h}">${esc(m.label)}</span>`;
+};
+
+function renderVerdict(title, v, kind) {
+  const status = typeof v === "string" ? v : (v.status || v.verdict || "");
+  const summary = typeof v === "string" ? "" : (v.summary || v.text || "");
+  // a verdict starting "verify-incomplete" is NOT a pass, whatever else it says
+  const key = /^verify-incomplete|incomplete|blocked/.test(status) ? "skipped"
+            : /fail|needs-fix|reject/.test(status) ? "failed"
+            : /pass|ok|approve/.test(status) ? "passed" : "";
+  return reportSection(kind, title,
+    `<div class="rpVerdict">${pill(OUTCOME[key], status)}<span class="rpStatus">${esc(status)}</span></div>
+     ${summary ? `<div class="rpBody">${md(String(summary))}</div>` : ""}`);
+}
+
+function renderFindings(title, rows, kind) {
+  return reportSection(kind, title, rows.map(f => {
+    const sev = SEV[String(f.severity || f.sev || "").toLowerCase()];
+    const loc = f.file ? `${f.file}${f.line ? ":" + f.line : ""}` : "";
+    return `<div class="rpFinding" style="--f-h:${sev ? sev.h : 260}">
+      <div class="rpFindHead">
+        ${pill(sev, f.severity || "finding")}
+        ${f.concern || f.category ? `<span class="rpTag">${esc(f.concern || f.category)}</span>` : ""}
+        ${f.id ? `<span class="rpId">${esc(f.id)}</span>` : ""}
+        ${loc ? `<span class="rpLoc">${esc(loc)}</span>` : ""}
+      </div>
+      ${f.title || f.summary ? `<div class="rpFindTitle">${esc(f.title || f.summary)}</div>` : ""}
+      ${f.scenario || f.evidence ? `<div class="rpBody dim">${md(String(f.scenario || f.evidence))}</div>` : ""}
+      ${f.fix ? `<div class="rpFix"><b>fix · </b>${md(String(f.fix))}</div>` : ""}
+      ${f.rule ? `<div class="rpRule"><b>rule · </b>${esc(f.rule)}</div>` : ""}
+    </div>`;
+  }).join(""));
+}
+
+function renderChecks(title, rows, kind) {
+  return reportSection(kind, title, `<div class="rpChecks">` + rows.map(c => {
+    const out = String(c.outcome || c.status || c.result || "").toLowerCase();
+    return `<div class="rpCheck">
+      ${pill(OUTCOME[out], out || "—")}
+      <div class="rpCheckBody">
+        <div class="rpCheckName">${esc(c.name || c.id || "")}</div>
+        ${c.details || c.evidence ? `<div class="rpBody dim">${md(String(c.details || c.evidence))}</div>` : ""}
+      </div></div>`;
+  }).join("") + `</div>`);
+}
+
 function renderReportValue(title, value, cardId, kind) {
   if (isReportSectionEmpty(value)) return "";
+  // typed sections first — the ones whose shape we actually know
+  if (kind === "verdict") return renderVerdict(title, value, kind);
+  if (kind === "findings" && Array.isArray(value)) return renderFindings(title, value, kind);
+  if (kind === "checks" && Array.isArray(value)) return renderChecks(title, value, kind);
   if (Array.isArray(value)) return renderReportList(title, value, cardId, kind);
   if (typeof value === "object" && value !== null)
     return renderReportObject(title, value, kind);
@@ -1660,7 +1778,29 @@ const TABS = [
   { id: "session",  pane: "paneSession",  label: "Session log", hue: 150 },
   { id: "comments", pane: "paneComments", label: "Discussion",  hue: 175 },
 ];
+/* Unseen activity: a tab you are NOT looking at should say when it gained something. The card
+   re-renders on every change-feed event, so we remember the counts as of the last time each tab
+   was actually LOOKED AT, and pulse the ones that have grown since. Watching the session log
+   while a reviewer comments is exactly the case — the comment used to land silently. */
+let seen = { cardId: null, counts: {} };
+const unseen = new Set();
+
+function trackUnseen(cardId, has) {
+  const counts = { comments: has.comments || 0 };
+  if (seen.cardId !== cardId) {          // different card: nothing is "unseen" yet
+    seen = { cardId, counts };
+    unseen.clear();
+    return;
+  }
+  for (const [tab, n] of Object.entries(counts)) {
+    if (tab === activeTab) { seen.counts[tab] = n; unseen.delete(tab); }   // you are looking at it
+    else if (n > (seen.counts[tab] ?? n)) unseen.add(tab);
+  }
+}
+
 function renderTabs(cardId, has) {
+  trackUnseen(cardId, has);
+  lastHas = has;
   const strip = $("dlgTabs");
   strip.innerHTML = "";
   // the default tab is the report — unless this card has none, in which case the spec is
@@ -1675,9 +1815,16 @@ function renderTabs(cardId, has) {
     b.style.setProperty("--tab-h", t.hue);
     b.style.opacity = has[t.id] ? "" : ".55";
     if (t.id === "report" && has.flagged) b.classList.add("flagged");
+    if (unseen.has(t.id)) b.classList.add("unseen");     // grew while you were on another tab
     const live = t.id === "session" && has.live;
     b.innerHTML = `<span class="cdot${live ? " pulse" : ""}"></span>${t.label}${count ? " · " + count : ""}`;
-    b.onclick = () => { activeTab = t.id; showTab(cardId); };
+    b.onclick = () => {
+      activeTab = t.id;
+      if (lastHas && lastHas[t.id] != null) seen.counts[t.id] = lastHas[t.id];
+      unseen.delete(t.id);
+      showTab(cardId);
+      b.classList.remove("unseen");
+    };
     strip.appendChild(b);
   }
   showTab(cardId);
