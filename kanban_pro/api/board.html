@@ -265,8 +265,21 @@
   #dlgGrid .mi { display: flex; flex-direction: column; gap: 6px; min-width: 0; flex: none; }
   #dlgGrid .mk { font-size: 10px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase;
                  color: oklch(0.54 0.01 260); }
-  #dlgGrid .mv { font-size: 13px; color: oklch(0.86 0.006 260); max-width: 320px;
+  #dlgGrid .mv { font-size: 13px; color: oklch(0.86 0.006 260); max-width: 420px;
                  overflow: hidden; text-overflow: ellipsis; }
+  .asgBox { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .asgChip { display: inline-flex; align-items: center; gap: 5px; padding: 3px 4px 3px 8px;
+             border-radius: 6px; font-size: 11.5px; font-weight: 700; white-space: nowrap;
+             background: oklch(0.33 0.06 var(--chip-h, 260) / 0.55);
+             color: oklch(0.85 0.12 var(--chip-h, 260));
+             border: 1px solid oklch(0.55 0.09 var(--chip-h, 260) / 0.45); }
+  .asgChip .cdot { width: 5px; height: 5px; border-radius: 50%;
+                   background: oklch(0.8 0.14 var(--chip-h, 260)); }
+  .asgChip .asgX { background: none; border: 0; color: inherit; opacity: .6; cursor: pointer;
+                   font-size: 10px; padding: 0 3px; border-radius: 4px; }
+  .asgChip .asgX:hover { opacity: 1; background: oklch(0.5 0.12 25 / 0.5); }
+  .asgNone { font-size: 12.5px; color: var(--dim); font-style: italic; }
+  #dlgAssignAdd { font-size: 11.5px; padding: 3px 6px; }
   .moveRow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
              padding: 9px 0; border-top: 1px solid var(--border); }
   .mvLabel { font-size: 10px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase;
@@ -1634,13 +1647,26 @@ async function openCard(id) {
      made every other actor unassignable (`hermes-engineer` has no route, so it could not be
      picked at all), and it silently wiped an off-list assignee the moment the dialog saved.
      The list is now a suggestion (datalist) and any actor can be typed. */
+  /* `Card.assignees` is a LIST (there is a MULTI_ASSIGNEE capability), but the editor only ever
+     held one: setting a second silently replaced the first. It is now chips + a picker —
+     each assignee removable, and a <select> of the routing table to add one (plus a free-text
+     box, because known_assignees is the set that has a ROUTE, not the set that exists). */
   function assigneeHtml() {
-    const current = (card.assignees || [])[0] || "";
-    const opts = knownAssignees.map(a => `<option value="${esc(a)}"></option>`).join("");
-    return `<input type="text" id="dlgAssignee" list="assigneeList" value="${esc(current)}"
-                   placeholder="unassigned" autocomplete="off" spellcheck="false"
-                   style="max-width:220px">
-            <datalist id="assigneeList">${opts}</datalist>`;
+    const current = card.assignees || [];
+    const chips = current.map(a =>
+      `<span class="asgChip" style="--chip-h:${agentHue(a)}">
+         <span class="cdot"></span>${esc(a)}
+         <button type="button" class="asgX" data-rm="${esc(a)}" title="unassign ${esc(a)}">✕</button>
+       </span>`).join("");
+    const opts = knownAssignees.filter(a => !current.includes(a))
+      .map(a => `<option value="${esc(a)}">${esc(a)}</option>`).join("");
+    return `<div class="asgBox">
+      ${chips || `<span class="asgNone">unassigned</span>`}
+      <select id="dlgAssignAdd" title="assign another agent">
+        <option value="">+ assign…</option>${opts}
+        <option value="__other">other…</option>
+      </select>
+    </div>`;
   }
 
   const colId = (trans && trans.current_column_id ? trans.current_column_id : (card.placements[0] || {}).column_id) || "";
@@ -1675,18 +1701,30 @@ async function openCard(id) {
   else if (hermes && hermes.priority != null) rows.push(["priority", String(hermes.priority)]);
   $("dlgGrid").innerHTML = rows.map(([k, v, raw]) =>
     `<span class="mi${k === "assignees" || k === "session log" ? " wide" : ""}"><span class="mk">${esc(k)}</span><span class="mv" title="${esc(String(v).replace(/<[^>]*>/g, ""))}">${raw ? v : esc(v)}</span></span>`).join("");
-  /* assignee combobox: saves on Enter/blur. Any actor is accepted — the datalist only suggests. */
-  const dlgAssign = $("dlgAssignee");
-  if (dlgAssign) dlgAssign.onchange = async () => {
-    const v = dlgAssign.value.trim();
-    const assignees = v ? [v] : [];
+  /* multi-assignee: the whole list is PATCHed every time (assignees is a set, not a diff) */
+  const saveAssignees = async list => {
     try {
       await api(`/api/cards/${id}`, {
         method: "PATCH", headers: {"content-type": "application/json"},
-        body: JSON.stringify({assignees}),
+        body: JSON.stringify({ assignees: list }),
       });
-      toast("assignee saved");
+      toast(list.length ? `assigned: ${list.join(", ")}` : "unassigned");
+      openCard(id);                       // re-render the chips from the saved truth
     } catch (e) { toast(e.message); }
+  };
+  for (const x of document.querySelectorAll("#dlgGrid .asgX")) {
+    x.onclick = () => saveAssignees((card.assignees || []).filter(a => a !== x.dataset.rm));
+  }
+  const adder = $("dlgAssignAdd");
+  if (adder) adder.onchange = () => {
+    let v = adder.value;
+    adder.value = "";
+    if (!v) return;
+    // an actor with no dispatcher route is still a legitimate assignee (hermes-engineer has none)
+    if (v === "__other") { v = (prompt("assign to which actor?") || "").trim(); if (!v) return; }
+    const list = card.assignees || [];
+    if (list.includes(v)) return;
+    saveAssignees([...list, v]);
   };
 
   /* Every lane is shown — legal targets lit in the lane's hue, illegal ones dashed and dimmed.
