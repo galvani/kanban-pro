@@ -8,20 +8,44 @@
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2032%2032'%3E%3Crect%20width='32'%20height='32'%20rx='7'%20fill='%231d2026'/%3E%3Crect%20x='5'%20y='7'%20width='6'%20height='18'%20rx='2'%20fill='%234f8cff'/%3E%3Crect%20x='13'%20y='7'%20width='6'%20height='11'%20rx='2'%20fill='%233fb96b'/%3E%3Crect%20x='21'%20y='7'%20width='6'%20height='15'%20rx='2'%20fill='%238a919e'/%3E%3C/svg%3E">
 
 <style>
+  /* Design tokens — "Redesign for readability" (claude.ai/design). The palette is oklch:
+     one neutral ramp (hue 260) for chrome, and a HUE PER MEANING for everything semantic
+     (lane, agent, severity). Colour is never decoration here — it encodes which agent and
+     which lane, so a card can be read at a glance from across the board. */
   :root {
-    --bg: #14161a; --panel: #1d2026; --card: #262a32; --card-hover: #2d323c;
-    --text: #e6e8eb; --dim: #8a919e; --accent: #4f8cff; --ok: #3fb96b;
-    --border: #333845; --danger: #e5534b;
+    --bg: oklch(0.17 0.012 260); --panel: oklch(0.205 0.012 260);
+    --card: oklch(0.245 0.013 260); --card-hover: oklch(0.27 0.013 260);
+    --text: oklch(0.96 0.005 260); --dim: oklch(0.62 0.01 260);
+    --accent: oklch(0.72 0.14 250); --ok: oklch(0.75 0.14 150);
+    --border: oklch(0.30 0.01 260); --border-hi: oklch(0.42 0.02 260);
+    --danger: oklch(0.68 0.18 25); --warn: oklch(0.78 0.16 70);
+    --sunken: oklch(0.155 0.012 260);
+    --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
   }
   * { box-sizing: border-box; }
+  /* links were falling back to the browser's default blue (#0000ee) on a dark panel — legible
+     only in the .desc/.comment scopes that happened to override it. One rule, everywhere. */
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { color: oklch(0.8 0.13 250); text-decoration: underline; }
   body { margin: 0; background: var(--bg); color: var(--text);
          font: 14px/1.45 system-ui, sans-serif; height: 100vh; display: flex; flex-direction: column; }
-  header { display: flex; align-items: center; gap: 12px; padding: 10px 16px;
-           background: var(--panel); border-bottom: 1px solid var(--border); }
-  header h1 { font-size: 15px; margin: 0; font-weight: 600; }
+  header { display: flex; align-items: center; gap: 14px; padding: 9px 16px;
+           background: var(--panel); border-bottom: 1px solid oklch(0.28 0.01 260); flex: none; }
+  header h1 { font-size: 16px; margin: 0; font-weight: 800; letter-spacing: -0.01em; }
   header h1 span { color: var(--accent); }
-  select { background: var(--card); color: var(--text); border: 1px solid var(--border);
-           border-radius: 6px; padding: 4px 8px; }
+  select { background: oklch(0.24 0.012 260); color: var(--text);
+           border: 1px solid oklch(0.32 0.01 260); border-radius: 8px; padding: 5px 9px;
+           font-weight: 600; font-size: 12.5px; }
+  /* the filter row: a segmented control, not three loose checkboxes with a lone dropdown */
+  .filters { display: flex; align-items: center; gap: 4px; padding: 3px; border-radius: 9px;
+             border: 1px solid oklch(0.30 0.01 260); background: oklch(0.235 0.012 260); }
+  .filters label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
+                   user-select: none; padding: 4px 10px; border-radius: 7px; font-size: 12px;
+                   font-weight: 600; color: oklch(0.66 0.01 260); }
+  .filters label:hover { background: oklch(0.28 0.012 260); }
+  .filters label:has(input:checked) { background: oklch(0.32 0.05 250 / 0.45);
+                                      color: oklch(0.88 0.1 250); }
+  .filters select { border: 0; background: transparent; padding: 3px 4px; }
   .filters { display: flex; align-items: center; gap: 12px; font-size: 12px; color: var(--dim); }
   .filters label { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; user-select: none; }
   .filters input[type=checkbox] { accent-color: var(--accent); cursor: pointer; margin: 0; }
@@ -33,46 +57,83 @@
   .card.stale:hover { opacity: 1; }
   .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--dim); }
   .dot.live { background: var(--ok); }
-  #board { flex: 1; display: flex; gap: 12px; padding: 14px; overflow-x: auto; align-items: flex-start; }
-  .col { background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
-         min-width: 240px; width: 240px; max-height: 100%; display: flex; flex-direction: column; }
-  .col h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--dim);
-            margin: 0; padding: 10px 12px 6px; display: flex; justify-content: space-between; }
+  #board { flex: 1; display: flex; gap: 12px; padding: 14px; overflow-x: auto; overflow-y: hidden;
+           align-items: flex-start; height: 100%; }
+  /* --lane-h: the column's hue, set per-column in JS from its category (see LANE_HUE) */
+  .col { background: var(--panel); border: 1px solid oklch(0.29 0.01 260); border-radius: 11px;
+         flex: none; width: 266px; max-height: 100%; display: flex; flex-direction: column;
+         overflow: hidden; transition: width .2s; }
+  .col h2 { font-size: 11.5px; text-transform: uppercase; letter-spacing: .06em;
+            margin: 0; padding: 10px 13px; display: flex; align-items: center; gap: 8px;
+            border-bottom: 1px solid var(--border); cursor: pointer; user-select: none; flex: none;
+            font-weight: 800; color: oklch(0.9 0.02 var(--lane-h, 260)); }
+  .col h2 .laneDot { width: 8px; height: 8px; border-radius: 50%; flex: none;
+                     background: oklch(0.74 0.13 var(--lane-h, 260)); }
+  .col h2 .laneCount { margin-left: auto; min-width: 20px; text-align: center; padding: 1px 6px;
+                       border-radius: 20px; font-size: 11.5px; font-weight: 800;
+                       background: oklch(0.32 0.05 var(--lane-h, 260) / 0.5);
+                       color: oklch(0.85 0.10 var(--lane-h, 260)); }
+  .col.empty h2 { color: oklch(0.62 0.03 var(--lane-h, 260)); }
+  /* collapsed lane: a 44px vertical rail — the name stays readable, the cards fold away */
+  .col.collapsed { width: 44px; }
+  .col.collapsed h2 { writing-mode: vertical-rl; justify-content: flex-start; height: 100%;
+                      padding: 11px 0; border-bottom: 0; }
+  .col.collapsed h2 .laneCount { margin-left: 0; margin-top: 6px; }
+  .col.collapsed .cards { display: none; }
   .col.dragover { outline: 2px dashed var(--accent); outline-offset: -4px; }
-  .cards { padding: 6px 8px 10px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
-  .card { background: var(--card); border: 1px solid var(--border); border-radius: 8px;
-          padding: 8px 10px; cursor: grab; }
-  .card:hover { background: var(--card-hover); }
-  .card .t { font-weight: 500; word-break: break-word; }
-  .card .sub { margin-top: 4px; font-size: 11px; color: var(--dim);
-               display: flex; gap: 6px; flex-wrap: wrap; }
-  .card .preview { margin-top: 4px; font-size: 11px; color: var(--dim);
-                   border-left: 2px solid var(--border); padding-left: 6px;
-                   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .chip { background: #1a1d23; border: 1px solid var(--border); border-radius: 10px; padding: 0 7px; }
+  .cards { padding: 8px 9px 40px; overflow-y: auto; overflow-x: hidden;
+           display: flex; flex-direction: column; gap: 8px; flex: 1; }
+  /* --acc-h: the card's accent hue = its primary agent's hue (attention → amber) */
+  .card { background: var(--card); border: 1px solid oklch(0.32 0.01 260);
+          border-left: 3px solid oklch(0.70 0.13 var(--acc-h, 260)); border-radius: 8px;
+          padding: 9px 11px; cursor: grab; transition: opacity .15s, border-color .12s; }
+  .card:hover { border-color: var(--border-hi); opacity: 1 !important; }
+  .card .badges { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 9px; }
+  .card .badges:empty { display: none; }
+  .card .t { font-size: 13px; font-weight: 600; line-height: 1.38; color: oklch(0.95 0.005 260);
+             word-break: break-word; text-wrap: pretty; }
+  /* the preview is two lines, clamped — a wall of text on the card face is what made the
+     old board unreadable; the detail panel is where the full text belongs */
+  .card .preview { margin-top: 7px; font-size: 11.5px; line-height: 1.42; color: oklch(0.66 0.01 260);
+                   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+                   overflow: hidden; }
+  .card .sub { display: flex; align-items: center; gap: 7px; margin-top: 9px; font-size: 11px; }
+  .card .sub .hash { font-family: var(--mono); font-size: 11px; color: oklch(0.58 0.01 260); }
+  .card .sub .when { margin-left: auto; font-weight: 600; color: oklch(0.64 0.01 260); }
+  /* copy-id: revealed on hover only — present when wanted, silent when not */
+  .card .copy { padding: 1px 7px; border-radius: 5px; font-size: 10px; line-height: 16px;
+                font-weight: 700; border: 1px solid oklch(0.36 0.01 260);
+                background: oklch(0.28 0.012 260); color: oklch(0.72 0.01 260);
+                opacity: 0; pointer-events: none; transition: opacity .12s; cursor: pointer; }
+  .card:hover .copy { opacity: 1; pointer-events: auto; }
+  .card .copy.copied { border-color: oklch(0.6 0.1 150 / 0.5); background: oklch(0.4 0.08 150 / 0.35);
+                       color: oklch(0.82 0.11 150); }
+  /* --chip-h: the agent's hue (AGENT_HUE) — same agent, same colour, everywhere */
+  .chip { display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px; border-radius: 5px;
+          font-size: 10px; font-weight: 700; letter-spacing: .03em; white-space: nowrap;
+          background: oklch(0.33 0.06 var(--chip-h, 260) / 0.55);
+          color: oklch(0.85 0.12 var(--chip-h, 260));
+          border: 1px solid oklch(0.55 0.09 var(--chip-h, 260) / 0.45); }
+  .chip .cdot { width: 5px; height: 5px; border-radius: 50%; flex: none;
+                background: oklch(0.8 0.14 var(--chip-h, 260)); }
+  .chip.attn { background: var(--warn); color: oklch(0.24 0.06 70); border: 0; text-transform: uppercase;
+               font-weight: 800; letter-spacing: .04em; }
+  .chip.attn .cdot { background: oklch(0.24 0.06 70); border-radius: 1px; transform: rotate(45deg); }
   .chip svg { margin-right: 2px; }
-  .chip.prepare          { border-color: #e8a838; color: #e8a838; }
-  .chip.builder-coder    { border-color: #4a9eff; color: #4a9eff; }
-  .chip.builder-architect { border-color: #ab7df0; color: #ab7df0; }
-  .chip.reviewer         { border-color: #f075aa; color: #f075aa; }
-  .chip.rebaser          { border-color: #4ae8a0; color: #4ae8a0; }
-  .chip.scribe           { border-color: #f0c040; color: #f0c040; }
-  .chip.analytics        { border-color: #60c0f0; color: #60c0f0; }
-  .chip.status-audit     { border-color: #e8a040; color: #e8a040; }
-  .chip.discovery        { border-color: #70d0a0; color: #70d0a0; }
-  .chip.builder-sonnet   { border-color: #f08080; color: #f08080; }
-  .chip.dispatcher       { border-color: #80b0f0; color: #80b0f0; }
-  .chip.hermes-engineer  { border-color: #d0a0f0; color: #d0a0f0; }
-  .chip.unknown { background: #3a1f1f; border-color: var(--danger); color: #e5534b; }
+  /* per-agent colours are no longer hand-listed: the hue comes from AGENT_HUE in JS, so a new
+     agent gets a stable colour with no CSS edit. `unknown` still shouts — an assignee the
+     dispatcher doesn't route to is a mistake, not a colour. */
+  .chip.unknown { background: oklch(0.32 0.09 25 / 0.5); border-color: var(--danger);
+                  color: oklch(0.82 0.14 25); }
   .chip.unknown::before { content: "⚠️"; margin-right: 2px; }
-  .chip.ready { border-color: #4a9eff; color: #4a9eff; }
-  .chip.running { border-color: #e8a838; color: #e8a838; }
-  .chip.done { border-color: #4ae8a0; color: #4ae8a0; }
-  .chip.blocked { border-color: #e5534b; color: #e5534b; }
-  .chip.triage { border-color: #888; color: #888; }
-  .chip.review { border-color: #ab7df0; color: #ab7df0; }
-  .chip.todo { border-color: #f0c040; color: #f0c040; }
-  .chip.canceled { border-color: #666; color: #666; text-decoration: line-through; }
+  .chip.live { background: oklch(0.32 0.05 150 / 0.5); color: oklch(0.85 0.12 150);
+               border-color: oklch(0.55 0.09 150 / 0.45); }
+  /* the lane pill in the card dialog — same hue as the lane it names */
+  .lanePill { display: inline-flex; align-items: center; padding: 2px 10px; border-radius: 20px;
+              font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em;
+              background: oklch(0.32 0.06 var(--lane-h, 260) / 0.45);
+              color: oklch(0.82 0.12 var(--lane-h, 260));
+              border: 1px solid oklch(0.55 0.09 var(--lane-h, 260) / 0.4); }
   dialog { background: var(--panel); color: var(--text); border: 1px solid var(--border);
            border-radius: 12px; width: min(1400px, 96vw); max-height: 90vh; overflow-y: auto; }
   /* showModal() focuses the first focusable child — which was the assignee <select>, so the
@@ -105,10 +166,42 @@
   .metaGrid .mi:only-child { min-width: auto; flex: none; }
   .metaGrid .mk { color: var(--dim); white-space: nowrap; flex: none; }
   .metaGrid .mv { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-  .moveBtns { display: flex; gap: 6px; flex-wrap: wrap; }
-  .moveBtns button { background: var(--card); border: 1px solid var(--border);
-                     color: var(--text); font-size: 12px; padding: 4px 10px; }
-  .moveBtns button:hover { border-color: var(--accent); color: var(--accent); }
+  /* Move-to: a legal target is lit in its lane's hue; an ILLEGAL one is still shown, dashed and
+     dimmed, because hiding it hides the flow. ⌘/Ctrl-click forces it (audited, never silent). */
+  .moveBtns { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .moveBtns button { display: inline-flex; align-items: center; gap: 7px; padding: 5px 12px;
+                     border-radius: 8px; font-size: 12px; font-weight: 600; white-space: nowrap;
+                     border: 1px solid oklch(0.52 0.08 var(--lane-h, 260) / 0.45);
+                     background: oklch(0.30 0.055 var(--lane-h, 260) / 0.4);
+                     color: oklch(0.87 0.10 var(--lane-h, 260)); }
+  .moveBtns button .cdot { width: 6px; height: 6px; border-radius: 50%; flex: none;
+                           background: oklch(0.76 0.13 var(--lane-h, 260)); }
+  .moveBtns button.illegal { border: 1px dashed oklch(0.3 0.008 260); background: transparent;
+                             color: oklch(0.44 0.01 260); opacity: .55; }
+  .moveBtns button.illegal .cdot { background: oklch(0.4 0.01 260); }
+  .moveBtns button.illegal:hover { opacity: .9; }
+  /* tabbed detail: the old dialog stacked report+comments+activity+log in one scroll, which is
+     exactly what buried the work report. One tab at a time; the report is the default. */
+  .tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--border); margin: 14px 0 0; }
+  .tabs button { display: inline-flex; align-items: center; gap: 7px; padding: 9px 15px;
+                 border: 0; background: none; cursor: pointer; font-size: 13px; font-weight: 600;
+                 color: oklch(0.6 0.01 260); border-bottom: 2px solid transparent;
+                 border-radius: 0; margin-bottom: -1px; }
+  .tabs button .cdot { width: 7px; height: 7px; border-radius: 50%; flex: none; opacity: .55;
+                       background: oklch(0.74 0.13 var(--tab-h, 260)); }
+  .tabs button.on { font-weight: 700; color: oklch(0.95 0.005 260); border-bottom-color: var(--accent); }
+  .tabs button.on .cdot { opacity: 1; }
+  .tabs button .cdot.pulse { animation: kpPulse 1.4s ease-in-out infinite; }
+  @keyframes kpPulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
+  .tabPane { padding-top: 16px; }
+  .tabPane[hidden] { display: none; }
+  .emptyPane { display: flex; flex-direction: column; align-items: center; justify-content: center;
+               gap: 9px; padding: 64px 24px; text-align: center; color: oklch(0.55 0.01 260); }
+  .emptyPane .glyph { width: 38px; height: 38px; border-radius: 9px; display: flex;
+                      align-items: center; justify-content: center; font-size: 17px;
+                      border: 1.5px solid oklch(0.36 0.01 260); color: oklch(0.5 0.01 260); }
+  .emptyPane .lead { font-size: 14px; font-weight: 600; color: oklch(0.72 0.01 260); }
+  .emptyPane .sub { font-size: 12.5px; line-height: 1.45; max-width: 340px; }
   .relRow { font-size: 13px; padding: 3px 0; }
   .relRow a { color: var(--accent); cursor: pointer; text-decoration: none; }
   .reportSec { border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px;
@@ -232,18 +325,33 @@
   <dl class="metaGrid" id="dlgGrid"></dl>
   <h4>Move to</h4>
   <div class="moveBtns" id="dlgMoves"></div>
-  <div class="desc" id="dlgDesc"></div>
-  <div id="dlgWorkReport"></div>
-  <div id="dlgRelations"></div>
-  <h4>Comments</h4>
-  <div id="dlgComments"></div>
-  <form id="commentForm">
-    <input type="text" id="commentBody" placeholder="add a comment…" autocomplete="off">
-    <button type="submit">Send</button>
-  </form>
-  <h4>Activity</h4>
-  <div class="activity" id="dlgActivity"></div>
-  <details class="ext" id="dlgExt"><summary>ext (raw)</summary><pre id="dlgExtPre"></pre></details>
+
+  <!-- tabs: one pane at a time. The work report is the default — it is the card's current
+       truth, and in the old single-scroll dialog it sat below the description and above the
+       comments, i.e. exactly where nobody looked. -->
+  <div class="tabs" id="dlgTabs"></div>
+  <div class="tabPane" id="paneReport">
+    <div id="dlgWorkReport"></div>
+    <div id="dlgRelations"></div>
+  </div>
+  <div class="tabPane" id="paneSpec" hidden>
+    <div class="desc" id="dlgDesc"></div>
+  </div>
+  <div class="tabPane" id="paneSession" hidden>
+    <div id="dlgSessionMeta"></div>
+    <div class="logView" id="dlgSessionLog"></div>
+  </div>
+  <div class="tabPane" id="paneComments" hidden>
+    <div id="dlgComments"></div>
+    <form id="commentForm">
+      <input type="text" id="commentBody" placeholder="add a comment…" autocomplete="off">
+      <button type="submit">Send</button>
+    </form>
+  </div>
+  <div class="tabPane" id="paneActivity" hidden>
+    <div class="activity" id="dlgActivity"></div>
+    <details class="ext" id="dlgExt"><summary>ext (raw)</summary><pre id="dlgExtPre"></pre></details>
+  </div>
 </div></dialog>
 
 <dialog id="logDlg" tabindex="-1" autofocus><div class="body">
@@ -257,7 +365,7 @@
 
 <script>
 /* Push-fed board: one snapshot per board switch, then SSE deltas. No polling timers. */
-let boardId = null, cursor = 0, es = null, refreshTimer = null, reconnectTimer = null, detailRefreshTimer = null, openCardId = null, knownAssignees = [], reportRequiredByAssignee = {}, reportSectionOrder = [], reportSectionOrderByAssignee = {}, maxRetries = 5;
+let boardId = null, lastBoard = null, activeTab = 'report', cursor = 0, es = null, refreshTimer = null, reconnectTimer = null, detailRefreshTimer = null, openCardId = null, knownAssignees = [], reportRequiredByAssignee = {}, reportSectionOrder = [], reportSectionOrderByAssignee = {}, maxRetries = 5;
 
 const A = (paths) => `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${paths}</svg> `;
 const ASSIGNEE_GLYPHS = {
@@ -273,6 +381,41 @@ const ASSIGNEE_GLYPHS = {
   "builder-sonnet": A(`<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>`),
   "dispatcher": A(`<line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>`),
   "hermes-engineer": A(`<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>`),
+};
+
+/* --- the hue system (design: "Redesign for readability") ------------------------------
+   Colour carries meaning, so it must be STABLE: the same agent is the same hue on a card,
+   in a comment, in the activity feed. Hues are derived, not hand-assigned per class, so a
+   new agent or lane gets a coherent colour without a CSS edit. */
+const AGENT_HUE = {
+  "claude-code": 255, "codex": 300, "hermes-engineer": 175, "builder-architect": 70,
+  "reviewer": 15, "reviewer-architect": 15, "rebaser": 150, "scribe": 305, "discovery": 200,
+  "analytics": 255, "status-audit": 175, "prepare": 40, "builder-coder": 250,
+  "builder-sonnet": 340, "dispatcher": 220, "jan": 60,
+};
+//: lane hue by column CATEGORY — the portable semantic (a board's column NAMES are free-form,
+//: its categories are not), so any board colours correctly without configuration.
+const LANE_HUE = { triage: 220, backlog: 220, unstarted: 250, started: 70, done: 150, canceled: 25 };
+const agentHue = a => {
+  const name = String(a ?? "").split(":").pop();
+  if (AGENT_HUE[name] != null) return AGENT_HUE[name];
+  // stable fallback: hash the name to a hue, so an unlisted agent is still consistently coloured
+  let h = 0;
+  for (const ch of name) h = (h * 31 + ch.charCodeAt(0)) % 360;
+  return h;
+};
+const laneHue = col => LANE_HUE[col?.category] ?? 260;
+/* Cards fade as they go stale (>24h), floor at 7d — old work recedes without disappearing. */
+function ageOpacity(ts) {
+  if (!ts) return 1;
+  const h = (Date.now() - new Date(ts).getTime()) / 3600000;
+  if (h <= 24) return 1;
+  if (h >= 168) return 0.4;
+  return +(1 - ((h - 24) / 144) * 0.6).toFixed(3);
+}
+const agentChip = (actor, extra = "") => {
+  const name = String(actor ?? "").split(":").pop();
+  return `<span class="chip ${extra}" style="--chip-h:${agentHue(name)}"><span class="cdot"></span>${esc(name)}</span>`;
 };
 
 const $ = id => document.getElementById(id);
@@ -319,6 +462,19 @@ function age(ts) {
   return Math.round(s / 86400) + "d";
 }
 
+/* --- collapsed lanes (client-only, persisted): a folded lane stays on the board as a 44px
+   rail rather than vanishing, so you can always see it exists and click it back open. --- */
+const COLLAPSE_KEY = "kanban-pro-collapsed";
+const collapsedSet = () => {
+  try { return new Set(JSON.parse(localStorage.getItem(COLLAPSE_KEY)) || []); } catch { return new Set(); }
+};
+const isCollapsed = colId => collapsedSet().has(colId);
+function toggleCollapsed(colId) {
+  const s = collapsedSet();
+  s.has(colId) ? s.delete(colId) : s.add(colId);
+  localStorage.setItem(COLLAPSE_KEY, JSON.stringify([...s]));
+}
+
 /* --- view filters (client-only, persisted in localStorage) --- */
 const FILTER_KEY = "kanban-pro-filters", STALE_MS = 7 * 86400 * 1000;
 function filterState() {
@@ -346,30 +502,51 @@ function cardEl(card) {
   el.className = "card"; el.draggable = true; el.dataset.id = card.id;
   const ext = card.ext || {};
   const chips = [];
-  if (ext["kanban_pro.attention"]) chips.push(`<span class="chip" style="border-color:#8a6d1f">⚠️ attention</span>`);
+  // attention leads, always: it is the one badge that means "a human or agent must act"
+  if (ext["kanban_pro.attention"]) {
+    const sev = ext["kanban_pro.attention"].severity || "block";
+    chips.push(`<span class="chip attn"><span class="cdot"></span>${esc(sev)}</span>`);
+  }
   if (ext._claim) {
     const hasLog = !!((ext.session || {}).log || (ext.work || {}).log);
     const who = String(ext._claim.owner).split(":").pop();
-    chips.push(`<span class="chip live" title="claimed by ${esc(ext._claim.owner)}${hasLog ? " · session log linked" : ""}">▶ ${boldAgent(who)}${hasLog ? " 📜" : ""}</span>`);
+    chips.push(`<span class="chip live" title="claimed by ${esc(ext._claim.owner)}${hasLog ? " · session log linked" : ""}"><span class="cdot"></span>▶ ${esc(who)}${hasLog ? " 📜" : ""}</span>`);
   }
   for (const a of card.assignees || []) {
-    const cls = knownAssignees.includes(a) ? "" : " unknown";
-    const glyph = ASSIGNEE_GLYPHS[a] || "";
-    chips.push(`<span class="chip ${esc(a)}${cls}">${glyph}${esc(a)}</span>`);
+    const known = knownAssignees.includes(a);
+    chips.push(`<span class="chip ${known ? "" : "unknown"}" style="--chip-h:${agentHue(a)}"><span class="cdot"></span>${esc(a)}</span>`);
   }
   // first-class card.priority (0-10, higher = more urgent) wins; the ext.hermes/ext.work
   // priorities are the older backend-supplied ones, kept as a fallback for legacy cards.
   const prio = card.priority || ((ext.hermes || {}).priority ?? (ext.work || {}).priority);
-  if (prio != null && prio !== 0) chips.push(`<span class="chip">p${esc(prio)}</span>`);
-  if (ext["kanban_pro.scheme"]) chips.push(`<span class="chip">${esc(ext["kanban_pro.scheme"])}</span>`);
-  const work = ext.work || {};
-  const retry = work.retry_at;
-  if (retry) chips.push(`<span class="chip" style="border-color:var(--accent)">📅 ${esc(new Date(retry * 1000).toLocaleString())}</span>`);
-  const created = age(card.updated_at || card.created_at);
-  el.innerHTML = `<div class="t">${esc(card.title)}</div>
-                  <div class="sub"><span>${esc(card.id.slice(0, 10))}</span>${chips.join("")}
-                  ${created ? `<span style="margin-left:auto">${created}</span>` : ""}</div>
-                  ${ext._last_comment ? `<div class="preview">${esc(ext._last_comment)}</div>` : ""}`;
+  if (prio != null && prio !== 0) chips.push(`<span class="chip" style="--chip-h:${prio >= 7 ? 25 : 250}"><span class="cdot"></span>p${esc(prio)}</span>`);
+  if (ext["kanban_pro.scheme"]) chips.push(`<span class="chip"><span class="cdot"></span>${esc(ext["kanban_pro.scheme"])}</span>`);
+  const retry = (ext.work || {}).retry_at;
+  if (retry) chips.push(`<span class="chip" style="--chip-h:200"><span class="cdot"></span>📅 ${esc(new Date(retry * 1000).toLocaleString())}</span>`);
+
+  // the card's accent = its primary agent's hue (attention overrides to amber): the left edge
+  // alone tells you who owns the card, without reading a word of it
+  const primary = (card.assignees || [])[0] || (ext._claim || {}).owner;
+  const accH = ext["kanban_pro.attention"] ? 70 : (primary ? agentHue(primary) : 260);
+  el.style.setProperty("--acc-h", accH);
+  el.style.opacity = ageOpacity(card.updated_at || card.created_at);
+
+  const when = age(card.updated_at || card.created_at);
+  el.innerHTML = `<div class="badges">${chips.join("")}</div>
+                  <div class="t">${esc(card.title)}</div>
+                  ${ext._last_comment ? `<div class="preview">${esc(ext._last_comment)}</div>` : ""}
+                  <div class="sub">
+                    <span class="hash">${esc(card.id.slice(0, 10))}</span>
+                    <button type="button" class="copy" title="Copy card id">copy id</button>
+                    ${when ? `<span class="when">${when}</span>` : ""}
+                  </div>`;
+  el.querySelector(".copy").addEventListener("click", async ev => {
+    ev.stopPropagation();                     // the card itself opens the dialog on click
+    const btn = ev.currentTarget;
+    try { await navigator.clipboard.writeText(card.id); } catch { return toast("clipboard blocked"); }
+    btn.textContent = "copied ✓"; btn.classList.add("copied");
+    setTimeout(() => { btn.textContent = "copy id"; btn.classList.remove("copied"); }, 1400);
+  });
   el.addEventListener("dragstart", ev => ev.dataTransfer.setData("text/plain", card.id));
   el.addEventListener("click", () => openCard(card.id));
   return el;
@@ -430,6 +607,7 @@ function md(src) {
 async function refresh() {
   if (!boardId) return;
   const snap = await api(`/api/boards/${boardId}`);
+  lastBoard = snap.board;          // the dialog needs every lane (incl. flow-illegal ones)
   cursor = Math.max(cursor, snap.cursor);
   const root = $("board");
   root.innerHTML = "";
@@ -449,8 +627,14 @@ async function refresh() {
       return (pa - pb) || String(b.updated_at ?? "").localeCompare(String(a.updated_at ?? ""));
     });
     const el = document.createElement("div");
-    el.className = "col";
-    el.innerHTML = `<h2>${esc(col.name)}<span>${cards.length}${col.wip_limit ? "/" + col.wip_limit : ""}</span></h2>`;
+    el.className = "col" + (cards.length ? "" : " empty") + (isCollapsed(col.id) ? " collapsed" : "");
+    el.style.setProperty("--lane-h", laneHue(col));
+    el.innerHTML = `<h2 title="click to fold this lane">
+                      <span class="laneDot"></span>
+                      <span class="laneName">${esc(col.name)}</span>
+                      <span class="laneCount">${cards.length}${col.wip_limit ? "/" + col.wip_limit : ""}</span>
+                    </h2>`;
+    el.querySelector("h2").addEventListener("click", () => { toggleCollapsed(col.id); refresh(); });
     const list = document.createElement("div");
     list.className = "cards";
     for (const c of cards) {
@@ -814,12 +998,15 @@ async function openCard(id) {
   }
 
   const colId = (trans && trans.current_column_id ? trans.current_column_id : (card.placements[0] || {}).column_id) || "";
-  const colName = colId.includes(":") ? colId.split(":").pop() : colId;
-  const colCat = trans ? trans.current_column_category : "";
-  const colChipClass = colCat === "started" ? "running" : colCat === "done" ? "done" : colCat === "canceled" ? "canceled" : colName;
+  // resolve the lane by id against the board — a native column id is a uuid, so splitting it
+  // on ":" (the hermes shape) printed the raw uuid at the user. Fall back to the id only if the
+  // board hasn't loaded.
+  const colObj = (lastBoard ? lastBoard.columns : []).find(c => c.id === colId);
+  const colName = colObj ? colObj.name : (colId.includes(":") ? colId.split(":").pop() : colId);
+  const colHue = colObj ? laneHue(colObj) : 260;
   const rows = [
     ["assignees", assigneeHtml(), true],
-    ["column", `<span class="chip ${esc(colChipClass)}">${esc(colName)}</span>`, true],
+    ["column", `<span class="lanePill" style="--lane-h:${colHue}">${esc(colName)}</span>`, true],
     ["created", fmt(card.created_at)], ["updated", fmt(card.updated_at)],
   ];
   if (origin && typeof origin === "object") rows.push(["origin", originHtml(origin), true]);
@@ -856,17 +1043,33 @@ async function openCard(id) {
     } catch (e) { toast(e.message); }
   };
 
+  /* Every lane is shown — legal targets lit in the lane's hue, illegal ones dashed and dimmed.
+     Hiding the illegal ones hides the FLOW: you could never see why a move wasn't offered. A
+     dashed lane is still clickable with ⌘/Ctrl to force, which is audited (forced: true). */
   $("dlgMoves").innerHTML = "";
   document.querySelectorAll("#cardDlg .buildInfo").forEach(el => el.remove());
-  for (const opt of (trans ? trans.options : [])) {
+  const legal = new Set((trans ? trans.options : []).map(o => o.column_id));
+  const here = (card.placements || []).find(p => p.board_id === boardId);
+  const move = async (colId, force) => {
+    try {
+      await api(`/api/cards/${id}/move`, { method: "POST",
+        headers: {"content-type": "application/json"},
+        body: JSON.stringify({to_board_id: boardId, to_column_id: colId, position: 0, force}) });
+      if (force) toast("forced — recorded in the change-log as forced");
+    } catch (e) { toast(e.message); }
+  };
+  for (const col of (lastBoard ? [...lastBoard.columns].sort((a, b) => a.order - b.order) : [])) {
+    if (here && col.id === here.column_id) continue;         // it's already here
+    const ok = legal.has(col.id);
     const b = document.createElement("button");
-    b.textContent = opt.name;
-    b.onclick = async () => {
-      try {
-        await api(`/api/cards/${id}/move`, { method: "POST",
-          headers: {"content-type": "application/json"},
-          body: JSON.stringify({to_board_id: boardId, to_column_id: opt.column_id, position: 0}) });
-      } catch (e) { toast(e.message); }
+    b.className = ok ? "" : "illegal";
+    b.style.setProperty("--lane-h", laneHue(col));
+    b.title = ok ? `Move to ${col.name}` : "Not allowed by this board's flow — ⌘/Ctrl-click to force";
+    b.innerHTML = `<span class="cdot"></span>${esc(col.name)}`;
+    b.onclick = ev => {
+      if (ok) return move(col.id, false);
+      if (ev.metaKey || ev.ctrlKey) return move(col.id, true);
+      toast(`flow forbids → ${col.name}. ⌘/Ctrl-click to force (it will be logged as forced).`);
     };
     $("dlgMoves").appendChild(b);
   }
@@ -919,6 +1122,15 @@ async function openCard(id) {
   $("dlgExt").style.display = Object.keys(ext).length ? "" : "none";
   $("dlgExtPre").textContent = JSON.stringify(ext, null, 2);
 
+  renderTabs(id, {
+    report: !!(ext.work_report && Object.keys(ext.work_report).length),
+    spec: !!$("dlgDesc").innerHTML,
+    session: !!((ext.session || {}).log || (ext.work || {}).log),
+    live: !!d.claim,
+    comments: d.comments.length,
+    activity: activity.length,
+  });
+
   const dlg = $("cardDlg");
   if (!dlg.open) {
     dlg.showModal();
@@ -929,12 +1141,83 @@ async function openCard(id) {
 }
 $("cardDlg").addEventListener("close", () => {
   openCardId = null;
+  if (logTarget === $("dlgSessionLog")) { clearInterval(logTimer); logTimer = null; logCardId = null; logTarget = null; }
   clearTimeout(detailRefreshTimer);
   detailRefreshTimer = null;
 });
 
-/* --- session-log viewer: tail an agent's log; live-poll while its claim is held --- */
-let logCardId = null, logOffset = 0, logTimer = null;
+/* --- the detail tabs -----------------------------------------------------------------
+   Each tab keeps its own hue (report=blue, spec=violet, session=green, comments=teal,
+   activity=amber) so the strip reads as a set of places, not five identical words. A tab
+   with nothing in it is shown but dimmed — absence is information ("no work report yet"),
+   whereas hiding the tab would just look like the feature doesn't exist. */
+const TABS = [
+  { id: "report",   pane: "paneReport",   label: "Work report", hue: 250 },
+  { id: "spec",     pane: "paneSpec",     label: "Spec",        hue: 305 },
+  { id: "session",  pane: "paneSession",  label: "Session log", hue: 150 },
+  { id: "comments", pane: "paneComments", label: "Comments",    hue: 175 },
+  { id: "activity", pane: "paneActivity", label: "Activity",    hue: 70  },
+];
+function renderTabs(cardId, has) {
+  const strip = $("dlgTabs");
+  strip.innerHTML = "";
+  // the default tab is the report — unless this card has none, in which case the spec is
+  // what a reader actually wants first
+  if (!has[activeTab] && !(activeTab === "report" && !has.report)) activeTab = "report";
+  if (activeTab === "report" && !has.report && has.spec) activeTab = "spec";
+  for (const t of TABS) {
+    const count = t.id === "comments" ? has.comments : t.id === "activity" ? has.activity : 0;
+    const b = document.createElement("button");
+    b.type = "button";
+    b.dataset.tab = t.id;
+    b.style.setProperty("--tab-h", t.hue);
+    b.style.opacity = has[t.id] ? "" : ".55";
+    const live = t.id === "session" && has.live;
+    b.innerHTML = `<span class="cdot${live ? " pulse" : ""}"></span>${t.label}${count ? " · " + count : ""}`;
+    b.onclick = () => { activeTab = t.id; showTab(cardId); };
+    strip.appendChild(b);
+  }
+  showTab(cardId);
+}
+function showTab(cardId) {
+  for (const t of TABS) $(t.pane).hidden = t.id !== activeTab;
+  for (const b of $("dlgTabs").children) b.classList.toggle("on", b.dataset.tab === activeTab);
+  if (activeTab === "session") tailSessionInto(cardId);   // only tail while the tab is open
+}
+
+/* --- session-log viewer: tail an agent's log; live-poll while its claim is held ---
+   The same tail now feeds two surfaces: the Session tab inside the card dialog (the design's
+   home for it) and the standalone pop-out. `logTarget` says which element is receiving it. */
+let logCardId = null, logOffset = 0, logTimer = null, logTarget = null;
+
+/* Render the session log INTO the card dialog's Session tab. */
+async function tailSessionInto(cardId) {
+  const view = $("dlgSessionLog"), meta = $("dlgSessionMeta");
+  if (logCardId === cardId && logTarget === view) return;   // already tailing this one
+  clearInterval(logTimer); logTimer = null;
+  logCardId = cardId; logOffset = 0; logTarget = view;
+  view.innerHTML = "";
+  let d;
+  try { d = await api(`/api/cards/${cardId}`); } catch { d = {}; }
+  const ext = (d.card || {}).ext || {};
+  const running = !!d.claim;
+  const owner = running ? d.claim.owner : (ext.session || {}).actor;
+  if (!((ext.session || {}).log || (ext.work || {}).log)) {
+    meta.innerHTML = "";
+    view.innerHTML = `<div class="emptyPane"><div class="glyph">⏸</div>
+      <div class="lead">No session has run for this card yet</div>
+      <div class="sub">When a worker claims it, its transcript tails here live.</div></div>`;
+    return;
+  }
+  meta.innerHTML = `<div style="display:flex;align-items:center;gap:9px;margin-bottom:10px">
+      ${owner ? agentChip(owner) : ""}
+      <span style="margin-left:auto;font-size:11px;font-weight:600;color:${running ? "var(--ok)" : "var(--dim)"}">
+        ${running ? "▶ streaming live" : "last session · ended"}
+      </span>
+    </div>`;
+  await pollLog(true);
+  if (running) logTimer = setInterval(() => pollLog(false), 2000);
+}
 
 function logEntryEl(e) {
   const div = document.createElement("div");
@@ -949,6 +1232,7 @@ function logEntryEl(e) {
 }
 function setLogLive(running) {
   const b = $("logLive");
+  if (!b) return;                       // the Session tab has its own status line, not this badge
   b.textContent = running ? "LIVE" : "done";
   b.className = running ? "live" : "done";
 }
@@ -961,10 +1245,11 @@ async function pollLog(initial) {
     data = await api(`/api/cards/${logCardId}/session-log?after=${initial ? -1 : logOffset}`);
   } catch (e) {
     stopLogPolling();
-    if (initial) $("logView").innerHTML = `<div class="le">could not load log — ${esc(e.message)}</div>`;
+    const v = logTarget || $("logView");
+    if (initial && v) v.innerHTML = `<div class="le">could not load log — ${esc(e.message)}</div>`;
     return;
   }
-  const view = $("logView");
+  const view = logTarget || $("logView");
   const atBottom = view.scrollHeight - view.scrollTop - view.clientHeight < 40;
   for (const e of data.entries) view.appendChild(logEntryEl(e));
   logOffset = data.eof_offset;
@@ -973,7 +1258,7 @@ async function pollLog(initial) {
 }
 
 async function openLog(id, running) {
-  logCardId = id; logOffset = 0;
+  logCardId = id; logOffset = 0; logTarget = $("logView");
   clearInterval(logTimer); logTimer = null;
   $("logView").innerHTML = "";
   setLogLive(running);

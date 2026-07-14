@@ -1,5 +1,40 @@
 # kanban-pro — Journal
 
+## 2026-07-14 — Board UI redesign: colour carries meaning, and the work report stops being buried
+
+Implemented the "Redesign for readability" comp (claude.ai/design, `Kanban Board.dc.html`) into
+`api/board.html`. It is a re-skin plus a restructure, NOT a rewrite: the SSE feed, drag/drop,
+report renderers and log tail are untouched.
+
+- **A hue system replaces hand-picked colours.** Every agent gets a stable hue (`AGENT_HUE`,
+  hashed fallback for unlisted ones) and every lane gets its hue from its **category**, not its
+  name (`LANE_HUE`) — so any board colours correctly with no configuration, and the same agent is
+  the same colour on a card, a chip and a comment. The old CSS hard-listed a colour per agent
+  class, so a new agent silently rendered grey. Colour now encodes *who* and *where*, which is
+  what lets a card be read from across the board.
+- **The card face is ranked**: badges (attention first — it is the only one that means "someone
+  must act"), then title, then a 2-line clamped preview, then id + age. The left border carries
+  the owning agent's hue. Cards fade with age (>24h → floor at 7d) so old work recedes without
+  vanishing. Hovering restores full opacity and reveals a copy-id button.
+- **The detail dialog is tabbed** (Work report / Spec / Session log / Comments / Activity). It
+  used to be one scroll with the work report sandwiched between the description and the comments —
+  i.e. exactly where nobody looked. The report is now the default tab, and the session log moved
+  out of its separate pop-out dialog into a tab that only tails while it is open.
+- **Illegal moves are shown, not hidden.** `Move to` renders EVERY lane: legal ones lit in the
+  lane's hue, flow-forbidden ones dashed and dimmed. Hiding them hid the flow — you could never
+  see why a move wasn't offered. ⌘/Ctrl-click forces one, which required adding `force` to the
+  API's `MoveRequest` (it is audited: the event carries `forced: true` forever, and a plain click
+  can never produce one).
+- Lanes fold to a 44px vertical rail (persisted in localStorage) instead of disappearing.
+- **Two real bugs the redesign surfaced**, both verified in a real browser: the card dialog
+  printed the raw column **uuid** as the lane name (it split the id on `":"`, which is the hermes
+  id shape, not the native one), and every link outside `.desc`/`.comment` — including the new
+  `kanban_pro.origin` link — rendered in the browser's default `#0000ee` blue, illegible on the
+  dark panel.
+- Verified by screenshotting the running app (chromium + playwright) against a seeded scratch DB,
+  not by reading the markup. Note: snap-confined chromium cannot write to `/tmp` or to hidden
+  dirs under `$HOME` — screenshots must go to a plain path.
+
 ## 2026-07-14 — The Tier-2 ext overlay: we store what the backend has no home for
 
 - **`raise_attention` and `record_work_report` were dead on the hermes profile**, and had been

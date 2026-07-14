@@ -181,6 +181,10 @@ class MoveRequest(BaseModel):
     to_board_id: str
     to_column_id: str
     position: int = 0
+    #: override the board's flow. Never silent: the change-log event carries `forced: true`
+    #: forever, and the UI only offers it behind a deliberate ⌘/Ctrl-click on a lane the flow
+    #: forbids — an accidental drag can't produce one.
+    force: bool = False
 
 
 class CommentRequest(BaseModel):
@@ -435,7 +439,9 @@ def create_app(
     @app.post("/api/cards/{card_id}/move")
     async def move(card_id: str, body: MoveRequest) -> Card:
         be = await _backend()
-        return await be.move_card(card_id, body.to_board_id, body.to_column_id, body.position)
+        return await be.move_card(
+            card_id, body.to_board_id, body.to_column_id, body.position, force=body.force
+        )
 
     @app.post("/api/cards/{card_id}/comments")
     async def add_comment(card_id: str, body: CommentRequest) -> Comment:
