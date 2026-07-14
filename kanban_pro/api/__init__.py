@@ -396,22 +396,35 @@ def create_app(
         return await be.transitions(card_id, board_id)
 
     @app.get("/api/cards/{card_id}/session-log")
-    async def session_log(card_id: str, after: int = -1, tail: int = 400) -> dict[str, object]:
+    async def session_log(
+        card_id: str, after: int = -1, tail: int = 400, role: str | None = None
+    ) -> dict[str, object]:
         """The agent's session log for this card, normalised for the viewer.
 
-        Source: ext.session.log (any agent kind stamps it), else the older
-        dispatcher ext.work.log. `after<0` returns the tail; `after=<eof_offset>`
-        returns only what was appended since — the live-tail poll the UI runs while
-        the card's claim is still held. See the module-level notes for the path guard.
+        Source, in order: a ROLE-bound session (`ext["kanban_pro.sessions"][role].log` — the
+        engineer answering an attention flag has its own session, distinct from the worker's),
+        else `ext.session.log` (any agent kind stamps it), else the older dispatcher
+        `ext.work.log`. `after<0` returns the tail; `after=<eof_offset>` returns only what was
+        appended since — the live-tail poll the UI runs while the card's claim is still held.
+        See the module-level notes for the path guard.
         """
         be = await _backend()
         card = await be.get_card(card_id)
         ext = card.ext if isinstance(card.ext, dict) else {}
+        raw: object = None
+        kind: object = None
+        # a card can have SEVERAL sessions at once (the worker that built it, the engineer that
+        # was called in when it blocked) — `role` says which one you want to watch
+        bound = ext.get("kanban_pro.sessions")
+        if role and isinstance(bound, dict) and isinstance(bound.get(role), dict):
+            raw = bound[role].get("log")
+            kind = "log"
         sess = ext.get("session")
         if not isinstance(sess, dict):
             sess = {}
-        raw = sess.get("log")
-        kind = sess.get("kind")
+        if not raw:
+            raw = sess.get("log")
+            kind = sess.get("kind")
         if not raw:  # fallback: dispatcher-run cards predate ext.session
             raw = (ext.get("work") or {}).get("log")
             kind = kind or "log"

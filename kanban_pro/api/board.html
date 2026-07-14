@@ -536,6 +536,17 @@
   .logView .le.tool_result { color: var(--dim); }
   .logView .le.thinking { color: var(--dim); font-style: italic; }
   .logView .le.summary { color: var(--dim); }
+  /* the agent's own prose, rendered as the markdown it is */
+  .logView .lemd { display: inline; }
+  .logView .lemd .md-h { margin: 8px 0 2px; color: oklch(0.95 0.01 260); font-size: 12.5px; }
+  .logView .lemd .md-p { margin: 2px 0; }
+  .logView .lemd strong { color: oklch(0.97 0.005 260); }
+  .logView .lemd code.md-ic { background: oklch(0.24 0.012 260); color: oklch(0.84 0.07 250); }
+  .logView .lemd .md-list { margin: 2px 0; padding-left: 18px; }
+  /* machine chatter (tool payloads, JSON fragments): present, quiet, one line */
+  .logView .le.raw { opacity: .45; }
+  .logView .le.raw:hover { opacity: .9; }
+  .logView .le.raw code { font-size: 11px; color: oklch(0.66 0.02 260); }
   /* rendered markdown (card description + comments) */
   .md-h { font-size: 13px; font-weight: 600; text-transform: none; letter-spacing: 0;
           color: var(--text); margin: 12px 0 4px; }
@@ -2152,6 +2163,8 @@ function showTab(cardId) {
    The same tail now feeds two surfaces: the Session tab inside the card dialog (the design's
    home for it) and the standalone pop-out. `logTarget` says which element is receiving it. */
 let logCardId = null, logOffset = 0, logTimer = null, logTarget = null;
+//: which of the card's sessions is being watched — 'worker', or a bound role ('engineer')
+let sessionRole = null;
 
 /* Render the session log INTO the card dialog's Session tab. */
 async function tailSessionInto(cardId) {
@@ -2165,23 +2178,58 @@ async function tailSessionInto(cardId) {
   const ext = (d.card || {}).ext || {};
   const running = !!d.claim;
   const owner = running ? d.claim.owner : (ext.session || {}).actor;
-  if (!((ext.session || {}).log || (ext.work || {}).log)) {
+
+  /* A card can have SEVERAL sessions at once: the worker that built it, and the ENGINEER that
+     was called in when it blocked. They are different conversations about the same card, and the
+     engineer's was invisible here — you could see that a flag was raised, but never watch the
+     agent that was sent to deal with it. `ext["kanban_pro.sessions"]` binds one per role. */
+  const bound = ext["kanban_pro.sessions"] || {};
+  const roles = Object.keys(bound).filter(r => (bound[r] || {}).log);
+  const hasWorker = !!((ext.session || {}).log || (ext.work || {}).log);
+  if (!roles.length && !hasWorker) {
     meta.innerHTML = "";
     view.innerHTML = `<div class="emptyPane"><div class="glyph">⏸</div>
       <div class="lead">No session has run for this card yet</div>
-      <div class="sub">When a worker claims it, its transcript tails here live.</div></div>`;
+      <div class="sub">When a worker claims it — or an engineer is called in on an attention
+        flag — its transcript tails here live.</div></div>`;
     return;
   }
-  meta.innerHTML = `<div style="display:flex;align-items:center;gap:9px;margin-bottom:10px">
-      ${owner ? agentChip(owner) : ""}
-      <span style="margin-left:auto;font-size:11px;font-weight:600;color:${running ? "var(--ok)" : "var(--dim)"}">
-        ${running ? "▶ streaming live" : "last session · ended"}
+  if (!sessionRole || (sessionRole !== "worker" && !roles.includes(sessionRole)))
+    sessionRole = hasWorker ? "worker" : roles[0];
+
+  const pick = [
+    ...(hasWorker ? [["worker", owner || "worker"]] : []),
+    ...roles.map(r => [r, r]),
+  ].map(([id, label]) => {
+    const b = bound[id] || {};
+    const on = sessionRole === id;
+    return `<button type="button" class="flowBtn${on ? "" : " illegal"}"
+              style="--lane-h:${agentHue(label)}" data-srole="${esc(id)}"
+              title="${b.runtime ? esc(b.runtime) + " session " + esc(b.id || "") : "the worker's session"}">
+              <span class="cdot"></span>${esc(label)}${b.runtime ? ` · ${esc(b.runtime)}` : ""}
+            </button>`;
+  }).join("");
+
+  const live = sessionRole === "worker" ? running : false;
+  meta.innerHTML = `<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+      ${pick}
+      <span style="margin-left:auto;font-size:11px;font-weight:600;color:${live ? "var(--ok)" : "var(--dim)"}">
+        ${live ? "▶ streaming live" : "last session"}
       </span>
     </div>`;
+  for (const b of meta.querySelectorAll("[data-srole]"))
+    b.onclick = () => { sessionRole = b.dataset.srole; logCardId = null; tailSessionInto(cardId); };
+
   await pollLog(true);
   if (running) logTimer = setInterval(() => pollLog(false), 2000);
 }
 
+/* A raw agent log is prose, markdown and tool-call JSON in one stream, and printing it verbatim
+   is what makes it unreadable: the `## Summary` and `**Applied fix-1.md**` an agent writes for a
+   HUMAN render as literal hashes and asterisks, while a 40-line JSON tool payload nobody wants
+   sits in the middle at full height. So: markdown is rendered, and a JSON blob is folded away
+   behind a one-line summary you can click open. */
+const JSON_LINE = /^\s*[[{]/;
 function logEntryEl(e) {
   const div = document.createElement("div");
   div.className = "le " + (e.kind || "") + " " + (e.role || "");
@@ -2190,7 +2238,16 @@ function logEntryEl(e) {
   let label;
   if (e.role === "log") label = { tool_use: "→ call", tool_result: "← result" }[e.kind] || "";
   else label = e.role + (e.kind && e.kind !== "text" && e.kind !== "line" ? "/" + e.kind : "");
-  div.innerHTML = (label ? `<span class="role">${esc(label)}</span>` : "") + esc(e.text || "");
+  const text = e.text || "";
+  const head = label ? `<span class="role">${esc(label)}</span>` : "";
+
+  // a tool payload / JSON fragment: collapse it — it is machine chatter between the sentences
+  if (JSON_LINE.test(text) || /^\s*"[\w_]+":/.test(text) || /^\s*[\]}],?\s*$/.test(text)) {
+    div.classList.add("raw");
+    div.innerHTML = head + `<code>${esc(text.length > 160 ? text.slice(0, 158) + "…" : text)}</code>`;
+    return div;
+  }
+  div.innerHTML = head + `<div class="lemd">${md(text)}</div>`;
   return div;
 }
 function stopLogPolling() { clearInterval(logTimer); logTimer = null; }
@@ -2199,7 +2256,8 @@ async function pollLog(initial) {
   if (!logCardId) return;
   let data;
   try {
-    data = await api(`/api/cards/${logCardId}/session-log?after=${initial ? -1 : logOffset}`);
+    const forRole = sessionRole && sessionRole !== "worker" ? `&role=${encodeURIComponent(sessionRole)}` : "";
+    data = await api(`/api/cards/${logCardId}/session-log?after=${initial ? -1 : logOffset}${forRole}`);
   } catch (e) {
     stopLogPolling();
     const v = logTarget;
