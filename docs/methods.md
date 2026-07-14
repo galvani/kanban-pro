@@ -209,6 +209,7 @@ patch semantics, Q17):
 | `kanban_pro.scheme` | flow engine | only `"free-roam"` is meaningful now (frees the card); named schemes are gone — the board's flow (`board.flow`) governs otherwise |
 | `kanban_pro.flow` | flow engine | inline ONE-card flow `{states, transitions}` (name-based) — precedence over the board flow, enforced even on a flowless board; malformed → falls back to the board flow + warning |
 | `kanban_pro.attention` | attention signal | `{reason, raised_by, for, severity}` — needs a decision/input. `severity` ∈ `block` (default; halts the card) / `warn` / `info`; absent = `block` (pre-severity flags). Advisory: kanban-pro exposes it (`core.recording.attention_blocks`), consumers act on it |
+| `kanban_pro.origin` | whoever creates the card | **where this card came from**, in any external system: `{id, url}` — e.g. `{"id": "PROJ-123", "url": "https://…/browse/PROJ-123"}`. Deliberately system-agnostic (Jira, GitHub, Linear, a doc) and self-contained: the card carries its own url, so kanban-pro needs no per-tracker config and knows nothing about any tracker. The UI renders it as a link (http/https only). **Provenance, not state** — kanban-pro never fetches the origin's status; see below |
 | `kanban_pro.copied_from` | cross-mount copy (queued) | provenance link `"<mount>/<card-id>"` |
 | `kanban_pro.migrated_from` | `kanban-pro-migrate` | import provenance `"<profile>/<board-id>"` |
 | `work_report` | work-report ops | current structured card state (sections above) — write via `record_work_report`, never by hand |
@@ -218,6 +219,24 @@ patch semantics, Q17):
 
 Rule: `kanban_pro.*` is reserved for kanban-pro's own features; adapters use their
 backend's name as the namespace; the dispatcher owns `work`.
+
+### `kanban_pro.origin` — link out, never fetch
+
+The card records where it came from; it does **not** mirror what has happened there since.
+kanban-pro links to the origin and never reads it, on purpose:
+
+- **Reading it would make kanban-pro a client of a system it does not own** — transport,
+  auth, pagination, rate limits, caching, error mapping. That is an adapter, and it is a far
+  bigger commitment than a link (see the multi-mount / ext-persistence problems in `TODO.md`).
+- **A cached status is a stale lie that reads as authoritative.** A badge saying
+  `In Progress` keeps saying it after the ticket moves, and a wrong status shown confidently
+  is worse than no status: the origin's own UI is one click away and is always right.
+
+Whoever creates the card from an external item (an agent, the dispatcher) already talks to
+that system, so it stamps `{id, url}` at creation. kanban-pro only ever displays a value
+someone else wrote. If you ever *do* want the origin's state inline, it must be a snapshot
+with its age visible (`checked_at`, rendered as "In Progress · 2h ago") and refreshed from
+outside the core — never a silent read behind a badge.
 
 ## Board `ext` conventions
 

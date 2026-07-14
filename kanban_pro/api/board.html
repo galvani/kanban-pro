@@ -776,6 +776,23 @@ async function openCard(id) {
   const fmt = ts => ts ? new Date(ts).toLocaleString() : "—";
   const provenance = (card.ext || {})["kanban_pro.migrated_from"];
 
+  /* `kanban_pro.origin` = {id, url} — PROVENANCE, not state: where this card came from, in
+     whatever system that was (Jira, GitHub, Linear, a doc). Deliberately system-agnostic and
+     self-contained: the card carries its own url, so kanban-pro needs no per-tracker config
+     and knows nothing about any tracker.
+
+     We LINK and never fetch. Showing the origin's live status would make kanban-pro a client
+     of a system it doesn't own (transport, auth, cache, staleness), and a cached status badge
+     is a stale lie that reads as authoritative. The origin's own UI is one click away and is
+     always right. */
+  const origin = (card.ext || {})["kanban_pro.origin"];
+  function originHtml(o) {
+    const id = String(o.id ?? "");
+    const url = typeof o.url === "string" ? o.url : "";
+    if (!/^https?:\/\//i.test(url)) return esc(id);  // only ever link http(s) — no javascript:
+    return `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(id || url)} ↗</a>`;
+  }
+
   /* assignee picker: dropdown from knownAssignees, saves on change.
      knownAssignees comes from the dispatcher's routing table, so a card can legitimately
      carry an assignee that is NOT in it (an ad-hoc role, a route in another config, a lane
@@ -803,6 +820,7 @@ async function openCard(id) {
     ["column", `<span class="chip ${esc(colChipClass)}">${esc(colName)}</span>`, true],
     ["created", fmt(card.created_at)], ["updated", fmt(card.updated_at)],
   ];
+  if (origin && typeof origin === "object") rows.push(["origin", originHtml(origin), true]);
   if (provenance) rows.push(["migrated from", provenance]);
   const work = (card.ext || {}).work;
   if (work && work.attempts) {
