@@ -360,10 +360,16 @@ class NativeStore:
     async def add_placement(self, card_id: str, placement: Placement) -> Card:
         async with aiosqlite.connect(self._path) as db:
             card = await self._load_card(db, card_id)
-            await self._get_board(db, placement.board_id)  # target board must exist
+            board = await self._get_board(db, placement.board_id)  # target board must exist
             if any(p.board_id == placement.board_id for p in card.placements):
                 raise Conflict(
                     f"card {card_id!r} is already on board {placement.board_id!r} — use move_card"
+                )
+            # same guard move_card has: a typo'd column id would place the card on the board
+            # but off every lane view — present in the data, invisible on the wall.
+            if all(c.id != placement.column_id for c in board.columns):
+                raise NotFound(
+                    f"board {placement.board_id!r} has no column {placement.column_id!r}"
                 )
             updated = card.model_copy(
                 update={"placements": [*card.placements, placement], "updated_at": _now()}

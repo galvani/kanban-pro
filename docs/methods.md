@@ -57,7 +57,8 @@ Each op notes the `Capability` that gates it.
 | create card **†** | `create_card(card: Card)` — `placements[]` ≥ 1 | `Card` | — |
 | update card | `update_card(card_id, patch: CardPatch)` | `Card` | — |
 | move card | `move_card(card_id, to_board_id, to_column_id, position)` — strict within-board (Q16): errors if the card isn't on `to_board_id` | `Card` | `REORDER_CARDS` |
-| add placement | `add_placement(card_id, placement)` — one placement per board | `Card` | `MULTI_BOARD_MEMBERSHIP` |
+| add placement | `add_placement(card_id, placement)` — one placement per board; SHARES the card | `Card` | `MULTI_BOARD_MEMBERSHIP` |
+| copy card | `copy_card(card_id, to_board_id, to_column_id, position, link)` — DETACHED duplicate, nothing flows back | `Card` | — |
 | remove placement | `remove_placement(card_id, board_id)` — last placement protected (archive instead) | `Card` | `MULTI_BOARD_MEMBERSHIP` |
 | archive card | `archive_card(card_id)` | `Card` | `ARCHIVE` |
 | unarchive card | `unarchive_card(card_id)` | `Card` | `ARCHIVE` |
@@ -171,6 +172,33 @@ the `kanban://work-report-schema` resource.
 
 ---
 
+## Cards across boards — share, never copy
+
+A card that must be worked on a second board is **placed** there (`add_placement`), not
+copied. There is no `copy_card`/`duplicate_card`, deliberately — see
+[SPEC decision 4](../SPEC.md#4-card-placement-is-a-set-not-a-single-column) for the full
+argument. What you get and what you give up:
+
+| | shared placement |
+|---|---|
+| lanes | **independent** — `in-progress` on board A and `in-review` on board B at once, each validated against that board's own flow |
+| title, description, checklists, labels, comments, relations | **shared** — one record, so nothing can drift and nothing needs syncing |
+| work report, attention flag, claim | **shared, globally one per card** — the origin board sees the receiver's plan/findings/verdict live; but two boards can therefore never hold two *states* |
+| id | minted once, from the card's **first** board — a `KAN-7` placed on a `seq:OPS` board still reads `KAN-7` |
+
+Consequences worth knowing before you reach for it:
+
+- **Don't place a card someone else is actively working.** You share their lease, their
+  attention flag and their work report — one claim per card id, globally. Sharing suits
+  handing work *over*, not two actors working it in parallel.
+- **"Done, your turn" is just `raise_attention(card_id, reason, for_actor=…)`** on the same
+  card. No propagation channel exists or is needed; they are looking at the record you wrote.
+- **Multi-placed cards are routine, so `placements[0]` is always a bug.** Select the
+  placement by the board being acted on. `list_transitions` requires an explicit `board_id`
+  once a card sits on more than one board — the legal moves differ per board.
+- `remove_placement` takes the card off one board and leaves the others intact; the last
+  placement cannot be removed (`archive_card` instead).
+
 ## Card `ext` conventions (reserved namespaces)
 
 `ext` is free-form, but these keys have pinned meanings (writers use the shallow-merge
@@ -236,7 +264,7 @@ everything at connect time — no per-backend code.
 
 ### Tools (one per operation)
 
-Snake-case names matching the operations above — **41 tools**, the live surface:
+Snake-case names matching the operations above — **42 tools**, the live surface:
 
 ```
 list_boards, get_board, create_board, update_board, delete_board,
@@ -245,7 +273,7 @@ list_cards, get_card, create_card, update_card,
 record_work_report, answer_work_report_question,
 move_card, list_transitions, list_flows,
 set_flow, set_transitions, clear_flow, init_board,
-add_placement, remove_placement, archive_card, unarchive_card, delete_card,
+add_placement, copy_card, remove_placement, archive_card, unarchive_card, delete_card,
 list_comments, add_comment, delete_comment,
 list_relations, add_relation, delete_relation,
 list_work, claim_card, heartbeat_claim, release_claim,

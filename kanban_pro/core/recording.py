@@ -192,17 +192,25 @@ class RecordingBackend:
         don't halt the lane, so they cannot deadlock it.
         """
         card = await self._inner.get_card(card_id)
+        resting: list[str] = []
         for placement in card.placements:
             board = await self._inner.get_board(placement.board_id)
             if placement.column_id in auto_clear_columns(board):
-                raise Conflict(
-                    f"cannot raise a blocking attention flag on a card resting in "
-                    f"{placement.column_id!r}: the board auto-clears attention there, so "
-                    f"nothing would ever clear this flag and the card would be stranded. "
-                    f"Move the card out of that column first (e.g. to a blocked/started "
-                    f"lane), or raise it with severity='warn'/'info' to signal without "
-                    f"halting the card."
-                )
+                resting.append(f"{placement.board_id}/{placement.column_id}")
+        # A SHARED card rests only if it rests EVERYWHERE. Attention is cleared by arriving
+        # at any board's resting lane, so a card still in a working lane on some other board
+        # can always be un-stranded by moving it there — the flag is reachable, allow it.
+        # (Checking "any placement rests" made a delegated card unblockable on the board
+        # actually working it, just because the origin board had parked it in `done`.)
+        if resting and len(resting) == len(card.placements):
+            raise Conflict(
+                f"cannot raise a blocking attention flag on a card resting in "
+                f"{', '.join(resting)}: the board auto-clears attention there, so "
+                f"nothing would ever clear this flag and the card would be stranded. "
+                f"Move the card out of that column first (e.g. to a blocked/started "
+                f"lane), or raise it with severity='warn'/'info' to signal without "
+                f"halting the card."
+            )
 
     async def clear_attention(self, card_id: str, resolution: str | None = None) -> Card:
         """Clear the flag (question answered / decision made)."""
@@ -409,7 +417,10 @@ class RecordingBackend:
         force: bool = False,
     ) -> Card:
         old = await self._inner.get_card(card_id)
-        old_col = old.placements[0].column_id if old.placements else None
+        # the lane we're leaving is the one on THIS board — a shared card's other placements
+        # are other boards' lanes and must not decide whether this move changed anything.
+        old_here = next((p for p in old.placements if p.board_id == to_board_id), None)
+        old_col = old_here.column_id if old_here else None
         if force and isinstance(self._inner, AugmentingBackend):
             moved = await self._inner.move_card(
                 card_id, to_board_id, to_column_id, position, force=True

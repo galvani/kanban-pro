@@ -231,6 +231,36 @@ backend supports >1 placement.
 a placement. The placement *set* changes only via the explicit `add_placement` /
 `remove_placement` ops.
 
+**Share the card, do not copy it (decided 2026-07-14).** When work on one board has to be
+picked up on another — a second board pulls a task in, an agent takes on someone else's
+item — the answer is `add_placement`, giving one card two lanes. It is NOT a copy, and
+kanban-pro deliberately ships **no `copy_card` / `duplicate_card`**. The reasoning, so it
+isn't relitigated:
+
+- **A placement is a lane, not a status.** The card can sit in `in-progress` on the origin
+  board and `in-review` on the receiving board *at the same time*, each lane governed by
+  that board's own flow (`_check_flow` resolves per `to_board_id`). Two boards tracking the
+  same work at different granularities is the normal case, not a conflict.
+- **A copy drifts the moment it exists.** Title, description, and checklists would have to
+  be synced forever, and nothing in the model syncs them. A shared card cannot drift —
+  there is one record.
+- **The shared work report is the point, not a flaw.** `ext["work_report"]` is current
+  truth for the card; with a shared placement the origin board sees the receiver's plan,
+  findings and verdict live, on the card it already has. That is the awareness a copy would
+  have had to invent a propagation channel to fake.
+- **Comments, relations and the change-log are keyed by `card_id`**, so history stays in
+  one place instead of forking into two half-stories.
+- **What sharing genuinely cannot do:** there is exactly ONE claim (`core/work.py`), ONE
+  attention flag and ONE work report per card id, globally. So two boards can hold
+  different *lanes* but never different *states*. If both sides must be worked concurrently
+  by different actors, each with their own lease, their own questions and their own report,
+  a shared card is the wrong tool — and that is the only case that would justify a real
+  child card. It hasn't come up; do not build the copy tool speculatively for it.
+
+The corollary is that multi-placed cards are a **routine** shape, not an exotic one, so any
+code that reaches for `card.placements[0]` is a bug — the placement must be selected by the
+board being acted on.
+
 ### 5. Interfaces: MCP-first and shell-first (harness-native)
 
 kanban-pro's primary consumers are **agent harnesses** — Hermes, Claude Code, Codex,

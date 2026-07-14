@@ -111,6 +111,7 @@ update_card(card_id, {"ext": {"session": {
 - `claim_card(card_id, ttl_seconds?, owner?)` — Atomically lease a card so no other agent picks it up (visible in list_work).
 - `clear_attention(card_id, resolution?)` — Clear a card's attention flag (question answered / decision made). Put the
 - `clear_flow(board_id)` — Drop a board's workflow entirely — it becomes free-roam (any move allowed).
+- `copy_card(card_id, to_board_id, to_column_id, position?, link?)` — Duplicate a card onto another board as an INDEPENDENT card — nothing flows back.
 - `create_board(board, idempotency_key?)` — Create a board. Omit `id` to have one generated; columns/labels may be inlined.
 - `create_card(card, idempotency_key?)` — Create a card. `placements` must have >=1 entry (board_id, column_id, position).
 - `create_column(board_id, column, idempotency_key?)` — Add a column to a board. `category` gives it portable semantics (e.g. 'done').

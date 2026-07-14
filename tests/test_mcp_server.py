@@ -47,7 +47,7 @@ def test_tools_registered_match_methods_doc() -> None:
         "list_columns", "create_column", "update_column", "delete_column",
         "list_cards", "get_card", "create_card", "update_card", "move_card",
         "record_work_report", "answer_work_report_question",
-        "add_placement", "remove_placement",
+        "add_placement", "copy_card", "remove_placement",
         "archive_card", "unarchive_card", "delete_card",
         "list_comments", "add_comment", "delete_comment",
         "list_relations", "add_relation", "delete_relation",

@@ -29,6 +29,7 @@ from mcp.types import ToolAnnotations
 from kanban_pro import core
 from kanban_pro.config import ACTOR_ENV, PROFILE_ENV, build_backend
 from kanban_pro.core.actor_policy import ANONYMOUS_WRITES_EXT_KEY
+from kanban_pro.core.copy import copy_card as _copy_card
 from kanban_pro.core.presets import PRESETS, build_preset_board
 from kanban_pro.core.work_report import (
     WORK_REPORT_SCHEMA,
@@ -96,6 +97,25 @@ Reporting, and asking:
   or say `warn`/`info`, which cannot deadlock a lane.
 - `list_work` does NOT surface attention raised for you. Watch `wait_changes` for
   `attention.raised` events targeting your actor.
+
+Working across boards — SHARE the card, never copy it:
+- To take on a card that lives on another board, `add_placement` it onto yours. There is
+  no copy/duplicate tool and there will not be one. You now have ONE card with TWO lanes:
+  it can sit in `in-progress` on the origin board and `in-review` on yours simultaneously,
+  each lane governed by that board's own flow.
+- Everything except the lane is shared: title, description, comments, relations, the claim,
+  the attention flag, and the work report. So the origin board sees your plan, findings and
+  verdict live, on the card it already has — you do not need to copy anything back, and
+  there is nothing to keep in sync.
+- Because of that sharing, TWO BOARDS CANNOT HOLD TWO STATES. One claim, one attention
+  flag, one work report per card, globally. Do not put a card on your board if someone else
+  is actively working it on theirs — you would take their lease and overwrite their report.
+- Say "done, your turn" with `raise_attention(card_id, reason, for_actor=<their actor>)` —
+  same card, so they see it where they already look. `info` to inform, `block` if their work
+  genuinely cannot proceed without them acting.
+- `list_transitions(card_id)` needs an explicit `board_id` for a multi-placed card: the
+  legal moves depend on which board you are moving it on. `remove_placement` takes it off
+  your board and leaves theirs intact; the last placement can't be removed (archive instead).
 
 Destructive things are guarded, deliberately:
 - Deletes are archive-first. `delete_card` on a live card is refused; `archive_card`
@@ -472,8 +492,44 @@ async def init_board(
 
 @mcp.tool(annotations=_WRITE)
 async def add_placement(card_id: str, placement: Placement) -> Card:
-    """Put a card on an additional board (one placement per board; errors if already on it)."""
+    """Put a card on an additional board (one placement per board; errors if already on it).
+
+    This is how a board takes on work that lives on another board — it SHARES the card
+    (one record, two lanes, each under its own board's flow), it does not copy it. There is
+    no copy tool: comments, relations, claim, attention and the work report stay shared, so
+    the origin board sees your progress live. The flip side is that two boards cannot hold
+    two states — one claim and one work report per card — so don't place a card someone else
+    is actively working. See SPEC decision 4.
+    """
     return await _call((await _get_backend()).add_placement(card_id, placement))
+
+
+@mcp.tool(annotations=_WRITE)
+async def copy_card(
+    card_id: str,
+    to_board_id: str,
+    to_column_id: str,
+    position: int = 0,
+    link: bool = True,
+) -> Card:
+    """Duplicate a card onto another board as an INDEPENDENT card — nothing flows back.
+
+    Use this when the card is NOT yours to work and you want to try it anyway (a spike, an
+    experiment, "how would I have done this"): the copy is yours, and neither the original
+    nor its upstream issue ever sees what you do to it. If you mean to actually take the
+    work on, you want `add_placement` instead — that SHARES the one card, and sharing is
+    write-back by construction.
+
+    Copied: title, description, checklists (items reset to not-done), dates, labels (by
+    name), attachments. Dropped: comments, work report, attention, claim, assignees, ext.
+    The copy gets a fresh id from the target board's scheme, and a `duplicates` relation
+    back to the original for traceability (`link=false` to omit even that).
+    """
+    return await _call(
+        _copy_card(
+            await _get_backend(), card_id, to_board_id, to_column_id, position=position, link=link
+        )
+    )
 
 
 @mcp.tool(annotations=_WRITE)

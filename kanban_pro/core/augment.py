@@ -195,6 +195,15 @@ class AugmentingBackend:
         if board_id is None:
             if not card.placements:
                 raise Conflict(f"card {card_id!r} has no placement — nothing to move")
+            # A shared card's legal moves depend on WHICH board you're moving it on (each
+            # board has its own flow), so there is no defensible default. Guessing
+            # placements[0] answered for an arbitrary board — right half the time.
+            if len(card.placements) > 1:
+                boards = ", ".join(sorted(p.board_id for p in card.placements))
+                raise Conflict(
+                    f"card {card_id!r} is on more than one board ({boards}) — pass board_id"
+                    " to say which board's transitions you want"
+                )
             board_id = card.placements[0].board_id
         placement = next((p for p in card.placements if p.board_id == board_id), None)
         board = await self._adapter.get_board(board_id)

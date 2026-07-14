@@ -1,5 +1,49 @@
 # kanban-pro — Journal
 
+## 2026-07-14 — Two boards, one card: share it (`add_placement`) or copy it (`copy_card`), never both
+
+- **The question was "can I have a second local board with local storage".** Storage: no —
+  a second DB file is a trap, because the change-log/claims/dedupe sidecars are named by
+  *profile*, not by DB path (`config.py:48-72`), so a second store on the `default` profile
+  would silently write its log and leases into the first board's sidecars, and the profile
+  registry is a closed dict you can't add to (`config.py:110`). Many boards in ONE db is the
+  supported shape and was already fully built.
+- **What was missing is how a card crosses boards, and the answer turned out to be two
+  answers.** `add_placement` SHARES the card: one record, two lanes, each lane under its own
+  board's flow. Sharing is write-back *by construction* — one claim, one attention flag, one
+  work report per card id, globally — which is precisely right when you are taking the work
+  ON (the origin board sees your plan/findings/verdict live, on the card it already has, and
+  nothing can drift because there is nothing to sync). It is precisely wrong when the card is
+  **not yours to work** and you only want to try it. Hence the new `copy_card`: a detached
+  duplicate carrying the work statement (title, description, checklists reset to not-done,
+  dates, labels remapped BY NAME since label ids are board-scoped, attachments) and dropping
+  everything about who was doing it (comments, work report, attention, claim, assignees, ext).
+  Fresh id from the target board's scheme; the only tie is a `duplicates` relation, pure
+  metadata. Nothing propagates, in either direction — that's the point.
+- Rationale written into SPEC decision 4, `docs/methods.md` ("Cards across boards"), and the
+  MCP `INSTRUCTIONS`, because it is exactly the kind of decision a future session would
+  relitigate from first principles and get wrong in either direction.
+- `copy_card` is composed in `core/copy.py` from `get_card` + `create_card` + `add_relation`
+  rather than added to the port: a copy is a DERIVED op, so it needs no adapter work and the
+  change-log records it correctly for free.
+- **Making multi-placed cards routine exposed three latent bugs**, all the same bug —
+  code that reached for `placements[0]` when it meant "the placement on the board I'm acting
+  on":
+  - `RecordingBackend.move_card` computed the lane it was leaving from `placements[0]`, so on
+    a shared card it decided whether the lane changed (→ attempt-counter decrement) by looking
+    at *another board's* lane.
+  - `AugmentingBackend.transitions` defaulted `board_id` to `placements[0].board_id` — legal
+    moves depend on which board you're moving on, so it answered for an arbitrary board, right
+    half the time. It now refuses and demands `board_id` when the card is on >1 board.
+  - `_refuse_blocking_in_resting_lane` refused a `block` if the card rested in a resting lane
+    on ANY board — so a shared card was unblockable on the board actually working it just
+    because the origin had parked it in `done`. A shared card rests only if it rests
+    EVERYWHERE: attention is cleared on arrival at any board's resting lane, so a card still in
+    a working lane somewhere can always be un-stranded, and the flag is legitimate.
+- `add_placement` also gained the column-exists guard `move_card` has had since 2026-07-06 —
+  a typo'd column id put the card on the board but off every lane view: in the data, invisible
+  on the wall.
+
 ## 2026-07-13 — Work-report sections collapse, and stay collapsed
 
 - The card modal renders every work-report section expanded; on a long report (a builder's
