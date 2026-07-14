@@ -83,9 +83,14 @@
   .col.empty h2 { color: oklch(0.62 0.03 var(--lane-h, 260)); }
   /* collapsed lane: a 44px vertical rail — the name stays readable, the cards fold away */
   .col.collapsed { width: 44px; }
-  .col.collapsed h2 { writing-mode: vertical-rl; justify-content: flex-start; height: 100%;
-                      padding: 11px 0; border-bottom: 0; }
-  .col.collapsed h2 .laneCount { margin-left: 0; margin-top: 6px; }
+  /* A folded lane stacks its name DOWNWARD with the letters still UPRIGHT (text-orientation:
+     upright) — a 90°-rotated word makes you tilt your head, and the count especially: it is the
+     one thing you fold the lane in order to keep seeing. Nothing here is rotated. */
+  .col.collapsed h2 { flex-direction: column; justify-content: flex-start; height: 100%;
+                      padding: 11px 0; border-bottom: 0; gap: 6px; }
+  .col.collapsed h2 .laneName { writing-mode: vertical-rl; text-orientation: upright;
+                                letter-spacing: .04em; line-height: 1.05; }
+  .col.collapsed h2 .laneCount { margin-left: 0; }
   .col.collapsed .cards { display: none; }
   .col.dragover { outline: 2px dashed var(--accent); outline-offset: -4px; }
   .cards { padding: 8px 9px 40px; overflow-y: auto; overflow-x: hidden;
@@ -216,8 +221,12 @@
             font-size: 10px; font-weight: 800; letter-spacing: .03em;
             background: oklch(0.32 0.05 var(--op-h, 260) / 0.55);
             color: oklch(0.85 0.11 var(--op-h, 260)); }
-  .feedRow .ref { font-family: var(--mono); font-size: 11px; color: oklch(0.74 0.07 250); cursor: pointer; }
+  .feedRow .ref { font-family: var(--mono); font-size: 11px; color: oklch(0.78 0.1 250);
+                  cursor: pointer; border-bottom: 1px dotted oklch(0.6 0.08 250 / 0.6); }
+  .feedRow .ref:hover { color: oklch(0.88 0.12 250); border-bottom-style: solid; }
   .feedRow .txt { font-size: 12px; color: oklch(0.8 0.008 260); }
+  .feedRow .txt.dim { color: oklch(0.5 0.01 260); font-style: italic; }
+  .feedRow .ref.gone { color: oklch(0.55 0.01 260); border-bottom: 0; cursor: default; }
   dialog { background: var(--panel); color: var(--text); border: 1px solid var(--border);
            border-radius: 12px; width: min(1400px, 96vw); max-height: 90vh; overflow-y: auto; }
   /* The card dialog is a FIXED frame: same size on every card and on every tab. It used to be
@@ -464,7 +473,10 @@
   .objKey { color: var(--dim); font-family: ui-monospace, monospace; font-size: 11px;
             text-align: right; white-space: nowrap; padding-top: 1px; }
   .objVal { word-break: break-word; }
-  .objVal code { font-size: 11px; background: #1a1d23; padding: 1px 5px; border-radius: 3px; }
+  .objVal code { font-size: 11px; background: oklch(0.19 0.01 260); padding: 1px 5px; border-radius: 3px; }
+  .objVal code.copyable { cursor: pointer; border: 1px dashed oklch(0.36 0.01 260); }
+  .objVal code.copyable:hover { border-color: var(--accent); color: var(--accent); }
+  .objVal a { cursor: pointer; }
   .mrLink { display: inline-block; font-size: 12px; font-weight: 600; padding: 3px 12px;
             border-radius: 6px; background: #1f3d2f; color: #4ae8a0; text-decoration: none;
             border: 1px solid #2a6b3f; }
@@ -712,6 +724,31 @@ const laneLabel = colId => {
 /* Titles for cards that aren't on the current board, fetched once and remembered — the feed is
    about WHAT happened to WHICH work, and an 8-char uuid does not tell you the second part. */
 const titleCache = new Map();
+/* Comment BODIES for the feed. The change-log event deliberately stays slim ({card_id, author}),
+   so the body is read from the card and remembered by comment id. One fetch per card, not per
+   event — a card with 40 comments is one call. */
+const commentCache = new Map();
+async function enrichComments(events) {
+  const cards = [...new Set(events.filter(e => e.entity === "comment" && e.op === "added")
+                                  .filter(e => !commentCache.has(e.entity_id))
+                                  .map(e => (e.data || {}).card_id).filter(Boolean))];
+  if (!cards.length) return false;
+  await Promise.all(cards.map(async id => {
+    try {
+      const d = await api(`/api/cards/${id}`);
+      for (const c of d.comments || []) commentCache.set(c.id, c.body);
+    } catch {
+      // The card 404s: the change-log spans the whole profile and still carries events for
+      // cards that live on the legacy hermes board (t_a05be981…), which this store never had.
+      // Say so — a "…" and a dead link pretend the content is merely late.
+      titleCache.set(id, null);
+    }
+  }));
+  // whatever we could not resolve is now explicitly known-missing, so the feed stops guessing
+  for (const e of events) if (e.entity === "comment" && !commentCache.has(e.entity_id))
+    commentCache.set(e.entity_id, null);
+  return true;
+}
 async function enrichTitles(ids) {
   const missing = [...new Set(ids)].filter(id => id && !titleCache.has(id));
   if (!missing.length) return false;
@@ -1071,6 +1108,30 @@ function renderReportList(title, rows, cardId, kind) {
   }).join(""));
 }
 
+/* The verification contract (card.checks) — the ONLY card state that gates the flow, so it is
+   rendered on its own, above the report, and never mixed in with the narrative sections. A
+   worker's prose about what it checked is a story; this is the receipt. Anything that is not a
+   pass is coloured as a hole, because it is one: `skipped` ("chose not to") and `blocked`
+   ("couldn't") are as unverified as `pending`. */
+function renderChecks(checks) {
+  if (!Array.isArray(checks) || !checks.length) return "";
+  const rows = checks.map(c => {
+    const status = String(c.status || "pending").toLowerCase();
+    const optional = c.required === false
+      ? `<span class="chip" title="informational — never gates the card">optional</span>` : "";
+    const evidence = c.evidence
+      ? `<div style="color:var(--dim);margin-top:4px">${md(c.evidence)}</div>`
+      : `<div style="color:var(--dim);margin-top:4px"><i>no evidence recorded</i></div>`;
+    return `<div class="reportItem">
+      <div><span class="rid">${esc(c.key || "")}</span> ${pill(OUTCOME[status], status)} ${optional}</div>
+      <div>${md(c.text || "")}</div>${evidence}
+    </div>`;
+  }).join("");
+  const open = checks.filter(c => c.required !== false && !checkPassed(c.status)).length;
+  const title = open ? `Verification — ${open} not passed` : "Verification — all passed";
+  return reportSection("checks", title, rows);
+}
+
 function renderInlineItem(v) {
   if (typeof v === "string") return esc(v);
   const txt = v.text || v.note || v.title || JSON.stringify(v).slice(0, 120);
@@ -1166,11 +1227,20 @@ const pill = (meta, fallback) => {
 function statusLine(card, ext, claim, missing) {
   const att = ext["kanban_pro.attention"];
   const wr = ext.work_report || {};
-  const checks = Array.isArray(wr.checks) ? wr.checks : [];
+  /* The gate is `card.checks` — the declared contract, resolved with evidence. `wr.checks` is
+     legacy narrative the worker wrote about itself, and reading it here is what let a card look
+     verified while its required check had never run (AIR-2915). Fall back to it ONLY for cards
+     that predate the contract, so their history still renders. */
+  const checks = Array.isArray(card.checks) && card.checks.length
+    ? card.checks
+    : (Array.isArray(wr.checks) ? wr.checks : []);
+  const name = c => c.key || c.name || c.id;
   const plan = Array.isArray(wr.plan) ? wr.plan : [];
   const openQ = (wr.questions || []).filter(q => q && !q.answer && q.status !== "canceled").length;
   const failed = checks.filter(c => checkFailed(c.status || c.outcome));
-  const unrun = checks.filter(c => !checkPassed(c.status || c.outcome) && !checkFailed(c.status || c.outcome));
+  //: `required !== false` — a legacy report check has no `required` field and still counts.
+  const unrun = checks.filter(c => c.required !== false
+    && !checkPassed(c.status || c.outcome) && !checkFailed(c.status || c.outcome));
   const doing = plan.find(p => p.status === "doing");
   const verdict = typeof wr.verdict === "string" ? wr.verdict : (wr.verdict || {}).status;
 
@@ -1191,11 +1261,11 @@ function statusLine(card, ext, claim, missing) {
   }
   if (failed.length) {
     return { h: 15, act: false,
-             text: `Needs another pass — ${failed.length} check${failed.length > 1 ? "s" : ""} failed (${failed.map(c => c.name || c.id).join(", ")}).` };
+             text: `Needs another pass — ${failed.length} check${failed.length > 1 ? "s" : ""} failed (${failed.map(name).join(", ")}).` };
   }
   if (unrun.length) {
     return { h: 70, act: false,
-             text: `Unverified — ${unrun.length} check${unrun.length > 1 ? "s" : ""} never ran (${unrun.map(c => c.name || c.id).join(", ")}), so any verdict above is unproven.` };
+             text: `Unverified — ${unrun.length} required check${unrun.length > 1 ? "s" : ""} did not pass (${unrun.map(name).join(", ")}), so any verdict above is unproven.` };
   }
   if (verdict && /pass|approve|ok|complete|done/i.test(verdict)) {
     return { h: 150, act: false, text: `Verified — verdict "${verdict}", all ${checks.length} checks passed. Done unless you disagree.` };
@@ -1245,7 +1315,9 @@ function renderFindings(title, rows, kind) {
    one: a box you can read at a glance. An un-run check gets the amber ⚠, not a neutral grey tick:
    it is a hole in the verification, and rendering it like "skipped, fine" is how a pass verdict
    sitting on unproven checks slips through. */
-function renderChecks(title, rows, kind) {
+/* NB: distinct from renderChecks(card.checks) above — that one draws the card's VERIFICATION
+   CONTRACT (which gates the flow); this draws the work report's narrative `checks` section. */
+function renderReportChecks(title, rows, kind) {
   const pass = rows.filter(c => checkPassed(c.status || c.outcome)).length;
   const head = `<div class="rpTally">${pass}/${rows.length} passed</div>`;
   return reportSection(kind, title, head + `<div class="rpChecks">` + rows.map(c => {
@@ -1293,7 +1365,7 @@ function renderReportValue(title, value, cardId, kind) {
   // typed sections first — the ones whose shape we actually know
   if (kind === "verdict") return renderVerdict(title, value, kind);
   if (kind === "findings" && Array.isArray(value)) return renderFindings(title, value, kind);
-  if (kind === "checks" && Array.isArray(value)) return renderChecks(title, value, kind);
+  if (kind === "checks" && Array.isArray(value)) return renderReportChecks(title, value, kind);
   if (kind === "plan" && Array.isArray(value)) return renderPlan(title, value, kind);
   if (Array.isArray(value)) return renderReportList(title, value, cardId, kind);
   if (typeof value === "object" && value !== null)
@@ -1301,18 +1373,32 @@ function renderReportValue(title, value, cardId, kind) {
   return reportSection(kind, title, md(reportText(value)));
 }
 
+/* Handoff / about rows: the values here are the things you actually want to GO to — the branch,
+   the MR, the next card, the worktree. They were plain text, so a handoff told you where the
+   work went and then made you copy-paste it. Anything that is a url is a link; anything that
+   names a CARD opens that card; a branch/worktree/commit is click-to-copy. */
+const CARD_ID_RE = /^(?:[A-Z]{2,}-\d+|t_[0-9a-f]{6,}|[0-9a-f]{16,})$/;
+function handoffValue(key, v) {
+  if (typeof v !== "string") return esc(JSON.stringify(v, null, 2));
+  if (/^https?:\/\//i.test(v)) {
+    const label = /_(link|url)$|^(mr|pr|merge_request)$/i.test(key) ? "Open MR →" : v;
+    return `<a href="${esc(v)}" target="_blank" rel="noopener" class="mrLink">${esc(label)}</a>`;
+  }
+  if (CARD_ID_RE.test(v.trim()))
+    return `<a onclick="openCard('${esc(v.trim())}')" title="open ${esc(v.trim())}">${esc(v)}</a>`;
+  if (/branch|worktree|commit|sha|path/i.test(key))
+    return `<code class="copyable" title="click to copy" onclick="copyText(this)">${esc(v)}</code>`;
+  return md(v);   // md() already autolinks; linkifying its OUTPUT would nest <a> inside <a>
+}
+async function copyText(el) {
+  try { await navigator.clipboard.writeText(el.textContent); toast("copied"); }
+  catch { toast("clipboard blocked"); }
+}
+
 function renderReportObject(title, obj, kind) {
   const rows = Object.entries(obj).map(([k, v]) => {
     const label = esc(k.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()));
-    const isLink = k.endsWith("_link") || k.endsWith("_url");
-    const val = typeof v === "string"
-      ? (isLink
-        ? `<a href="${esc(v)}" target="_blank" rel="noopener" class="mrLink">Open MR →</a>`
-        : md(v))  // md() already autolinks — linkifying its OUTPUT re-matched the URL inside
-                  // the href it had just written, nesting <a> inside <a>
-
-      : esc(JSON.stringify(v, null, 2));
-    return `<div class="objRow"><span class="objKey">${label}</span><span class="objVal">${val}</span></div>`;
+    return `<div class="objRow"><span class="objKey">${label}</span><span class="objVal">${handoffValue(k, v)}</span></div>`;
   }).join("");
   return reportSection(kind, title, `<div class="objGrid">${rows}</div>`);
 }
@@ -1645,6 +1731,10 @@ async function openCard(id) {
   $("dlgDesc").style.display = $("dlgDesc").innerHTML ? "" : "none";
   const reportHtml = renderWorkReport((card.ext || {}).work_report, id, reportRequiredFor(card), reportSectionOrderFor(card));
   $("dlgWorkReport").innerHTML = "";
+  // the contract first, the narrative second — a reader must see what was PROVEN before what
+  // was claimed about it
+  const checksHtml = renderChecks(card.checks);
+  if (checksHtml) $("dlgWorkReport").insertAdjacentHTML("beforeend", checksHtml);
   if (reportHtml) $("dlgWorkReport").appendChild(splitReport(reportHtml));
 
   // the one-sentence verdict on the WHOLE card (see statusLine)
@@ -1878,7 +1968,11 @@ function digest(e) {
                text: `${verb} ${d.section || ""}${d.item_id ? " · " + d.item_id : ""}` };
     }
     case "comment.added":
-      return { label: "commented", hue: 175, cardId, text: "" };
+      // the event carries only {card_id, author} — never the body. "hermes-engineer commented
+      // t_3302" is a fact with the content removed; the body is fetched and cached (see
+      // commentCache) so the feed says WHAT was said.
+      return { label: "commented", hue: 175, cardId,
+               text: short(commentCache.get(e.entity_id) ?? "…") };
     case "attention.raised":
       return { label: (d.severity || "block").toUpperCase(), hue: d.severity === "warn" ? 70 : d.severity === "info" ? 250 : 15,
                cardId, text: short(d.reason) + (d.for_actor ? ` → ${String(d.for_actor).split(":").pop()}` : "") };
@@ -1900,21 +1994,26 @@ async function renderFeed() {
     const g = digest(e);
     if (!g) return "";                       // suppressed as noise (see digest)
     const card = dashCards.find(c => c.id === g.cardId);
+    const gone = titleCache.get(g.cardId) === null;      // fetched, and it isn't there
     const title = card ? card.title : (titleCache.get(g.cardId) || shortId(g.cardId));
     return `<div class="feedRow">
       <span class="t">${new Date(e.ts).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"})}</span>
       <div class="bits">
         ${agentChip(e.actor)}
         <span class="opPill" style="--op-h:${g.hue}">${esc(g.label)}</span>
-        ${title ? `<span class="ref" onclick="openCard('${esc(g.cardId)}')" title="${esc(g.cardId)}">${esc(title)}</span>` : ""}
-        ${g.text ? `<span class="txt">${esc(g.text)}</span>` : ""}
+        ${title ? (gone
+          ? `<span class="ref gone" title="not on this board — the change-log spans the whole profile">${esc(title)}</span>`
+          : `<span class="ref" onclick="openCard('${esc(g.cardId)}')" title="${esc(g.cardId)}">${esc(title)}</span>`) : ""}
+        ${gone && !g.text ? `<span class="txt dim">not on this board</span>`
+                          : (g.text && g.text !== "…" ? `<span class="txt">${esc(g.text)}</span>` : "")}
       </div></div>`;
   }).join("") || `<div class="emptyPane"><div class="lead">No activity yet</div></div>`;
 
   // paint immediately with what we know, then fill in off-board titles and repaint once
   const unknown = events.map(e => (e.data || {}).card_id || e.entity_id)
                         .filter(id => id && !dashCards.some(c => c.id === id));
-  if (await enrichTitles(unknown) && $("dashDlg").open) renderFeed();
+  const [gotTitles, gotBodies] = await Promise.all([enrichTitles(unknown), enrichComments(events)]);
+  if ((gotTitles || gotBodies) && $("dashDlg").open) renderFeed();
 }
 
 async function renderRunningSession() {
