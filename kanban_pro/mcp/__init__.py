@@ -1221,9 +1221,18 @@ def _launch_command() -> list[str]:
     return ["kanban-pro-mcp"]
 
 
-#: agent skills shipped as examples — install targets for `--install-skills`.
-_SKILL_NAMES = ("kanban-orchestrator", "kanban-worker", "kanban-pro-work-reporting")
+#: `--install-skills` ships EVERY skill in examples/skills — enumerated, never hand-listed.
+#: A hardcoded tuple is a skill that silently never ships: `kanban-retro` and `kanban-upgrade`
+#: were both in the repo and both missing from the list, so installing "the skills" quietly
+#: installed three of five. The directory IS the list.
 _DEFAULT_SKILLS_DIR = "~/.claude/skills"
+
+
+def _skill_names() -> list[str]:
+    src = _skills_source()
+    if not src.is_dir():
+        return []
+    return sorted(d.name for d in src.iterdir() if (d / "SKILL.md").is_file())
 
 
 def _skills_source() -> Path:
@@ -1241,7 +1250,7 @@ def _install_skills(target: Path) -> None:
         return
     target.mkdir(parents=True, exist_ok=True)
     installed = skipped = 0
-    for name in _SKILL_NAMES:
+    for name in _skill_names():
         s, d = src / name, target / name
         if not s.is_dir():
             continue
