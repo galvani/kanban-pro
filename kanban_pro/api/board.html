@@ -1626,30 +1626,44 @@ function boldAgent(name) {
   });
 }
 
+/* Comments are MARKDOWN, and agents write real markdown — `## verdict`, `### the fix`, bullet
+   lists. This used to render each line with mdInline (bold/code/links only) and join with <br>,
+   so every heading printed its literal `##` and the whole comment ran together as one grey wall.
+   Now: the special line kinds (§badge, [gate]) are still handled line-by-line, and everything
+   else is handed to md() — the block renderer — so headings, lists and paragraphs come out as
+   headings, lists and paragraphs. */
 function formatComment(body) {
-  const lines = body.split("\n");
+  const lines = String(body ?? "").split("\n");
+  const out = [];
+  let buf = [];                       // consecutive ordinary lines -> one md() block
+  const flush = () => { if (buf.length) { out.push(md(buf.join("\n"))); buf = []; } };
   let inJson = false;
-  return lines.map(line => {
+  for (const line of lines) {
     const trimmed = line.trim();
     // Hide fenced JSON blocks (review_checklist, handoff etc)
-    if (trimmed === "```json" || trimmed === "```") { inJson = !inJson; return ""; }
-    if (inJson) return "";
+    if (trimmed === "```json" || trimmed === "```") { flush(); inJson = !inJson; continue; }
+    if (inJson) continue;
     // JSON on a single line (legacy format)
-    if (trimmed.startsWith("{") && trimmed.endsWith("}")) return "";
-    // Agents write comments in markdown (**bold**, `code`, [links]) — render it, don't print
-    // the asterisks. mdInline takes already-escaped HTML and also autolinks bare URLs, so it
-    // subsumes linkify; using both would double-wrap the URLs it just linked.
-    // §keyword lines
-    if (trimmed.startsWith("§")) {
-      const m = trimmed.match(/^§(\w+)\s*(.*)/);
-      if (m) return `<span class="badge badge-${esc(m[1])}">${esc(m[1])}</span> ${mdInline(esc(m[2]))}`;
-    }
-    // [gate] lines
-    const gate = trimmed.match(/^\[(\S+)\]\s+(.*)/);
-    if (gate) return `<span class="gateLabel">${esc(gate[1])}</span><span class="gateVal">${mdInline(esc(gate[2]))}</span>`;
-    return mdInline(esc(line));
-  }).filter(l => l !== "").join("<br>");
+    if (trimmed.startsWith("{") && trimmed.endsWith("}")) continue;
+    const special = specialLine(trimmed);
+    if (special !== null) { flush(); out.push(special); continue; }
+    buf.push(line);
+  }
+  flush();
+  return out.join("");
 }
+
+/* §keyword and [gate] lines are a convention of ours, not markdown — they keep their own shape. */
+function specialLine(trimmed) {
+  if (trimmed.startsWith("§")) {
+    const m = trimmed.match(/^§(\w+)\s*(.*)/);
+    if (m) return `<div class="md-p"><span class="badge badge-${esc(m[1])}">${esc(m[1])}</span> ${mdInline(esc(m[2]))}</div>`;
+  }
+  const gate = trimmed.match(/^\[(\S+)\]\s+(.*)/);
+  if (gate) return `<div class="md-p"><span class="gateLabel">${esc(gate[1])}</span><span class="gateVal">${mdInline(esc(gate[2]))}</span></div>`;
+  return null;
+}
+
 
 async function openCard(id) {
   openCardId = id;
