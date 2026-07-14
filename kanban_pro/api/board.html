@@ -756,7 +756,9 @@ async function openCard(id) {
   openCardId = id;
   const [d, trans, activity] = await Promise.all([
     api(`/api/cards/${id}`),
-    api(`/api/cards/${id}/transitions`).catch(() => null),
+    // board_id is required for a card shared onto several boards: its legal moves depend on
+    // which board you're moving it ON, and this view is one board.
+    api(`/api/cards/${id}/transitions?board_id=${encodeURIComponent(boardId)}`).catch(() => null),
     api(`/api/cards/${id}/activity`).catch(() => []),
   ]);
   const card = d.card;

@@ -383,11 +383,13 @@ def create_app(
         return await be.update_card(card_id, patch)
 
     @app.get("/api/cards/{card_id}/transitions")
-    async def card_transitions(card_id: str) -> core.TransitionInfo:
+    async def card_transitions(card_id: str, board_id: str | None = None) -> core.TransitionInfo:
         be = await _backend()
         if not core.unwrap(be, (core.RecordingBackend, core.AugmentingBackend)):
             raise NotSupported("transitions query needs the core stack")
-        return await be.transitions(card_id)
+        # a card shared onto >1 board has different legal moves per board — the caller must
+        # say which one it is asking about (the board view knows; it passes its own id)
+        return await be.transitions(card_id, board_id)
 
     @app.get("/api/cards/{card_id}/session-log")
     async def session_log(card_id: str, after: int = -1, tail: int = 400) -> dict[str, object]:
