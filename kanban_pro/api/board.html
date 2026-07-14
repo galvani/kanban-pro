@@ -259,6 +259,19 @@
   .dlgSub { font-family: var(--mono); font-size: 11px; color: oklch(0.54 0.01 260);
             margin-top: 3px; }
   .dlgIdRow .xbtn { margin-left: auto; }
+  /* the working-agent animation: pinned right, before the close button */
+  .agentAnim { margin-left: auto; display: inline-flex; align-items: center; width: 44px;
+               height: 44px; flex: none; }
+  /* a `display` rule BEATS the [hidden] attribute, so the icon stayed on idle cards — claiming an
+     agent was working when none was. An animation that lies is worse than no animation. */
+  .agentAnim[hidden] { display: none; }
+  .agentAnim + .xbtn { margin-left: 12px; }
+  .agentAnim svg { width: 44px; height: 44px; overflow: visible; }
+  /* the icons ship #000 strokes on #fff "paper" — recolour to the agent's hue on our panel */
+  .agentAnim svg .line { stroke: oklch(0.82 0.13 var(--chip-h, 260)); }
+  .agentAnim svg .fill { fill: oklch(0.82 0.13 var(--chip-h, 260)); }
+  .agentAnim svg .paper { fill: oklch(0.26 0.02 var(--chip-h, 260));
+                          stroke: oklch(0.7 0.11 var(--chip-h, 260)); }
   /* meta reads as labelled columns (LABEL above value), not a run of "key: value" pairs */
   #dlgGrid { display: flex; flex-wrap: wrap; gap: 8px 24px; padding: 10px 0 8px; align-items: center; }
   #dlgGrid .mi { flex-direction: row; align-items: center; gap: 8px; }
@@ -660,6 +673,9 @@
     <div class="dlgIdRow">
       <span class="dlgKey" id="dlgKey"></span>
       <span id="dlgLane"></span>
+      <!-- an agent is WORKING this card right now: its role, animated. Only while a live claim
+           is held — an animation on an idle card would be a lie that never stops moving. -->
+      <span id="dlgAgent" class="agentAnim" hidden></span>
       <button type="button" class="xbtn" id="dlgClose" title="Close (Esc)">✕</button>
     </div>
     <h3 id="dlgTitle"></h3>
@@ -806,6 +822,38 @@ async function enrichTitles(ids) {
   }));
   return true;
 }
+/* Which animation plays for which role. The icon set is generic (coder, reviewer, preparer, …)
+   and our roster is specific, so this is the join. An unknown role gets the orchestrator — a
+   neutral "something is running" — rather than nothing, because the point of the animation is
+   to say WORK IS HAPPENING, and a missing icon says the opposite. */
+const AGENT_ANIM = {
+  "builder-coder": "coder", "builder-sonnet": "coder", "builder": "coder", "claude-code": "coder",
+  "builder-architect": "planner", "architect": "planner", "scribe": "planner",
+  "reviewer": "reviewer", "reviewer-architect": "reviewer", "reviewer-opus": "reviewer",
+  "prepare": "preparer", "discovery": "researcher", "analytics": "researcher",
+  "status-audit": "tester", "upgrade": "tester", "rebaser": "deployer",
+  "dispatcher": "orchestrator", "hermes-engineer": "orchestrator", "engineer": "orchestrator",
+};
+const animFor = actor => AGENT_ANIM[String(actor ?? "").split(":").pop()] || "orchestrator";
+
+/* Inlined, not <img>-embedded: the icons ship black-on-white (invisible on a dark board), and only
+   inline SVG can be restyled — strokes take the agent's own hue, the "paper" takes the panel
+   colour. The animation lives in the file's own <style>, so it keeps running. */
+const animCache = new Map();
+async function showAgentAnim(actor) {
+  const host = $("dlgAgent");
+  if (!actor) { host.hidden = true; host.innerHTML = ""; return; }
+  const name = animFor(actor);
+  host.style.setProperty("--chip-h", agentHue(actor));
+  host.title = `${String(actor).split(":").pop()} is working this card`;
+  host.hidden = false;
+  if (!animCache.has(name)) {
+    try { animCache.set(name, await (await fetch(`/agents/${name}.svg`)).text()); }
+    catch { host.hidden = true; return; }
+  }
+  host.innerHTML = animCache.get(name);
+}
+
 const agentChip = (actor, extra = "") => {
   const name = String(actor ?? "").split(":").pop();
   return `<span class="chip ${extra}" style="--chip-h:${agentHue(name)}"><span class="cdot"></span>${esc(name)}</span>`;
@@ -1705,6 +1753,7 @@ async function openCard(id) {
   const card = d.card;
   $("dlgTitle").textContent = card.title;
   $("dlgKey").textContent = card.id;
+  showAgentAnim(d.claim ? d.claim.owner : null);   // only while someone actually holds the lease
 
   const scheme = trans ? (trans.resolved_scheme || "backend workflow") : "?";
   $("dlgMeta").textContent = `scheme: ${scheme}` + (card.archived ? " · ARCHIVED" : "");

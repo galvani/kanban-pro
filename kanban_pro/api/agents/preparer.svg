@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Preparation agent working">
+<style>
+
+  .line { fill: none; stroke: #000; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .fill { fill: #000; }
+  .paper { fill: #fff; stroke: #000; stroke-width: 2; stroke-linejoin: round; }
+  @media (prefers-reduced-motion: reduce) {
+    * { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; }
+  }
+
+  #top-box { transform-box: fill-box; transform-origin: center; animation: place 1.6s ease-in-out infinite; }
+  #spark { animation: spark 1.6s ease-in-out infinite; }
+  @keyframes place {
+    0% { transform: translate(10px,-12px) rotate(8deg); }
+    45%,75% { transform: translate(0,0) rotate(0); }
+    100% { transform: translate(10px,-12px) rotate(8deg); }
+  }
+  @keyframes spark { 0%,48% { opacity:0; transform:scale(.6); } 60%,80% { opacity:1; transform:scale(1); } 100% { opacity:0; } }
+</style>
+<circle class="line" cx="15" cy="14" r="6"/>
+<path class="line" d="M5 36c1-10 5-15 10-15 6 0 10 5 11 15"/>
+<rect class="paper" x="29" y="37" width="13" height="13" rx="1"/>
+<rect class="paper" x="44" y="37" width="13" height="13" rx="1"/>
+<g id="top-box"><rect class="paper" x="36.5" y="22" width="13" height="13" rx="1"/><path class="line" d="M39 27h8"/></g>
+<path class="line" d="M21 28 34 24"/>
+<g id="spark"><path class="line" d="M53 17v5M50.5 19.5h5"/></g>
+</svg>

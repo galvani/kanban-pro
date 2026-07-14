@@ -18,7 +18,7 @@ import tempfile
 from collections.abc import AsyncIterator
 from pathlib import Path
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
@@ -40,6 +40,11 @@ _STATUS = {
 }
 
 _UI_FILE = Path(__file__).parent / "board.html"
+#: animated agent status icons (monochrome SVG, transparent bg, looping,
+#: honouring prefers-reduced-motion).
+#: Served raw and INLINED by the page, not <img>-embedded, so the UI can recolour their strokes to
+#: the agent's own hue — as shipped they are black-on-white, i.e. invisible on a dark board.
+_AGENTS_DIR = Path(__file__).parent / "agents"
 
 # --- session-log serving (the "watch an agent work a card" feature) ---
 #
@@ -248,6 +253,15 @@ def create_app(
         # an old client (e.g. missing an SSE-reconnect fix) — a plain reload must always
         # fetch the current board.html, never a heuristically-cached one.
         return HTMLResponse(_UI_FILE.read_text(), headers={"Cache-Control": "no-store"})
+
+    @app.get("/agents/{name}.svg")
+    async def agent_icon(name: str) -> Response:
+        """One animated icon per agent ROLE — shown while that agent is actually working a card."""
+        path = (_AGENTS_DIR / f"{name}.svg").resolve()
+        if not path.is_file() or path.parent != _AGENTS_DIR.resolve():
+            raise NotFound(f"no animation for {name!r}")
+        return Response(path.read_text(), media_type="image/svg+xml",
+                        headers={"Cache-Control": "max-age=3600"})
 
     # --- meta / boards ---
 

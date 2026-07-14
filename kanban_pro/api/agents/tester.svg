@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Test agent working">
+<style>
+
+  .line { fill: none; stroke: #000; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .fill { fill: #000; }
+  .paper { fill: #fff; stroke: #000; stroke-width: 2; stroke-linejoin: round; }
+  @media (prefers-reduced-motion: reduce) {
+    * { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; }
+  }
+
+  #bug { transform-box: fill-box; transform-origin: center; animation: bug 1.4s ease-in-out infinite; }
+  #check { animation: check 1.4s ease-in-out infinite; }
+  @keyframes bug { 0%,45% { transform: translateX(-4px); opacity:1; } 65%,100% { transform: translateX(4px) scale(.7); opacity:.15; } }
+  @keyframes check { 0%,48% { opacity:0; stroke-dashoffset:18; } 70%,100% { opacity:1; stroke-dashoffset:0; } }
+</style>
+<circle class="line" cx="16" cy="14" r="6"/>
+<path class="line" d="M6 35c1-9 5-14 10-14s9 5 10 14"/>
+<rect class="paper" x="29" y="11" width="27" height="38" rx="3"/>
+<path class="line" d="M36 18h13M36 24h10"/>
+<g id="bug">
+  <ellipse class="line" cx="41" cy="37" rx="5" ry="6"/>
+  <path class="line" d="M36 34h-3M36 40h-3M46 34h3M46 40h3M41 31v12"/>
+</g>
+<path id="check" class="line" d="m37 39 4 4 9-11" stroke-dasharray="18"/>
+</svg>

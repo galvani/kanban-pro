@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Orchestrator agent working">
+<style>
+
+  .line { fill: none; stroke: #000; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .fill { fill: #000; }
+  .paper { fill: #fff; stroke: #000; stroke-width: 2; stroke-linejoin: round; }
+  @media (prefers-reduced-motion: reduce) {
+    * { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; }
+  }
+
+  .node { transform-box: fill-box; transform-origin: center; animation: node 1.5s ease-in-out infinite; }
+  #n2 { animation-delay:.25s; } #n3 { animation-delay:.5s; }
+  #pulse { animation: pulse 1.5s ease-out infinite; transform-box: fill-box; transform-origin:center; }
+  @keyframes node { 0%,100% { transform:scale(.85); } 50% { transform:scale(1.15); } }
+  @keyframes pulse { 0% { transform:scale(.3); opacity:1; } 100% { transform:scale(1.5); opacity:0; } }
+</style>
+<circle class="line" cx="16" cy="14" r="6"/>
+<path class="line" d="M6 36c1-10 5-15 10-15s9 5 10 15"/>
+<path class="line" d="M34 18 48 12M34 28l16 3M34 38l13 10"/>
+<circle id="pulse" class="line" cx="34" cy="28" r="5"/>
+<circle class="paper node" cx="34" cy="28" r="4"/>
+<circle id="n2" class="paper node" cx="51" cy="11" r="5"/>
+<circle id="n3" class="paper node" cx="54" cy="32" r="5"/>
+<circle class="paper node" cx="50" cy="50" r="5"/>
+</svg>

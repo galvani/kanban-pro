@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Research agent working">
+<style>
+
+  .line { fill: none; stroke: #000; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .fill { fill: #000; }
+  .paper { fill: #fff; stroke: #000; stroke-width: 2; stroke-linejoin: round; }
+  @media (prefers-reduced-motion: reduce) {
+    * { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; }
+  }
+
+  #scan { animation: scan 1.7s ease-in-out infinite; }
+  #head { transform-box: fill-box; transform-origin: center bottom; animation: nod 1.7s ease-in-out infinite; }
+  @keyframes scan { 0%,100% { transform: translateY(-7px); } 50% { transform: translateY(10px); } }
+  @keyframes nod { 0%,100% { transform: rotate(-3deg); } 50% { transform: rotate(4deg); } }
+</style>
+<g id="head"><circle class="line" cx="19" cy="15" r="6"/><path class="line" d="M9 35c1-9 5-14 10-14s9 5 10 14"/></g>
+<path class="paper" d="M29 19c7-3 13-3 18 0v30c-5-3-11-3-18 0z"/>
+<path class="paper" d="M47 19c5-3 10-3 14 0v30c-4-3-9-3-14 0z"/>
+<path class="line" d="M34 26h9M34 32h8M51 26h6M51 32h7"/>
+<path id="scan" class="line" d="M31 35h28"/>
+</svg>

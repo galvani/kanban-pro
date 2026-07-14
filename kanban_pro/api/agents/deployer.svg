@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Deployment agent working">
+<style>
+
+  .line { fill: none; stroke: #000; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .fill { fill: #000; }
+  .paper { fill: #fff; stroke: #000; stroke-width: 2; stroke-linejoin: round; }
+  @media (prefers-reduced-motion: reduce) {
+    * { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; }
+  }
+
+  #rocket { transform-box: fill-box; transform-origin: center; animation: launch 1.7s ease-in-out infinite; }
+  #flame { animation: flame .28s ease-in-out infinite alternate; }
+  @keyframes launch { 0%,20% { transform: translate(-5px,7px); } 70%,100% { transform: translate(8px,-10px); } }
+  @keyframes flame { to { transform: scaleY(1.45); } }
+</style>
+<circle class="line" cx="14" cy="15" r="6"/>
+<path class="line" d="M4 36c1-10 5-15 10-15s9 5 10 15"/>
+<rect class="paper" x="8" y="39" width="17" height="13" rx="1"/>
+<path class="line" d="M12 44h9"/>
+<g id="rocket">
+  <path class="paper" d="M38 39c-4-8 1-20 12-28 4 13 0 25-8 31z"/>
+  <circle class="line" cx="45" cy="25" r="3"/>
+  <path class="line" d="M39 35 32 39l4-9M43 40l-1 8 7-6"/>
+  <path id="flame" class="line" d="m37 41-5 7"/>
+</g>
+</svg>

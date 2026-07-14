@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Coder working">
+<style>
+
+  .line { fill: none; stroke: #000; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .fill { fill: #000; }
+  .paper { fill: #fff; stroke: #000; stroke-width: 2; stroke-linejoin: round; }
+  @media (prefers-reduced-motion: reduce) {
+    * { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; }
+  }
+
+  #left-hand { transform-box: fill-box; transform-origin: right center; animation: typeL .42s ease-in-out infinite alternate; }
+  #right-hand { transform-box: fill-box; transform-origin: left center; animation: typeR .42s .21s ease-in-out infinite alternate; }
+  #cursor { animation: cursor .8s steps(1) infinite; }
+  @keyframes typeL { to { transform: translateY(2px) rotate(4deg); } }
+  @keyframes typeR { to { transform: translateY(2px) rotate(-4deg); } }
+  @keyframes cursor { 50% { opacity: 0; } }
+</style>
+<circle class="line" cx="32" cy="12" r="7"/>
+<path class="line" d="M18 35c1-10 6-16 14-16s13 6 14 16"/>
+<rect class="paper" x="12" y="30" width="40" height="22" rx="2"/>
+<path class="line" d="M8 54h48"/>
+<path class="line" d="m21 39-4 3 4 3M43 39l4 3-4 3M35 37l-6 10"/>
+<path id="left-hand" class="line" d="M20 29 26 36"/>
+<path id="right-hand" class="line" d="M44 29 38 36"/>
+<path id="cursor" class="line" d="M34 48h5"/>
+</svg>

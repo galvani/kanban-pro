@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Planning agent working">
+<style>
+
+  .line { fill: none; stroke: #000; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .fill { fill: #000; }
+  .paper { fill: #fff; stroke: #000; stroke-width: 2; stroke-linejoin: round; }
+  @media (prefers-reduced-motion: reduce) {
+    * { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; }
+  }
+
+  #card { transform-box: fill-box; transform-origin: center; animation: moveCard 1.8s ease-in-out infinite; }
+  #arrow { animation: pulse 1.8s ease-in-out infinite; }
+  @keyframes moveCard { 0%,100% { transform: translate(-9px,8px) rotate(-4deg); } 50% { transform: translate(10px,-8px) rotate(3deg); } }
+  @keyframes pulse { 0%,100% { opacity:.25; } 50% { opacity:1; } }
+</style>
+<circle class="line" cx="14" cy="13" r="6"/>
+<path class="line" d="M4 34c1-9 5-14 10-14s9 5 10 14"/>
+<rect class="paper" x="29" y="10" width="12" height="12" rx="1"/>
+<rect class="paper" x="46" y="10" width="12" height="12" rx="1"/>
+<rect class="paper" x="46" y="39" width="12" height="12" rx="1"/>
+<path id="arrow" class="line" d="M41 16h5M52 22v17"/>
+<g id="card"><rect class="paper" x="31" y="37" width="12" height="12" rx="1"/><path class="line" d="M34 42h6"/></g>
+<path class="line" d="M20 27 32 39"/>
+</svg>
