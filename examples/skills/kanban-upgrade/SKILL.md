@@ -26,6 +26,26 @@ You are not doing the work. You are making the record honest.
 If you find yourself reasoning "it was probably done" — stop. That is the exact move that put a
 PASS verdict on top of checks nobody ran.
 
+## TWO things are called "checks". Confusing them is the failure this skill exists to prevent
+
+- **`card.checks`** — the **verification CONTRACT**. Declared by whoever specified the work,
+  resolved with evidence by whoever did it, and **the only card state that gates the flow**.
+  Read it with `get_card`; each entry is `{key, text, required, status, evidence}` where status is
+  `pending|passed|failed|skipped|blocked`.
+- **`ext.work_report.checks`** — the worker's **SELF-REPORT**. Free text it wrote *about itself*.
+  It gates nothing, it is often stale, and it is frequently green when the contract is not.
+
+**Never treat the self-report as evidence for the contract.** On AIR-2915 the report carried six
+green `pass` rows from an old run while the contract said `browser-verify: blocked` — and every
+reader, human and agent, concluded the card was verified. A `pass` an agent wrote about its own run
+is a claim, not a proof. If the two disagree, the contract wins and **the disagreement is itself a
+finding**: say so in your comment.
+
+**A missing contract is not proof that none was declared.** Until 2026-07-14 a stale MCP server
+could silently ERASE `card.checks` on any write (it ran a `Card` class predating the field). If a
+card's checks look absent but its comments or spec talk about a required check, read the change-log
+(`list_changes`) for `check.declared` / `check.resolved` events before concluding there was no gate.
+
 ## What counts as evidence
 
 Strongest first. Cite the one you used, in the item's `evidence` (or in your comment):
@@ -61,15 +81,28 @@ A plan step with none of these stays `todo`.
      `passed` = you saw it pass. `failed` = it ran and failed. `blocked` = it COULD NOT RUN and you
      investigated why (read the logs, tried to bring the stack up). `skipped` = someone chose not
      to. Never use `skipped` for "could not".
-6. **Verdict**: leave a missing verdict missing. If the existing verdict contradicts the checks
-   (a PASS over an unrun check), say so in a comment and `raise_attention` — do not fix it silently.
-7. **Report what you did**: one comment listing every status you changed and the evidence for it,
+6. **Verdict**: leave a missing verdict missing. A verdict must be consistent with the **contract**,
+   never with the self-report. If the existing verdict contradicts the contract (an `APPROVE` sitting
+   on top of a `pending`/`blocked` required check), that verdict is false: say so in a comment,
+   `raise_attention`, and route it — do not silently rewrite it into something defensible, and do
+   not delete it as though it never happened.
+7. **Leave a REMEDY, or you have not finished.** An upgraded record that says what is wrong but not
+   what to do next just hands the next agent the same puzzle. Every run ends with a `handoff`:
+   `next_actor` (who moves next) and `explicit_instruction` (what they must actually do, concretely
+   — the command, the check key, the file). "Needs verification" is not an instruction; "run
+   `browser-verify` against the compose stack and `record_check_result` with the console output" is.
+   If nobody can proceed until a human decides, that IS the remedy — `raise_attention` for them and
+   say what you need.
+8. **Report what you did**: one comment listing every status you changed and the evidence for it,
    and — just as important — **every item you could NOT prove**, left as it was. That list is the
    real output: it tells the next agent exactly what is still unknown.
 
 ## What you must not do
 
 - Do not fabricate a status to make a card look finished.
+- Do not copy the self-report into the contract. `record_check_result(key, "passed")` because
+  `work_report.checks` says `pass` is laundering a claim into evidence — and it green-lights the
+  gate on work nobody ran. Only record what YOU can point at.
 - Do not clear an attention flag you did not resolve. Clearing means *the problem is gone*, not
   *it is now someone else's*. If the next move belongs to another actor, **re-route** it:
   `raise_attention(card_id, reason, for_actor=<them>)`.
