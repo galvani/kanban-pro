@@ -277,8 +277,29 @@
   .gateLabel { display: inline-block; font-size: 11px; font-weight: 600; color: var(--dim);
                min-width: 120px; }
   .gateVal { color: var(--text); }
-  .attention { background: #3a2b12; border: 1px solid #8a6d1f; border-radius: 8px;
-               padding: 8px 12px; margin: 10px 0; font-size: 13px; }
+  .attention { border: 1px solid oklch(0.5 0.1 var(--sev-h, 70) / 0.5);
+               border-left: 3px solid oklch(0.78 0.16 var(--sev-h, 70));
+               background: oklch(0.32 0.06 var(--sev-h, 70) / 0.18);
+               border-radius: 9px; padding: 11px 14px; margin: 14px 0 0; font-size: 13px; }
+  .attnTop { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .attnWho { display: inline-flex; align-items: center; gap: 6px; font-size: 12px;
+             color: oklch(0.9 0.04 70); }
+  .attnBy { display: inline-flex; align-items: center; gap: 6px; margin-left: auto;
+            font-size: 11.5px; color: var(--dim); }
+  .attnWhy { font-size: 13px; line-height: 1.5; margin-top: 8px; color: oklch(0.9 0.03 70); }
+  .attnQ { margin-top: 9px; padding: 9px 11px; border-radius: 7px; font-size: 12.5px; line-height: 1.45;
+           background: oklch(0.27 0.014 260); border: 1px solid oklch(0.33 0.02 250);
+           color: oklch(0.88 0.03 250); }
+  .attnActs { display: flex; gap: 7px; margin-top: 10px; align-items: center; }
+  .attnActs input { flex: 1; min-width: 0; background: oklch(0.2 0.01 260);
+                    border: 1px solid oklch(0.34 0.01 260); color: var(--text);
+                    border-radius: 7px; padding: 6px 10px; font-size: 12.5px; }
+  /* the tab that HOLDS the thing being asked of you — an unanswered question is inside the work
+     report, and a banner that says "answer me" while the answer lives two clicks away is a
+     dead end. The tab wears the same amber as the flag. */
+  .tabs button.flagged { color: oklch(0.9 0.08 70); }
+  .tabs button.flagged .cdot { background: var(--warn); opacity: 1;
+                               box-shadow: 0 0 0 3px oklch(0.78 0.16 70 / 0.2); }
   .metaGrid { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 12px;
                align-items: center; }
   .metaGrid .mi { display: inline-flex; align-items: center; gap: 5px;
@@ -702,12 +723,16 @@ function cardEl(card) {
     const sev = ext["kanban_pro.attention"].severity || "block";
     chips.push(`<span class="chip attn"><span class="cdot"></span>${esc(sev)}</span>`);
   }
+  /* The claim chip and the assignee chip were BOTH rendered even when they name the same agent
+     (the normal case: a worker claims the card it is assigned to). That duplicate is what pushed
+     the badges onto a second row. One agent → one chip; the ▶ says it is running. */
+  const owner = ext._claim ? String(ext._claim.owner).split(":").pop() : null;
   if (ext._claim) {
     const hasLog = !!((ext.session || {}).log || (ext.work || {}).log);
-    const who = String(ext._claim.owner).split(":").pop();
-    chips.push(`<span class="chip live" title="claimed by ${esc(ext._claim.owner)}${hasLog ? " · session log linked" : ""}"><span class="cdot"></span>▶ ${esc(who)}${hasLog ? " 📜" : ""}</span>`);
+    chips.push(`<span class="chip live" title="claimed by ${esc(ext._claim.owner)}${hasLog ? " · session log linked" : ""}"><span class="cdot"></span>▶ ${esc(owner)}${hasLog ? " 📜" : ""}</span>`);
   }
   for (const a of card.assignees || []) {
+    if (a === owner) continue;                       // already shown, as the running chip
     const known = knownAssignees.includes(a);
     chips.push(`<span class="chip ${known ? "" : "unknown"}" style="--chip-h:${agentHue(a)}"><span class="cdot"></span>${esc(a)}</span>`);
   }
@@ -1152,11 +1177,65 @@ async function openCard(id) {
   const scheme = trans ? (trans.resolved_scheme || "backend workflow") : "?";
   $("dlgMeta").textContent = `scheme: ${scheme}` + (card.archived ? " · ARCHIVED" : "");
 
+  const ext = card.ext || {};
   const att = (card.ext || {})["kanban_pro.attention"];
-  $("dlgAttention").innerHTML = att
-    ? `<div class="attention">⚠️ <b>needs attention</b> — ${esc(att.reason)}<br>
-       <span style="color:var(--dim)">raised by ${esc(att.raised_by || "?")}${att.for ? " · for " + esc(att.for) : ""}</span></div>`
-    : "";
+  /* The banner used to STATE a problem and offer no way out of it: the only action (Retry) was a
+     small button hidden among the meta columns, and an unanswered question sat invisible inside
+     the work report. A flag that says "I am blocked on you" must show what is being asked, who is
+     waiting, and the buttons that end it — right here. */
+  const pendingQ = ((ext.work_report || {}).questions || []).find(q => q && !q.answer);
+  if (!att) {
+    $("dlgAttention").innerHTML = "";
+  } else {
+    const sev = att.severity || "block";
+    $("dlgAttention").innerHTML = `
+      <div class="attention" style="--sev-h:${SEV_HUE[sev] ?? 70}">
+        <div class="attnTop">
+          <span class="sevPill">${esc(sev.toUpperCase())}</span>
+          <span class="attnWho">waiting on ${att.for ? agentChip(att.for) : "<b>you</b>"}</span>
+          <span class="attnBy">raised by ${agentChip(att.raised_by || "?")}</span>
+        </div>
+        <div class="attnWhy">${esc(att.reason || "")}</div>
+        ${pendingQ ? `<div class="attnQ"><b>Question</b> — ${esc(pendingQ.question || pendingQ.text || "")}</div>` : ""}
+        <div class="attnActs">
+          <input type="text" id="attnReply" autocomplete="off"
+                 placeholder="${pendingQ ? "Answer the question…" : "Reply, then resolve…"}">
+          <button type="button" class="linkbtn" id="attnSend">${pendingQ ? "Answer" : "Comment"}</button>
+          <button type="button" class="linkbtn" id="attnResolve">Resolve</button>
+          <button type="button" class="linkbtn" id="attnRetry" title="clear the flag, reset attempts and send the card back to ready">Retry</button>
+        </div>
+      </div>`;
+    const reply = $("attnReply");
+    const send = async () => {
+      const text = reply.value.trim();
+      if (!text) return toast("nothing to send");
+      try {
+        // an unanswered question is answered INTO the work report — that is where the agent
+        // reads it; a plain comment would be shouting into a channel it never checks
+        if (pendingQ) {
+          await api(`/api/cards/${id}/work-report/questions/${encodeURIComponent(pendingQ.id)}/answer`,
+            { method: "POST", headers: {"content-type": "application/json"},
+              body: JSON.stringify({ answer: text }) });
+        } else {
+          await api(`/api/cards/${id}/comments`, { method: "POST",
+            headers: {"content-type": "application/json"}, body: JSON.stringify({ body: text }) });
+        }
+        reply.value = "";
+        toast(pendingQ ? "answer recorded on the work report" : "comment added");
+        openCard(id);
+      } catch (e) { toast(e.message); }
+    };
+    $("attnSend").onclick = send;
+    reply.addEventListener("keydown", ev => { if (ev.key === "Enter") { ev.preventDefault(); send(); } });
+    $("attnResolve").onclick = async () => {
+      try {
+        await api(`/api/cards/${id}/attention/clear`, { method: "POST",
+          headers: {"content-type": "application/json"}, body: JSON.stringify({}) });
+        toast("attention cleared");
+      } catch (e) { toast(e.message); }
+    };
+    $("attnRetry").onclick = () => retryCard(id);
+  }
 
   const fmt = ts => ts ? new Date(ts).toLocaleString() : "—";
   const provenance = (card.ext || {})["kanban_pro.migrated_from"];
@@ -1219,7 +1298,7 @@ async function openCard(id) {
   if (d.claim) rows.push(["claimed by", `${d.claim.owner} · lease until ${fmt(d.claim.expires_at)}`]);
   // no "view log" button: the Session tab IS the log, and a second surface for it was one
   // click and one pop-out dialog too many.
-  if (att) rows.push(["action", `<button type="button" class="linkbtn" onclick="retryCard('${esc(id)}')">Retry</button>`, true]);
+  // Retry lives in the attention banner now, next to Answer/Resolve — one place to act, not two.
   const hermes = (card.ext || {}).hermes;
   if (card.priority) rows.push(["priority", `${card.priority} / 10`]);
   else if (hermes && hermes.priority != null) rows.push(["priority", String(hermes.priority)]);
@@ -1282,7 +1361,7 @@ async function openCard(id) {
   $("dlgWorkReport").innerHTML = renderWorkReport((card.ext || {}).work_report, id, reportRequiredFor(card), reportSectionOrderFor(card));
 
   /* Build info (surfaced from ext — visible without opening raw ext) */
-  const ext = card.ext || {};
+  /* `ext` is declared up by the attention banner — it needs it first. */
   const buildRows = [];
   if (ext.verify) buildRows.push(`<dt>verify</dt><dd>${esc(ext.verify)}</dd>`);
   if (ext.branch) buildRows.push(`<dt>branch</dt><dd>${esc(ext.branch)}</dd>`);
@@ -1323,6 +1402,10 @@ async function openCard(id) {
   $("dlgExtPre").textContent = JSON.stringify(ext, null, 2);
 
   renderTabs(id, {
+    // the report tab is FLAGGED when the attention flag is really about something in it: an
+    // unanswered question, or a section the route requires and the worker never filed
+    flagged: !!att && (!!pendingQ || !!(reportRequiredFor(card) || []).some(
+      sec => !((ext.work_report || {})[sec]))),
     report: !!(ext.work_report && Object.keys(ext.work_report).length),
     spec: !!$("dlgDesc").innerHTML,
     session: !!((ext.session || {}).log || (ext.work || {}).log),
@@ -1587,6 +1670,7 @@ function renderTabs(cardId, has) {
     b.dataset.tab = t.id;
     b.style.setProperty("--tab-h", t.hue);
     b.style.opacity = has[t.id] ? "" : ".55";
+    if (t.id === "report" && has.flagged) b.classList.add("flagged");
     const live = t.id === "session" && has.live;
     b.innerHTML = `<span class="cdot${live ? " pulse" : ""}"></span>${t.label}${count ? " · " + count : ""}`;
     b.onclick = () => { activeTab = t.id; showTab(cardId); };
