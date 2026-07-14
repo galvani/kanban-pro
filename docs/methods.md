@@ -4,7 +4,7 @@ Every operation exists once in `core/` over the `KanbanBackend` port and is proj
 three surfaces (SPEC decision 5 + "Consuming kanban-pro"):
 
 - **MCP tools** (primary) — one tool per operation, schema generated from the domain
-  models. **41 tools + 9 resources today.**
+  models. **46 tools + 9 resources today.**
 - **CLI** (primary) — `kanban-pro <resource> <verb> [flags]`. _(planned — no `cli/` yet)_
 - **HTTP** (secondary) — `kanban_pro/api/` exists but serves the **web UI** (board
   snapshot, SSE, card detail, move/comment/answer/retry), not the full canonical
@@ -88,17 +88,24 @@ Subtasks = child cards via `PARENT`/`CHILD` relations (`SUBTASKS`).
   add/remove — currently these ride on `Card`/`Board` at **create time only**
   (`CardPatch` doesn't cover them); dedicated ops land in the next port expansion.
 
-  **Checklists are therefore write-once.** `Card.checklists[]` (a "definition of done":
-  `{title, items: [{text, done, order}]}`) is accepted at `create_card`, is persisted, and
+  **Checklists are therefore write-once — and they gate NOTHING.** `Card.checklists[]`
+  (`{title, items: [{text, done, order}]}`) is accepted at `create_card`, is persisted, and
   round-trips on read — but **no API can tick an item afterwards**, because `CardPatch`
-  has no `checklists` field and no `checklist_*` tool exists. Treat them as a static
-  acceptance-criteria list until the port expands.
+  has no `checklists` field and no `checklist_*` tool exists. Treat them as a static list of
+  items (subtasks, notes, acceptance criteria in prose).
 
-  For a **live, updatable to-do list on a card, use the work report** instead:
-  `plan[]` items carry `status: todo|doing|done|blocked`, and `checks[]` carry
-  reviewer/verification gates — both upserted by item id through `record_work_report`,
-  and each write emits a `work_report.updated` event. That is the mechanism agents should
-  use to track their own steps.
+  A checklist is **not** a verification gate, however many boxes are ticked, and `done` on an
+  item is a note the ticker wrote about itself — not evidence. Verification that actually
+  blocks a card is a **[Check](#checks)**: declared by one party, resolved with evidence by
+  another. (This doc used to call a checklist a "definition of done", which invited precisely
+  the wrong reading.) A Check may *reference* a checklist item via `checklist_item_id` when
+  that item is the human-readable statement of what it verifies — the blocking semantics still
+  live on the Check.
+
+  For a **live, updatable to-do list on a card, use the work report** instead: `plan[]` items
+  carry `status: todo|doing|done|blocked`, upserted by item id through `record_work_report`,
+  and each write emits a `work_report.updated` event. That is the mechanism agents should use
+  to track their own steps.
 - **User lookup** — `list_users()` / `get_user(user_id)`. Without it a caller can't
   discover valid ids for `assignees[]` / `Comment.author`.
 
@@ -135,6 +142,85 @@ over MCP via `set_flow`/`set_transitions`/`clear_flow` — not a YAML file. A fl
 emits a `board.updated` event. `move_card` enforces the resolved flow; `force=true`
 overrides it and stamps `forced: true` on the `card.moved` event — never silent.
 
+### Checks (core convenience — not port ops)
+
+`Card.checks[]` — the card's **verification contract**, and the only card state that gates the
+flow. A Check is **declared** (what must be proven before this card advances) and later
+**resolved** (what happened when someone ran it, with evidence). Those are two writes by two
+parties, and that split is the whole design: *the party being gated does not decide what it is
+gated on.*
+
+| Operation | Signature | Notes |
+|---|---|---|
+| declare | `declare_checks(card_id, checks, idempotency_key?)` | the SPEC's job. `checks`: `[{key, text, required=true, checklist_item_id?}]`. Upserts by `key`; **recorded results survive a redeclaration**, so refining the contract mid-flight never resets a check somebody ran green. Emits `check.declared` |
+| resolve | `record_check_result(card_id, key, status, evidence, idempotency_key?)` | the WORKER's job. Only against a `key` someone declared — an unknown key is refused. Emits `check.resolved` |
+| retract | `retract_check(card_id, key, reason)` | remove a declared check; `reason` is mandatory and the actor is named in the log forever. Emits `check.retracted` |
+
+`status` ∈ `pending` (declared, untouched — the default, not recordable) · `passed` (ran, green)
+· `failed` (ran, red) · `skipped` (chose not to run it) · `blocked` (**could not** run it).
+
+**Only `passed` satisfies a required check.** `skipped`, `blocked` and `failed` all leave the
+card gated — the distinction a `done: bool` cannot hold, and precisely the one that matters: a
+gate that sees only "ticked / not ticked" cannot tell *unverified* from *verified broken*.
+`blocked` is the honest exit when the environment is dead; pair it with `raise_attention` and
+the engineer fixes the environment.
+
+`evidence` is **mandatory**: for `passed`/`failed`, the command and the output actually
+observed; for `skipped`/`blocked`, why nobody could run it. A status with nothing behind it is
+a claim, and the next reader cannot tell it from a verified one.
+
+`required=false` makes a check informational — recorded and surfaced, never gating. It is not
+the default, because an optional gate is not a gate.
+
+`update_card` **refuses** a `checks` patch: a whole-list replace is the one write that lets the
+party being gated delete the gate. (Same reasoning as the `ext.work_report` guard.)
+
+#### The gate — enforced at the board, not in a consumer
+
+| Operation | Signature | Notes |
+|---|---|---|
+| turn it on/off | `set_check_gate(board_id, column_ids)` | lanes that REFUSE a card whose required checks have not passed. `[]` = off. Stored in `board.ext["kanban_pro.check_gated_columns"]` |
+| at onboarding | — | `init_board` does not set it; call `set_check_gate` after. For `agent-lifecycle` the merge boundary is `<board>:waiting-for-mr` + `<board>:done` |
+
+Entry into a gated column is refused (`Conflict`, naming the failing keys) while any required
+check is not `passed` — validated in `AugmentingBackend`, **beside the flow and WIP rules**, on
+**every way in**: `move_card`, `add_placement`, and `create_card` (a card must not be *born* in a
+gated lane). `force=true` overrides `move_card` and stamps `forced: true` on the event forever: an
+honest escape hatch, never a silent one.
+
+**A card with NO checks is refused too.** An empty contract is not a pass — it is a card nobody
+said how to prove, and after the fact that is indistinguishable from a verified one. A card that
+genuinely needs no verification says so on the record with a `required: false` check.
+
+**The declaring party may not be the gated party — enforced.** Whoever holds the card's *claim* is
+by definition the worker being gated, and `declare_checks` / `retract_check` refuse them
+(`Unauthorized`). Without this the split is a convention: an adversarial review (2026-07-14) had a
+builder retract the check it was about to fail, declare a `required: false` replacement, and walk
+into the gated lane with no `force=true` and nothing in the log that looked wrong.
+
+**Why at the board and not in the dispatcher.** A gate that lives in one consumer is only as good
+as that consumer's coverage — and the dispatcher's own verification backstop, which was correct,
+still let AIR-2915 through because it only inspected *builder* roles. The reviewer's APPROVE was
+routed onward without a check being read. A board rule cannot be sidestepped by an actor nobody
+remembered to gate, by a script writing straight to the store, or by a future runtime.
+
+**Off by default**, on every board: a board whose cards declare no checks must not find its lanes
+locked. It is offered at onboarding — ask the user; a board that runs agents almost certainly
+wants it, because without it `checks` are only a record and nothing stops an unverified card from
+reaching done.
+
+Which lanes to gate is a real decision about **who runs which check**. The merge boundary
+(`waiting-for-mr`, `done`) stops unverified work from shipping. Gating `review` as well stops a
+builder handing an unproven diff to a reviewer at all — right only if the builder is expected to
+run every declared check.
+
+> **Why this exists.** On AIR-2915 (2026-07-14) a card reached the rebaser with the hydration
+> bug it was opened for still unverified. Checks lived in the work report, authored by the
+> worker being gated: the required browser check went out `NOT_RUN`, and a cheaper check added
+> under a different id — an SSR `curl` returning HTTP 200 — made the report look green. Nobody
+> lied; the report simply had no notion of a check that was *required*, so "I ran something
+> green" was indistinguishable from "I ran the thing you asked for".
+
 ### Work reports (core convenience — not port ops)
 
 Current structured card state, held in `ext["work_report"]`. The changelog is the audit
@@ -148,6 +234,11 @@ trail; the report itself is **current truth, not an append-only log**.
 Sections — **list** (upserted by stable item `id`, `op` ∈ `upsert`/`replace`/`remove`):
 `questions`, `findings`, `plan`, `needs`, `analysis_log`, `checks`.
 **Singleton** (replaced as current state): `about`, `verdict`, `handoff`.
+
+The report's `checks` section is **narrative only** — notes for the next human reader. It gates
+nothing and no gate reads it; verification outcomes belong in [`record_check_result`](#checks),
+against a declared key. (It predates `Card.checks[]` and is kept so existing writers don't
+break.)
 
 **Format version (`_v`).** Each report carries `_v` — currently `1`. See
 [ext versioning](#ext-versioning) below. A section may not be named with a leading
@@ -297,15 +388,16 @@ everything at connect time — no per-backend code.
 
 ### Tools (one per operation)
 
-Snake-case names matching the operations above — **42 tools**, the live surface:
+Snake-case names matching the operations above — **46 tools**, the live surface:
 
 ```
 list_boards, get_board, create_board, update_board, delete_board,
 list_columns, create_column, update_column, delete_column,
 list_cards, get_card, create_card, update_card,
+declare_checks, record_check_result, retract_check,
 record_work_report, answer_work_report_question,
 move_card, list_transitions, list_flows,
-set_flow, set_transitions, clear_flow, init_board,
+set_flow, set_transitions, clear_flow, init_board, set_check_gate,
 add_placement, copy_card, remove_placement, archive_card, unarchive_card, delete_card,
 list_comments, add_comment, delete_comment,
 list_relations, add_relation, delete_relation,

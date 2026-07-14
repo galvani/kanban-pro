@@ -13,7 +13,59 @@ you need stability.
 Everything below has landed on `main` but is not tagged. The package still reports
 `0.0.1`.
 
+### Added
+
+- **Checks — a card's verification contract, and the only card state that gates the flow.**
+  `Card.checks[]` + three tools: `declare_checks` (what must be proven — the spec's job),
+  `record_check_result(card_id, key, status, evidence)` (what happened — the worker's job), and
+  `retract_check(card_id, key, reason)` (dropping a gate, reasoned and permanently attributed).
+  New `CHECKS` capability; new change-log kinds `check.declared|resolved|retracted`.
+
+  `status` ∈ `pending|passed|failed|skipped|blocked` — **only `passed` satisfies a required
+  check**. `skipped` ("chose not to run it") and `blocked` ("could not run it") are recorded
+  honestly and still gate the card; `evidence` is mandatory on every result. You may only record
+  against a key someone else **declared**, so a greener check under a new name cannot stand in for
+  a required one — which is exactly how a card once reached the rebaser with the bug it was opened
+  for still unverified (AIR-2915). `update_card` refuses a `checks` patch: a whole-list replace
+  would let the party being gated delete the gate.
+
+- **The verification gate — `set_check_gate(board_id, column_ids)`.** Names the lanes that
+  **refuse** a card whose required checks have not passed. Entry raises `Conflict` naming the
+  failing keys — on **every way in**: `move_card`, `add_placement`, and `create_card` (a card must
+  not be *born* in a gated lane). A card with **no checks at all** is refused too: an empty
+  contract is not a pass, it is a card nobody specified.
+
+  Enforced in `AugmentingBackend`, **beside the flow and WIP rules** — so no client can
+  route around it: not a worker, not the dispatcher, not a script writing straight to the store. A
+  gate that lives in one consumer is only as good as that consumer's coverage, which is precisely
+  how the dispatcher's (correct) verification backstop still let AIR-2915 through — it inspected
+  builder roles only, so the reviewer's APPROVE was routed onward unread. `force=true` overrides
+  and stamps `forced: true` on the event forever.
+
+  **Off by default on every board** — a board whose cards declare no checks must not find its
+  lanes locked. For the `agent-lifecycle` preset the merge boundary is `waiting-for-mr` + `done`.
+
+  **The gated party cannot write its own contract — enforced, not asked for.** Whoever holds the
+  card's claim is refused `declare_checks` / `retract_check` (`Unauthorized`); they may only
+  `record_check_result`. A backend that cannot store checks raises `NotSupported` instead of
+  silently dropping the contract and leaving every gated lane open.
+
+  **Purely additive** — existing agents keep working and simply never call the new tools; with no
+  checks declared and no gate configured, nothing changes for any board.
+
 ### Changed
+
+- **A Checklist gates nothing, and is no longer described as a "definition of done."** That
+  wording invited the reading that ticking the boxes meant the card was verified. `done` on a
+  checklist item is a note the ticker wrote about itself; verification that blocks a card is a
+  **Check** (above), which may reference a checklist item via `checklist_item_id`.
+- **The work report's `checks` section is narrative only** and no gate reads it. It predates
+  `Card.checks[]` and still works, so existing writers don't break.
+- **`apply_patch` no longer round-trips values through `model_dump()`, and deep-copies them.**
+  `model_copy(update=…)` re-validates nothing and copies nothing: a dumped model-typed field (the
+  new `CardPatch.checks`) landed in the entity as plain **dicts**, and the entity then held a
+  **reference** to the caller's list — mutating the patch afterwards silently mutated the stored
+  card. Both are fixed for every list/dict field, not just `checks`; scalars are unaffected.
 
 - **Card ids are minted by the store, not by the caller.** `Card.id` now defaults to `""`
   — "mint me one" — and `create_card` fills it in the shape the card's board asks for.

@@ -30,6 +30,9 @@ if your moves are being watched, because they are.
    feature, don't fight it). Sub-steps worth tracking? Create subcards
    (`create_card` + `add_relation` kind `parent`) instead of a private todo list.
 5. **Land the outcome:**
+   - **Run the card's `checks` and record each result** — `record_check_result(card_id, key,
+     status, evidence)`. They are the card's verification contract, declared by whoever
+     specified the work, and the only thing that gates it. See *Checks* below.
    - Keep the structured card report current with the `kanban-pro-work-reporting`
      skill (`record_work_report`) before moving or raising attention.
    - done → `record_work_report` the handoff, `add_comment` a short result summary,
@@ -39,6 +42,34 @@ if your moves are being watched, because they are.
    - Always check `list_transitions(card_id)` if a move is refused — the board's flow
      decides what's legal, and the error names the allowed targets.
 6. **`release_claim(card_id)`** — always, done or stuck.
+
+## Checks — what you must prove before the card moves
+
+A card's `checks[]` are its **verification contract**: what must be true before it advances.
+Someone else declared them (that is the point — you do not decide what you are gated on), and you
+record what happened when you ran each one:
+
+```
+record_check_result(card_id, key="browser-verify", status="passed",
+                    evidence="loaded /hotel/x, console clean, no hydration warning")
+```
+
+- **`status`**: `passed` (ran, green) · `failed` (ran, red) · `skipped` (you chose not to run it)
+  · `blocked` (you *could not* run it). **Only `passed` lets the card advance.** The other three
+  are honest, recorded, and still gating — which is the point of having them.
+- **`evidence` is mandatory** and it is not a summary of your intentions: the command you ran and
+  the output you actually saw. For `skipped`/`blocked`, the reason nobody could run it. "Type-check
+  passes" is not evidence that a page renders.
+- **Can't run a required check?** Record it `blocked` with the exact blocker, then
+  `raise_attention` so the engineer can fix the environment. That is the supported path, and it is
+  cheaper than the alternative.
+- **Never run something else instead.** You cannot record a result against a key that wasn't
+  declared, and a greener check under another name satisfies nothing. If the contract itself is
+  wrong, say so — `raise_attention`. Do not route around it. (A card once reached the rebaser with
+  the very bug it was opened for still unverified, because an SSR `curl` returning HTTP 200 got
+  recorded in place of an unrun browser check. Nobody lied. That is why this is a contract now.)
+- **A checklist is not a check.** Checklists are plain lists (subtasks, notes); ticking one proves
+  nothing and gates nothing. Only `checks` block the flow.
 
 ## Discipline
 
@@ -115,6 +146,7 @@ update_card(card_id, {"ext": {"session": {
 - `create_board(board, idempotency_key?)` — Create a board. Omit `id` to have one generated; columns/labels may be inlined.
 - `create_card(card, idempotency_key?)` — Create a card. `placements` must have >=1 entry (board_id, column_id, position).
 - `create_column(board_id, column, idempotency_key?)` — Add a column to a board. `category` gives it portable semantics (e.g. 'done').
+- `declare_checks(card_id, checks, idempotency_key?)` — Declare what a card must VERIFY before it may advance. The card's verification contract.
 - `delete_board(board_id)` — Delete a board permanently. Refused while live cards remain — move/archive first.
 - `delete_card(card_id)` — Permanently purge a card. Only allowed on an ARCHIVED card — archive_card first.
 - `delete_column(column_id)` — Delete a column permanently. Refused while live cards sit in it — move/archive first.
@@ -135,9 +167,12 @@ update_card(card_id, {"ext": {"session": {
 - `list_work(assignee?, include_unassigned?)` — What should I work on? Workable cards for `assignee` (default: YOU, this
 - `move_card(card_id, to_board_id, to_column_id, position?, force?)` — Move a card within a board it's already on (re-column / re-position).
 - `raise_attention(card_id, reason, for_actor?, severity?)` — Flag a card as needing a decision or input (e.g. a question only a human or a
+- `record_check_result(card_id, key, status, evidence, idempotency_key?)` — Record what happened when you ran a declared check. `status` + `evidence`, against a `key`.
 - `record_work_report(card_id, section, item, op?, idempotency_key?)` — Update one structured work_report section/item on a card.
 - `release_claim(card_id, owner?)` — Release your lease (done or giving up). `owner` overrides the actor
 - `remove_placement(card_id, board_id)` — Take a card off one board (its other placements stay). The last placement can't
+- `retract_check(card_id, key, reason)` — Remove a declared check from a card. Requires a reason; permanently audited.
+- `set_check_gate(board_id, column_ids)` — Turn the verification gate ON (or off) for a live board — which lanes refuse an
 - `set_flow(board_id, transitions)` — Replace a board's whole workflow. `transitions` maps a from-column id to the list
 - `set_transitions(board_id, from_column_id, to_column_ids)` — Set the out-edges for ONE lane, leaving the rest of the board's flow untouched.
 - `unarchive_card(card_id)` — Restore an archived card.

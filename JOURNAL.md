@@ -1,5 +1,134 @@
 # kanban-pro — Journal
 
+## 2026-07-14 — Checks: the gate stops being a story the worker tells about itself
+
+**What broke.** AIR-2915 reached the rebaser with the exact bug it was opened for — a hydration
+mismatch — still unverified. Nobody lied. The card's `checks` lived in `ext.work_report`, a
+free-form section authored by the worker being gated: the required browser check went out
+`NOT_RUN`, then a *different*, cheaper check appeared under a new id — an SSR `curl` returning
+HTTP 200 — and the report read green. The dispatcher's verification backstop fired correctly
+once, against the builder, and was then bypassed entirely because it only inspects builder roles;
+the reviewer-architect's APPROVE was routed to the rebaser without a single check being read. A
+`curl` that proves a page doesn't 500 became the evidence for a bug that only manifests during
+client hydration.
+
+**Root cause, stated once:** the party being gated decided what it was gated on. Everything else
+was downstream of that.
+
+**What landed** (kanban-pro only — inert until the dispatcher and the worker prompts follow):
+
+- **`Card.checks[]` is now a first-class entity** (`domain`, `core/checks.py`, `CHECKS`
+  capability) — declared by whoever specifies the work (`declare_checks`), resolved with evidence
+  by whoever does it (`record_check_result`), retracted only with a reason that names the actor
+  forever (`retract_check`). Three new change-log kinds: `check.declared|resolved|retracted`.
+- **There is no boolean.** `status ∈ pending|passed|failed|skipped|blocked`, and only `passed`
+  satisfies a required check. A `done: bool` cannot tell "chose not to run it" from "couldn't run
+  it" from "nobody reached it yet" — it renders all three as *not ticked*, indistinguishable from
+  each other and from *verified broken*. That collapse is the bug, in one field.
+- **Evidence is mandatory.** `passed`/`failed` must show the command and the observed output;
+  `skipped`/`blocked` must say why. A status with nothing behind it is a claim.
+- **You may only record against a declared key.** The AIR-2915 substitution (`ssr-render` standing
+  in for `browser-verify`) is now a `NotFound`, not a green check.
+- **`update_card` refuses a `checks` patch** — a whole-list replace is the one write that would
+  let the gated party delete the gate. Same reasoning as the existing `ext.work_report` guard.
+
+**Wording fixed, because it invited the error.** A **Checklist** is a plain list and gates
+NOTHING — it was documented as a "definition of done", which reads as "tick these and you're
+verified". Its `done` flag is a note the ticker wrote about itself. A **Check** is verification
+and blocks the card. A Check may reference a checklist item (`checklist_item_id`); the blocking
+semantics live on the Check.
+
+**Gotcha found on the way:** `apply_patch` used `model_dump(exclude_unset=True)` and
+`model_copy(update=…)` does not re-validate — so the first model-typed patch field
+(`CardPatch.checks: list[Check]`) landed in the entity as a list of plain **dicts**, which blew up
+at the first attribute access. Now it takes live attributes via `model_fields_set`. Scalars are
+unaffected; the dump was only ever incidental for them.
+
+**The UI reads the gate now, not the story.** The card's status line ("Unverified — N required
+checks did not pass") is computed from `card.checks`, falling back to `wr.checks` only for cards
+that predate the contract, and the detail panel renders the contract above the narrative.
+
+**Then Jan asked the right question: "checks have no influence on anything, do they?"** They
+didn't — recording them changed nothing, and the plan was to enforce in the dispatcher. That
+plan repeats the original mistake at a different altitude: a gate that lives in ONE consumer is
+only as good as that consumer's coverage, and the dispatcher's backstop is exactly the gate that
+already failed — it inspects `_BUILDER_ASSIGNEES` only, so the reviewer-architect's APPROVE was
+routed to the rebaser without a check being read.
+
+**So the gate moved to the board.** `move_card` into a check-gated column is refused while any
+required check is not `passed` — enforced in `AugmentingBackend.move_card`, beside the flow and
+WIP rules, where no client can route around it: not a worker, not the dispatcher, not a script
+writing straight to the store, not the next runtime. `force=true` still overrides and stamps
+`forced: true` on the event forever. The lanes are board policy
+(`board.ext["kanban_pro.check_gated_columns"]`, via `set_check_gate` or `init_board(check_gate=)`),
+**off by default** — a board whose cards declare no checks must not find its lanes locked — and
+offered at onboarding.
+
+*Structural note:* the pure rules (`blocking_checks`, `check_gated_columns`) live in
+`core/verification.py`, a leaf below the layer stack. The write path needs `RecordingBackend`,
+which wraps `AugmentingBackend`, so importing it from augment would close a cycle. The rules
+depend on nothing but the domain models. That also keeps "does this card block?" defined exactly
+once — two subtly different copies is how the UI comes to say verified while the gate disagrees.
+
+### Then a fresh-context adversarial review took the whole thing apart — correctly
+
+Jan asked for a subagent with none of this conversation's context to judge the change. It came back
+with *"the idea is right; the implementation is simultaneously over-built and under-enforced"*, and
+it was holding a working exploit. Everything below was found by that review, and every item was a
+place where **the code did not do what the comments said it did** — which is the worst possible
+failure mode here, because the comments are what the agents read.
+
+- **The headline invariant was enforced NOWHERE.** `checks.py` promised "the worker cannot add,
+  drop, or rename a key" and then admitted, twenty lines down, *"kanban-pro does not police WHO
+  calls this"* — defending it with "the change-log names the actor forever". That is the **same
+  argument** (a deterrent that only bites after the fact, which an agent can talk itself out of)
+  that `_check_verified` cites as the reason the dispatcher's prompt-level gate failed. It cannot
+  be wrong there and sufficient here. The review demonstrated the exploit: a builder holding the
+  card retracts the check it is about to fail, declares a `required: false` replacement, and walks
+  into the gated lane — **no `force=true`, no flag, nothing in the log that looks wrong.**
+  → `_refuse_self_service`: **whoever holds the claim is, by definition, the party being gated.**
+  They may record results and nothing else. Declaring and retracting belong to whoever specified
+  the work.
+- **`move_card` was gated; `create_card` and `add_placement` were not.** A card could be *born* in
+  `done`, or park a second placement, drop the gated one and add it back. Three legal MCP calls,
+  card lands unverified, **no `forced: true` on any event.** An audited escape hatch is defensible;
+  an unaudited one is just the hole. → the gate now runs on every way IN, from one shared
+  `_refuse_unverified`.
+- **"Verified" was defined three times, and two of them contradicted the gate.** `is_verified()`
+  returned True for the empty contract that `_check_verified` refuses — and a test *asserted* that.
+  This is the exact drift the module's own docstring warns about, reproduced inside the module that
+  warns about it. → one definition: `bool(card.checks) and not blocking_checks(card)`.
+- **The dispatcher fixed an allowlist bug by adding an allowlist.** The old backstop shipped
+  AIR-2915 because it inspected builders only; my replacement inspected `{reviewer,
+  reviewer-architect, rebaser}` only — and would forget `qa`/`releaser`/`reviewer-sonnet` the same
+  way. → inverted to **default-deny**: every role is gated, builders are the one stated exemption.
+- **`Capability.CHECKS` was declared and never consulted.** On the hermes adapter (whose
+  `update_card` takes `assignees` and drops the rest), `declare_checks` would have "succeeded",
+  stored nothing, and left every gated lane waving cards through — a verification system that
+  silently becomes a no-op, which is worse than none. → `NotSupported`, loudly.
+- **`apply_patch` handed the entity a reference to the caller's list** (not just for `checks` —
+  for every list/dict field in the system). → deep-copied.
+- **`int(spec["order"])` raised an uncaught `ValueError`** on `{"order": "high"}` → a stack trace
+  instead of a fixable tool error. LLMs put junk in free-typed dict fields constantly. → `Conflict`.
+
+Also fair, and *not* fixed: the enum has five values the system branches on as one predicate;
+`Check.id`/`.order`/`.ext` have no readers; the AIR-2915 story is retold about nine times across
+code and prompts. The review's estimate is that the justified version is ~150 lines against the
+~1,400 here. The trim is worth doing; it is deferred, not dismissed.
+
+**The lesson worth keeping:** a comment that asserts an invariant the code does not enforce is not
+documentation, it is a *lie with a plausible tone* — and here it would have been read as truth by
+every agent on the board. The review was run precisely because I was too close to the change to
+see that, and it found in one pass what I had written four separate defences of.
+
+**Still not done.** The board now refuses unverified work, but nothing yet DECLARES checks or
+RECORDS them, so today every card has an empty contract and the gate is vacuous. Remaining:
+(2) prepare declares the required checks from the task spec's `## How to verify`; (3) workers
+record results with evidence instead of writing prose into the report; (4) the dispatcher's
+builder-only backstop is retired in favour of `blocking_checks()` — it is now a redundant second
+copy of the rule, and the wrong one. The report's `checks` section stays as narrative and is
+documented as gating nothing.
+
 ## 2026-07-14 — The Dashboard, and a change-feed that says something
 
 Second pass on the redesign (the first shipped the board + card detail; the **dashboard was

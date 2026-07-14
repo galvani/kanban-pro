@@ -29,8 +29,18 @@ from mcp.types import ToolAnnotations
 from kanban_pro import core
 from kanban_pro.config import ACTOR_ENV, PROFILE_ENV, build_backend
 from kanban_pro.core.actor_policy import ANONYMOUS_WRITES_EXT_KEY
+from kanban_pro.core.checks import (
+    declare_checks as _declare_checks,
+)
+from kanban_pro.core.checks import (
+    record_check_result as _record_check_result,
+)
+from kanban_pro.core.checks import (
+    retract_check as _retract_check,
+)
 from kanban_pro.core.copy import copy_card as _copy_card
 from kanban_pro.core.presets import PRESETS, build_preset_board
+from kanban_pro.core.verification import CHECK_GATE_EXT_KEY
 from kanban_pro.core.work_report import (
     WORK_REPORT_SCHEMA,
 )
@@ -75,11 +85,32 @@ Working a card:
    is refused. `force=true` overrides but stamps `forced: true` on the event forever —
    it is allowed, it is never silent, and a human will see it.
 
+Verification — CHECKS gate the card; nothing else does:
+- A card's `checks` are its verification contract: what must be proven before it may advance.
+  Whoever specifies the work DECLARES them (`declare_checks`); whoever does the work RECORDS
+  the outcome (`record_check_result(card_id, key, status, evidence)`). You may only record
+  against a key someone declared — you cannot add, rename or drop one. That split is the
+  point: the party being gated does not decide what it is gated on.
+- `status`: `passed` (ran, green) · `failed` (ran, red) · `skipped` (chose not to run it) ·
+  `blocked` (COULD not run it). ONLY `passed` lets a card advance. `evidence` is mandatory —
+  the command and the output you actually observed, or why nobody could run it. A green
+  type-check is not evidence that a page renders.
+- Cannot run a required check? Record it `blocked` with the exact blocker, then
+  `raise_attention` so the engineer can fix the environment. Do NOT run something cheaper
+  and record that instead: a different green check satisfies nothing, and a card that reaches
+  review with its real check unrun ships the bug it was opened for.
+- A CHECKLIST is not a check. Checklists are plain lists of items (subtasks, notes) and gate
+  NOTHING, however many boxes are ticked; `done` on a checklist item is a note about yourself,
+  not evidence. Only `checks` block the flow.
+
 Reporting, and asking:
 - Put your current state in the card's work report via `record_work_report`: `plan`,
   `findings`, `checks`, `verdict`, `handoff`. It is CURRENT TRUTH, not a log — sections
   are upserted by item id. Never rewrite `ext["work_report"]` by hand through
   `update_card`. The next agent reads this, not your transcript.
+- The report's `checks` section is NARRATIVE ONLY — notes for the next reader. It gates
+  nothing and no gate reads it. Verification outcomes go to `record_check_result`, against a
+  declared key; writing a green check into the report proves nothing to anyone.
 - Blocked on a decision you are not entitled to make? Do NOT guess. File it as a
   `questions[]` item in the work report, then `raise_attention(card_id, reason,
   for_actor)`. `for_actor` is any actor — `agent:architect` as readily as `human:jan` —
@@ -297,6 +328,17 @@ async def update_card(card_id: str, patch: CardPatch) -> Card:
             "upserts one section (or item) at a time and merges. update_card is for `assignees` "
             "and for other ext namespaces (ext.session, ext.work)."
         )
+    if patch.checks is not None:
+        # A whole-list replace on the card's verification contract — i.e. the one write that lets
+        # the party being gated delete the gate. Declaring and resolving are separate acts by
+        # separate parties (see core/checks.py); this field exists only so those two can persist
+        # through the adapter, and it is not a caller's to set.
+        raise ToolError(
+            "update_card may not write `checks` — it would REPLACE the card's whole verification "
+            "contract, letting the worker being gated drop the check it is about to fail. Declare "
+            "with declare_checks (the spec's job), record outcomes with record_check_result (the "
+            "worker's job), remove one with retract_check (reasoned + audited)."
+        )
     return await _call((await _get_backend()).update_card(card_id, patch))
 
 
@@ -333,6 +375,76 @@ async def answer_work_report_question(card_id: str, question_id: str, answer: st
     return await _call(
         _answer_work_report_question(await _get_backend(), card_id, question_id, answer)
     )
+
+
+@mcp.tool(annotations=_IDEMPOTENT)
+async def declare_checks(
+    card_id: str,
+    checks: list[dict[str, object]],
+    idempotency_key: str | None = None,
+) -> Card:
+    """Declare what a card must VERIFY before it may advance. The card's verification contract.
+
+    This is the spec's job, not the worker's — whoever writes the task says what proving it
+    means. Each check: `{key, text, required?, checklist_item_id?, order?}`. `key` is the stable
+    name a result is later recorded against ("browser-verify"); `text` says what must be verified.
+    `required` defaults to true (an optional gate is not a gate).
+
+    Upserts by key and is safe to re-run: results already recorded SURVIVE a redeclaration, so
+    refining the contract mid-flight never resets a check somebody ran green. Checks are the ONLY
+    card state that gates the flow — a checklist does not, however many boxes are ticked.
+    """
+    return await _call(
+        _declare_checks(await _get_backend(), card_id, checks, idempotency_key=idempotency_key)
+    )
+
+
+@mcp.tool(annotations=_IDEMPOTENT)
+async def record_check_result(
+    card_id: str,
+    key: str,
+    status: str,
+    evidence: str,
+    idempotency_key: str | None = None,
+) -> Card:
+    """Record what happened when you ran a declared check. `status` + `evidence`, against a `key`.
+
+    status: `passed` (ran, green) · `failed` (ran, red) · `skipped` (chose not to run it) ·
+    `blocked` (COULD not run it — dead env, no container). Only `passed` lets the card advance;
+    the other three leave it gated, which is the point. `blocked` is the honest exit when the
+    environment is dead — pair it with raise_attention and the engineer fixes the env. Do not
+    reach for `skipped` to get moving.
+
+    `evidence` is mandatory: the command and the output you actually observed (for passed/failed),
+    or why nobody could run it (for skipped/blocked). "Type-check passes" is not evidence that a
+    page renders.
+
+    You may only record against a key someone DECLARED. Recording a different, greener check does
+    not satisfy a required one — that is how a card once reached the rebaser with the very bug it
+    was opened for still unverified (AIR-2915). If the contract is wrong, say so; don't route
+    around it.
+    """
+    return await _call(
+        _record_check_result(
+            await _get_backend(),
+            card_id,
+            key,
+            status,
+            evidence,
+            idempotency_key=idempotency_key,
+        )
+    )
+
+
+@mcp.tool(annotations=_DESTRUCTIVE)
+async def retract_check(card_id: str, key: str, reason: str) -> Card:
+    """Remove a declared check from a card. Requires a reason; permanently audited.
+
+    Dropping a gate is the act that most needs to be visible, so it is never a side effect of
+    another write. If you are the one being gated by this check, retracting it is not your call —
+    raise_attention and let the actor who declared it decide.
+    """
+    return await _call(_retract_check(await _get_backend(), card_id, key, reason))
 
 
 @mcp.tool(annotations=_IDEMPOTENT)
@@ -440,6 +552,10 @@ async def init_board(
     """Onboard a NEW board pre-seeded from a preset — columns + a matching workflow, built
     together so they can't drift.
 
+    A board that runs agents almost certainly wants the VERIFICATION GATE on — without it, checks
+    are only a record and nothing stops an unverified card reaching done. It is a separate call:
+    `set_check_gate(board_id, ["<board>:waiting-for-mr", "<board>:done"])`. ASK THE USER.
+
     Presets: 'blank' (no columns, free-roam — build it yourself), 'simple-kanban'
     (todo/doing/done), 'docs' (todo/ready/running/done, no review gate), 'agent-lifecycle'
     (the Hermes swarm lanes).
@@ -488,6 +604,41 @@ async def init_board(
     board = build_preset_board(board_id, name or board_id, preset, id_scheme)
     board.ext = {**(board.ext or {}), ANONYMOUS_WRITES_EXT_KEY: anonymous_writes}
     return await _call(backend.create_board(board))
+
+
+@mcp.tool(annotations=_IDEMPOTENT)
+async def set_check_gate(board_id: str, column_ids: list[str]) -> Board:
+    """Turn the verification gate ON (or off) for a live board — which lanes refuse an
+    unverified card.
+
+    A card may not enter a gated column while any *required* check on it is not `passed` — the move
+    is refused with the failing keys named. `[]` turns the gate off. This is the enforcement that
+    makes `checks` mean something: without it they are only a record.
+
+    Enforced at the BOARD, beside the flow and WIP rules — so no client can route around it, not a
+    worker, not the dispatcher, not a script writing straight to the store. `force=true` on
+    `move_card` still overrides, and stamps `forced: true` on the event forever: an honest escape
+    hatch, never a silent one.
+
+    Choose the lanes deliberately — they encode WHO must have proven WHAT by the time a card gets
+    there. Gating the merge boundary (`waiting-for-mr`, `done`) stops unverified work from shipping;
+    gating `review` as well stops a builder from handing an unproven diff to a reviewer at all, but
+    only makes sense if the builder is the one expected to run every declared check.
+
+    Off by default on every board, because a board whose cards declare no checks would otherwise
+    find its lanes locked for no reason.
+    """
+    backend = await _get_backend()
+    board = await _call(backend.get_board(board_id))
+    known = {c.id for c in board.columns}
+    if unknown := [c for c in column_ids if c not in known]:
+        raise ToolError(
+            f"no such column(s) on board {board_id!r}: {', '.join(unknown)} — "
+            f"known: {', '.join(sorted(known))}"
+        )
+    return await _call(
+        backend.update_board(board_id, BoardPatch(ext={CHECK_GATE_EXT_KEY: list(column_ids)}))
+    )
 
 
 @mcp.tool(annotations=_WRITE)

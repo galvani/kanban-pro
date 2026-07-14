@@ -45,9 +45,14 @@ WORKS:
 - A declarative flow engine: `flows.yaml` names schemes and legal column transitions.
   Agents call `list_transitions` to see their legal moves. `force=true` always works but is
   stamped `forced: true` on the event — overrides are allowed, never silent.
-- Structured work reports: each card carries the agent's plan, findings, checks, verdict,
+- Structured work reports: each card carries the agent's plan, findings, verdict,
   handoff, and open questions — current state, not a log. Humans answer questions with
   `answer_work_report_question`.
+- Checks: a card's verification contract, and the only card state that gates the flow.
+  DECLARED by whoever specifies the work (`declare_checks`), RESOLVED with evidence by
+  whoever does it (`record_check_result`) — the party being gated cannot add, rename or drop
+  what it is gated on. Only `passed` advances a card; `skipped` and `blocked` are honest,
+  recorded, and still gating. (A checklist, by contrast, gates nothing.)
 - Attention flag: an agent that hits a decision only the human can make raises a flag that
   is routed through the change-feed, instead of guessing or dying quietly.
 - Change-feed with cursors: `list_changes` (pull) and `wait_changes` (long-poll, blocks

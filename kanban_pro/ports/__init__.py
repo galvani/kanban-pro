@@ -46,6 +46,7 @@ class Capability(Enum):
     RELATIONS = auto()  # typed card<->card links (see RelationKind)
     SUBTASKS = auto()  # child CARDS via PARENT/CHILD relations (sometimes a field)
     CHECKLISTS = auto()  # lightweight {text, done} items nested on a card (not cards)
+    CHECKS = auto()  # declared+resolved verifications on a card; the only card state that gates
     ATTACHMENTS = auto()  # link-only {url, title} for v1; file uploads deferred
     ARCHIVE = auto()  # soft archive/unarchive; polyfilled as a flag where absent
     WIP_LIMITS = auto()  # server-enforced only in Vikunja (+ kanban-pro native)

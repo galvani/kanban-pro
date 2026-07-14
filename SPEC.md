@@ -63,16 +63,29 @@ The minimum a kanban needs, kept deliberately small and backend-neutral:
 - **Card** — `id`, `title`, `description`, **`priority`** (0–10, higher = more urgent;
   0 = unprioritised, the default — it orders the work queue *within* a category tier and
   never across it), `labels[]`, `assignees[]` (User ids),
-  `start_date?`, `due_date?` (both nullable), `checklists[]`, `attachments[]`,
+  `start_date?`, `due_date?` (both nullable), `checklists[]`, **`checks[]`**, `attachments[]`,
   `archived` (bool — archive-first, decision 7), `created_at`, `updated_at`, `ext` (see
   passthrough), and **`placements[]`** — a set of
   `{board_id, column_id, position}` entries locating the card. A card lives on ≥1
   board, each with its own column + ordering; single-board backends and the native
   store use exactly one placement (see decision below).
+- **Check** (nested on Card) — **`key`** (the join name; unique per card, no separate `id`),
+  `text`, `required` (default true), `status` ∈ `pending|passed|failed|skipped|blocked`,
+  `evidence?`, `checklist_item_id?`. The card's **verification contract, and the only card state
+  that gates the flow.** Split in two on purpose: **declared** by whoever specifies the work
+  (`declare_checks`) and **resolved**, with evidence, by whoever does it (`record_check_result`).
+  The party being gated cannot add, rename or drop what it is gated on — **enforced**, not asked
+  for: whoever holds the card's claim is refused `declare_checks`/`retract_check` outright. Only
+  `passed` satisfies a required check; `skipped` ("chose not to") and `blocked` ("could not") are
+  honest, recorded, and still gating. Gated by the `CHECKS` capability (a backend that cannot store
+  checks raises `NotSupported` rather than silently dropping the contract).
 - **Checklist** (nested on Card, not a board entity) — `id`, `title`,
-  `items[]` where each item is `{id, text, done, order}`. Lightweight "definition of
-  done" — items are NOT cards (no column/assignee/placement). Gated by the `CHECKLISTS`
-  capability; polyfills via write-through for backends without native checklists.
+  `items[]` where each item is `{id, text, done, order}`. A plain list of items (subtasks, notes,
+  acceptance criteria) — items are NOT cards (no column/assignee/placement). **Gates nothing**,
+  however many boxes are ticked: `done` is a note the ticker wrote about itself, not evidence.
+  Verification that blocks a card is a **Check** (above), which may reference a checklist item via
+  `checklist_item_id`. Gated by the `CHECKLISTS` capability; polyfills via write-through for
+  backends without native checklists.
   *(Subtasks — child **cards** — are modeled separately as `PARENT`/`CHILD` relations,
   not checklists.)*
 - **Attachment** (nested on Card) — `id`, `url`, `title`. **Link-only** for v1 (a

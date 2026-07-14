@@ -20,8 +20,20 @@ Load `kanban://work-report-schema` when you need the exact field shape.
 - `plan[]` — planned/current steps, with status.
 - `needs[]` — required input, access, tool, decision, or unblocker.
 - `analysis_log[]` — bounded milestones only, not every thought or edit.
-- `checks[]` — verification/review gates and their result. Each item is ONE gate
-  (tests, lint, review, browser-verify…) with its own outcome.
+- `checks[]` — **NARRATIVE ONLY. Not the verification gate; no gate reads it.** Notes for the
+  next human reader about what you ran. A green item here proves nothing and advances nothing.
+
+  **Real verification lives on the CARD:** `card.checks[]` is the verification contract —
+  declared by whoever specified the work (`declare_checks`), resolved by whoever does it
+  (`record_check_result(card_id, key, status, evidence)`), and enforced BY THE BOARD, which
+  refuses to move a card into a gated lane while a required check has not `passed`. You may
+  only record against a key someone else declared.
+
+  *Why the split exists:* this section used to BE the gate, and it was written by the very
+  worker being gated. On AIR-2915 (2026-07-14) the required browser check went out unrun and a
+  cheaper one — an SSR `curl` returning HTTP 200 — was added under a new id, so the report read
+  green and the card reached the rebaser with the hydration bug it was opened for still live.
+  Nobody lied; the report simply had no notion of a check that was REQUIRED.
 - `verdict` — **a section of its own**: the single, overall call on the work. NOT a field
   inside a `checks[]` item, and NOT `handoff.outcome` — those are different things and do
   not satisfy it. One object, e.g.

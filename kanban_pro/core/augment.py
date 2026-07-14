@@ -34,6 +34,7 @@ from kanban_pro.core.flow import (
     modeled_columns,
     parse_inline_flow,
 )
+from kanban_pro.core.verification import blocking_checks, check_gated_columns
 from kanban_pro.domain import (
     Board,
     BoardFlow,
@@ -397,6 +398,8 @@ class AugmentingBackend:
     async def create_card(self, card: Card, *, overwrite: bool = False) -> Card:
         for placement in card.placements:
             await self._check_wip(placement.board_id, placement.column_id, card.id)
+            # ...and a card must not be BORN in one either
+            await self._check_new_card_verified(card, placement.board_id, placement.column_id)
         if not self._ext_polyfilled() or not card.ext:
             return await self._with_ext(await self._adapter.create_card(card, overwrite=overwrite))
         # The adapter can't hold ext, so don't hand it any — it would drop it silently (or, on
@@ -448,15 +451,75 @@ class AugmentingBackend:
         *,
         force: bool = False,
     ) -> Card:
-        # force (Jan): a deliberate override skips flow + WIP validation. It is never
+        # force (Jan): a deliberate override skips flow + WIP + checks validation. It is never
         # silent — the recording layer flags the event, so a forced move is auditable.
         if not force:
             await self._check_flow(card_id, to_board_id, to_column_id)
             await self._check_wip(to_board_id, to_column_id, card_id)
+            await self._check_verified(card_id, to_board_id, to_column_id)
         return await self._adapter.move_card(card_id, to_board_id, to_column_id, position)
+
+    async def _check_verified(self, card_id: str, to_board_id: str, to_column_id: str) -> None:
+        """Refuse a move INTO a check-gated column while a required check has not passed.
+
+        Enforced HERE — beside flow and WIP — and not in the dispatcher, because a gate that lives
+        in one consumer is only as good as that consumer's coverage; the dispatcher's own backstop
+        was correct and still let AIR-2915 through by exempting a role nobody remembered. A board
+        rule cannot be sidestepped by an actor, a script, or a future runtime.
+
+        Off by default (empty `check_gated_columns` ⇒ no gate). `force=true` overrides and stamps
+        `forced: true` on the event forever — the honest escape hatch. An EMPTY contract is refused
+        too: see `_refuse_unverified`. Rationale: JOURNAL 2026-07-14.
+        """
+        board = await self._adapter.get_board(to_board_id)
+        if to_column_id not in check_gated_columns(board):
+            return
+        card = await self.get_card(card_id)
+        placement = next((p for p in card.placements if p.board_id == to_board_id), None)
+        if placement is not None and placement.column_id == to_column_id:
+            return  # repositioning within the lane is not an entry
+        self._refuse_unverified(card, board, to_column_id)
+
+    async def _check_new_card_verified(self, card: Card, board_id: str, column_id: str) -> None:
+        """Same rule, for a card that does not exist yet (`create_card`) — it has no stored state,
+        so the check runs against the card object being created."""
+        board = await self._adapter.get_board(board_id)
+        if column_id not in check_gated_columns(board):
+            return
+        self._refuse_unverified(card, board, column_id)
+
+    def _refuse_unverified(self, card: Card, board: Board, column_id: str) -> None:
+        """The refusal — ONE definition, shared by every way into a gated lane.
+
+        An empty contract is refused as firmly as a failing one: a card nobody declared checks for
+        is not proven, it is unspecified, and after the fact the two are indistinguishable.
+        """
+        lane = next((c.name for c in board.columns if c.id == column_id), column_id)
+
+        if not card.checks:
+            raise Conflict(
+                f"{lane!r} is check-gated and this card has NO checks declared — it is not"
+                " verified, it is unspecified, and nobody can tell those apart after the fact."
+                " Declare what proving this card means (declare_checks), or, if it genuinely needs"
+                " no verification, say so on the record with a `required: false` check. force=true"
+                " overrides, and names you in the log forever."
+            )
+        if not (blocking := blocking_checks(card)):
+            return
+        detail = ", ".join(f"{c.key}={c.status.value}" for c in blocking)
+        raise Conflict(
+            f"{lane!r} is check-gated and {len(blocking)} required check(s) have not passed: "
+            f"{detail}. Only `passed` advances a card — record the real outcome with "
+            "record_check_result(card_id, key, status, evidence). If a check CANNOT be run, record "
+            "it `blocked` with the exact blocker and raise_attention; do not run something cheaper "
+            "and record that instead. force=true overrides this, and says so in the log forever."
+        )
 
     async def add_placement(self, card_id: str, placement: Placement) -> Card:
         await self._check_wip(placement.board_id, placement.column_id, card_id)
+        # every way IN is gated, not just move_card: otherwise park a placement in `done` directly
+        # (or swap the gated one out and back) — legal calls, no `forced: true`, no trace.
+        await self._check_verified(card_id, placement.board_id, placement.column_id)
         return await self._adapter.add_placement(card_id, placement)
 
     async def remove_placement(self, card_id: str, board_id: str) -> Card:

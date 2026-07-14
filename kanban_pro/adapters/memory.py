@@ -53,6 +53,7 @@ class MemoryBackend:
             Capability.RELATIONS,
             Capability.SUBTASKS,
             Capability.CHECKLISTS,
+            Capability.CHECKS,
             Capability.ATTACHMENTS,
             Capability.ARCHIVE,
             Capability.MULTI_BOARD_MEMBERSHIP,

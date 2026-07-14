@@ -86,7 +86,11 @@ PRESETS: tuple[str, ...] = tuple(_COLUMNS)
 def build_preset_board(
     board_id: str, name: str, preset: str, id_scheme: str | None = None
 ) -> Board:
-    """Materialise a preset into a Board (columns + flow), ids namespaced by board_id."""
+    """Materialise a preset into a Board (columns + flow), ids namespaced by board_id.
+
+    The verification gate is NOT set here: it is one list in `board.ext`, and `set_check_gate`
+    already writes it. A preset knob for it would be a second way to say the same thing.
+    """
     if preset not in _COLUMNS:
         raise ValueError(f"unknown preset {preset!r} (known: {', '.join(PRESETS)})")
     columns = [

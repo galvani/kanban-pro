@@ -470,7 +470,7 @@ interface can bypass the guards or the audit trail. Directory layout:
 
 **Working today:** the canonical model and port, three adapters behind one contract
 suite, the augmenting layer (WIP enforcement, comments/relations polyfill, honest
-capability reporting), the MCP server (41 tools + 9 resources), actor identity + the
+capability reporting), the MCP server (46 tools + 9 resources), actor identity + the
 append-only change-log with both the `list_changes` pull feed and the `wait_changes`
 long-poll, the flow engine (per-board flow, inline per-card flows, free-roam, audited
 force), structured work reports with human-answerable questions, the push-fed web UI

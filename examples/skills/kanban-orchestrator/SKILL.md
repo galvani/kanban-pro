@@ -24,6 +24,35 @@ yourself implementing, stop and create a card instead.
 4. Place cards in a backlog/ready column (`list_columns` shows categories); set
    assignees only when you know who should pull it — unassigned cards appear in every
    worker's `list_work`.
+5. **Declare the card's checks** — `declare_checks(card_id, [{key, text}, …])`: what must be
+   PROVEN before this card may advance. This is your job precisely because it cannot be the
+   worker's: a worker that decides its own definition of done will, under pressure, discover a
+   cheaper one. See *Declaring checks* below.
+
+## Declaring checks — what "done" means, decided before the work starts
+
+`checks[]` are a card's verification contract, and the **only** card state that gates the flow.
+You declare them; the worker records outcomes with evidence; only `passed` advances the card.
+
+```
+declare_checks(card_id, [
+  {"key": "static",         "text": "make check-frontend (prettier, lint, typecheck, build)"},
+  {"key": "browser-verify", "text": "load /hotel/<slug>: console clean, no hydration warning"},
+])
+```
+
+- **Name what would actually catch the bug**, not what is easy to run. If the card is about
+  something a user sees, the check is a render — a green type-check proves nothing about a page.
+  A contract full of cheap checks is a contract that passes while the bug ships.
+- `required` defaults to true. Set `required: false` only for genuinely informational checks —
+  an optional gate is not a gate.
+- **Redeclaring is safe:** `declare_checks` upserts by `key` and recorded results survive, so you
+  can refine the contract while work is in flight without resetting a check somebody ran green.
+- A worker may only record against a key you declared, and cannot drop one. If a worker argues a
+  check is wrong, it must `raise_attention` — that is your decision to make, not theirs.
+  `retract_check(card_id, key, reason)` is how you remove one; it names you in the log forever.
+- **A checklist is not a check.** Checklist items are tick-boxes and gate nothing. If it must be
+  true before the card moves, it is a check.
 
 ## Setting up a board's workflow
 
@@ -105,6 +134,7 @@ column id. You administer it — workers only follow it.
 - `create_board(board, idempotency_key?)` — Create a board. Omit `id` to have one generated; columns/labels may be inlined.
 - `create_card(card, idempotency_key?)` — Create a card. `placements` must have >=1 entry (board_id, column_id, position).
 - `create_column(board_id, column, idempotency_key?)` — Add a column to a board. `category` gives it portable semantics (e.g. 'done').
+- `declare_checks(card_id, checks, idempotency_key?)` — Declare what a card must VERIFY before it may advance. The card's verification contract.
 - `delete_board(board_id)` — Delete a board permanently. Refused while live cards remain — move/archive first.
 - `delete_card(card_id)` — Permanently purge a card. Only allowed on an ARCHIVED card — archive_card first.
 - `delete_column(column_id)` — Delete a column permanently. Refused while live cards sit in it — move/archive first.
@@ -125,9 +155,12 @@ column id. You administer it — workers only follow it.
 - `list_work(assignee?, include_unassigned?)` — What should I work on? Workable cards for `assignee` (default: YOU, this
 - `move_card(card_id, to_board_id, to_column_id, position?, force?)` — Move a card within a board it's already on (re-column / re-position).
 - `raise_attention(card_id, reason, for_actor?, severity?)` — Flag a card as needing a decision or input (e.g. a question only a human or a
+- `record_check_result(card_id, key, status, evidence, idempotency_key?)` — Record what happened when you ran a declared check. `status` + `evidence`, against a `key`.
 - `record_work_report(card_id, section, item, op?, idempotency_key?)` — Update one structured work_report section/item on a card.
 - `release_claim(card_id, owner?)` — Release your lease (done or giving up). `owner` overrides the actor
 - `remove_placement(card_id, board_id)` — Take a card off one board (its other placements stay). The last placement can't
+- `retract_check(card_id, key, reason)` — Remove a declared check from a card. Requires a reason; permanently audited.
+- `set_check_gate(board_id, column_ids)` — Turn the verification gate ON (or off) for a live board — which lanes refuse an
 - `set_flow(board_id, transitions)` — Replace a board's whole workflow. `transitions` maps a from-column id to the list
 - `set_transitions(board_id, from_column_id, to_column_ids)` — Set the out-edges for ONE lane, leaving the rest of the board's flow untouched.
 - `unarchive_card(card_id)` — Restore an archived card.

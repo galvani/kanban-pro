@@ -12,6 +12,7 @@ Enums here are the data vocabulary (ColumnCategory, RelationKind). Capability/Fu
 
 from __future__ import annotations
 
+from copy import deepcopy
 from datetime import datetime
 from enum import StrEnum
 from typing import Annotated, Any
@@ -70,6 +71,43 @@ class RelationKind(StrEnum):
     FOLLOWS = "follows"
 
 
+class CheckStatus(StrEnum):
+    """Outcome of one Check. Only PASSED ever supports an advance.
+
+    The gate branches on PASSED alone, but the other four are not decoration: they are what the
+    next reader acts on. `blocked` ("I could not run it") sends the engineer to fix an environment;
+    `skipped` ("I chose not to") is a decision someone must defend. A boolean collapses both into
+    "not ticked", indistinguishable from "verified broken" — which is the bug this entity exists
+    to prevent. See JOURNAL 2026-07-14.
+    """
+
+    PENDING = "pending"  # declared, not yet attempted — the default
+    PASSED = "passed"  # ran, green, evidence recorded
+    FAILED = "failed"  # ran, red
+    SKIPPED = "skipped"  # deliberately not run
+    BLOCKED = "blocked"  # could not be run (no env, dead container) — an ASK, not a pass
+
+
+class Check(BaseModel):
+    """One verification a card must satisfy — the only card state that gates the flow.
+
+    DECLARED by whoever specifies the work, RESOLVED by whoever does it. Two writes, two parties:
+    the party being gated does not decide what it is gated on. A Checklist, by contrast, gates
+    nothing — it may be *referenced* here via `checklist_item_id`, but the blocking lives on the
+    Check. Rationale + the incident that produced it: JOURNAL 2026-07-14.
+    """
+
+    #: The join key ("browser-verify"). Unique per card; a result is recorded against THIS, so a
+    #: cheaper check under a new name cannot satisfy a required one. There is no separate `id`:
+    #: the key already identifies the check, and a second identifier is a second thing to drift.
+    key: str
+    text: str  # what must be verified, in words, for whoever has to run it
+    required: bool = True  # False = informational: recorded, surfaced, never gating
+    status: CheckStatus = CheckStatus.PENDING
+    evidence: str | None = None  # the command + the observed output; mandatory on any result
+    checklist_item_id: str | None = None  # the Checklist item this Check verifies, if any
+
+
 class User(BaseModel):
     """Minimal person. `ext` holds backend-specific keys (Jira accountId, GitHub login…)
     since backends key users differently. Referenced by Card.assignees + Comment.author.
@@ -89,7 +127,12 @@ class Label(BaseModel):
 
 
 class ChecklistItem(BaseModel):
-    """One line in a Checklist — NOT a card (no column/assignee/placement)."""
+    """One line in a Checklist — NOT a card (no column/assignee/placement).
+
+    `done` is a NOTE, not evidence. Nobody is gated on it: it says a person or an agent ticked
+    a box, which is a claim about itself. Verification that actually blocks a card is a Check
+    (above), whose status is recorded against a key someone else declared.
+    """
 
     id: str = Field(default_factory=_new_id)
     text: str
@@ -98,7 +141,15 @@ class ChecklistItem(BaseModel):
 
 
 class Checklist(BaseModel):
-    """Lightweight "definition of done" nested on a Card (SPEC Q4)."""
+    """A plain list of items attached to a Card (SPEC Q4) — subtasks, notes, acceptance criteria.
+
+    General-purpose and NON-BLOCKING by nature: a checklist gates nothing, no matter how many
+    items are unticked. It becomes flow-relevant only where a Check references one of its items
+    (`Check.checklist_item_id`), and even then it is the Check that blocks, not the checklist.
+
+    (Was described as a "definition of done", which invited exactly the wrong reading — that
+    ticking the boxes meant the card was verified.)
+    """
 
     id: str = Field(default_factory=_new_id)
     title: str
@@ -153,7 +204,12 @@ class Card(BaseModel):
     assignees: list[str] = Field(default_factory=list)  # User ids
     start_date: datetime | None = None
     due_date: datetime | None = None
-    checklists: list[Checklist] = Field(default_factory=list)
+    checklists: list[Checklist] = Field(default_factory=list)  # plain lists — never block flow
+    #: The card's verification contract — the ONLY card state that gates the flow. Declared by
+    #: whoever specifies the work, resolved by whoever does it, read by the dispatcher gate.
+    #: Written ONLY through core/checks.py (declare_checks / record_check_result), never as a
+    #: whole-list `update_card` patch — see the guard in mcp.update_card.
+    checks: list[Check] = Field(default_factory=list)
     attachments: list[Attachment] = Field(default_factory=list)
     placements: list[Placement] = Field(default_factory=list)
     archived: bool = False  # archive-first deletion (SPEC decision 7)
@@ -231,8 +287,19 @@ def apply_patch[M: BaseModel](entity: M, patch: BaseModel) -> M:
 
     `ext` shallow-merges: patch keys overwrite/add, a key set to None is removed
     (None values never persist in ext). `ext: null` for the whole dict = untouched.
+
+    Values are taken as the LIVE attributes (via `model_fields_set`), not `model_dump()`.
+    `model_copy(update=...)` does not re-validate, so a dumped value is whatever the entity
+    ends up holding — and for a model-typed field (`CardPatch.checks: list[Check]`) that means
+    the entity silently keeps a list of plain dicts, which then blows up at the first attribute
+    access. Scalars are unaffected; the dump was only ever incidental for them.
+
+    They are also DEEP-COPIED. `model_copy` does not copy mutable values either, so the entity
+    would otherwise hold a reference to the caller's list: mutating the patch afterwards would
+    silently mutate the stored card. That applies to every list/dict field, not just `checks`
+    (caught by adversarial review, 2026-07-14).
     """
-    data = patch.model_dump(exclude_unset=True)
+    data = {name: deepcopy(getattr(patch, name)) for name in patch.model_fields_set}
     ext_patch = data.pop("ext", None)
     if ext_patch is not None:
         merged = {**getattr(entity, "ext", {}), **ext_patch}
@@ -263,6 +330,12 @@ class CardPatch(BaseModel):
     assignees: list[str] | None = None
     start_date: datetime | None = None
     due_date: datetime | None = None
+    #: Whole-list REPLACE, and the persistence path for core/checks.py alone. It is on the patch
+    #: because every adapter already persists a patched Card, not because callers should set it:
+    #: a replace lets the gated party wipe the checks it is gated on, so the MCP `update_card`
+    #: refuses this field (same reasoning as the ext.work_report guard). Use declare_checks /
+    #: record_check_result, which read-modify-write and emit their own audit events.
+    checks: list[Check] | None = None
     ext: dict[str, Any] | None = None
 
 
@@ -271,6 +344,8 @@ __all__ = [
     "RelationKind",
     "User",
     "Label",
+    "CheckStatus",
+    "Check",
     "ChecklistItem",
     "Checklist",
     "Attachment",

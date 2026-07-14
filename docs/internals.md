@@ -17,7 +17,7 @@ Every interface calls `core/`. Nothing calls an adapter directly. That is what m
 guards and the audit trail unbypassable.
 
 ```
-mcp/  ──┐                            (41 tools + 9 kanban:// resources)
+mcp/  ──┐                            (46 tools + 9 kanban:// resources)
 api/  ──┼──▶  ActorPolicyBackend     outermost: an unidentified connection may read,
 cli/  ──┘         │                  but its writes are refused (default-deny)
  (🔜)             ▼
@@ -143,7 +143,7 @@ process* (a different harness, the UI, the dispatcher) never fires this process'
 `wait_since` caps each internal wait at `min(2.0, remaining)` and re-queries. That is the
 entire explanation for the "~2s for foreign writes" you see in the docs.
 
-**The 23 event kinds** — this is the complete set a consumer can ever see:
+**The 26 event kinds** — this is the complete set a consumer can ever see:
 
 ```
 board.created  board.updated  board.deleted
@@ -155,7 +155,13 @@ comment.added  comment.deleted
 relation.added relation.deleted
 attention.raised attention.cleared
 work_report.updated
+check.declared check.resolved check.retracted
 ```
+
+The three `check.*` kinds are the audit trail of the verification contract (`core/checks.py`):
+who said what must be proven, who claimed to have proven it and with what evidence, and — the
+one that matters most — **who dropped a gate**. `check.retracted` carries the reason and names
+the actor forever, which is the deterrent that survives an agent talking itself into anything.
 
 ---
 

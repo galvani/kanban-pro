@@ -25,7 +25,7 @@ kanban_pro/
   adapters/   # one module per backend, each implements the port
   core/       # the one service: augmenting dispatch (adapter + overlay), dedupe,
               # change-log, flow engine, work reports
-  mcp/        # MCP server (PRIMARY interface) — 41 tools + 9 resources
+  mcp/        # MCP server (PRIMARY interface) — 46 tools + 9 resources
   api/        # FastAPI: serves the web UI (snapshot + SSE + card detail). Secondary.
   migrate.py  # kanban-pro-migrate — copy any profile into any other
   config.py   # profile selection + per-profile settings

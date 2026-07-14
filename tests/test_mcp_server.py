@@ -17,7 +17,7 @@ import kanban_pro.mcp as kmcp
 from kanban_pro.adapters.memory import MemoryBackend
 from kanban_pro.core import AugmentingBackend, ChangeLog, RecordingBackend
 from kanban_pro.core.work_report import WORK_REPORT_VERSION
-from kanban_pro.domain import Board, Card, CardPatch, Column, Placement
+from kanban_pro.domain import Board, Card, CardPatch, CheckStatus, Column, Placement
 
 
 @pytest.fixture(autouse=True)
@@ -46,13 +46,14 @@ def test_tools_registered_match_methods_doc() -> None:
         "list_boards", "get_board", "create_board", "update_board", "delete_board",
         "list_columns", "create_column", "update_column", "delete_column",
         "list_cards", "get_card", "create_card", "update_card", "move_card",
+        "declare_checks", "record_check_result", "retract_check",
         "record_work_report", "answer_work_report_question",
         "add_placement", "copy_card", "remove_placement",
         "archive_card", "unarchive_card", "delete_card",
         "list_comments", "add_comment", "delete_comment",
         "list_relations", "add_relation", "delete_relation",
         "list_changes", "list_transitions", "list_flows",
-        "set_flow", "set_transitions", "clear_flow", "init_board",
+        "set_flow", "set_transitions", "clear_flow", "init_board", "set_check_gate",
         "list_work", "claim_card", "heartbeat_claim", "release_claim",
         "raise_attention", "clear_attention", "wait_changes",
     }  # fmt: skip
@@ -157,6 +158,42 @@ async def _record_work_report_updates_current_state_and_changelog() -> None:
 
 def test_record_work_report_updates_current_state_and_changelog() -> None:
     asyncio.run(_record_work_report_updates_current_state_and_changelog())
+
+
+async def _update_card_may_not_replace_the_checks_contract() -> None:
+    """The escape hatch that would undo the whole design: a worker patching its gate away."""
+    _, card = await _make_board_with_card()
+    await kmcp.declare_checks(card.id, [{"key": "browser-verify", "text": "render the page"}])
+
+    with pytest.raises(ToolError, match="declare_checks"):
+        await kmcp.update_card(card.id, CardPatch(checks=[]))
+
+    still_there = await kmcp.get_card(card.id)
+    assert [c.key for c in still_there.checks] == ["browser-verify"]
+
+
+def test_update_card_may_not_replace_the_checks_contract() -> None:
+    asyncio.run(_update_card_may_not_replace_the_checks_contract())
+
+
+async def _checks_gate_survives_the_mcp_surface() -> None:
+    _, card = await _make_board_with_card()
+    await kmcp.declare_checks(card.id, [{"key": "browser-verify", "text": "render the page"}])
+
+    # the AIR-2915 move: record a cheaper, greener check instead of the one that was asked for
+    with pytest.raises(ToolError, match="ssr-render"):
+        await kmcp.record_check_result(card.id, "ssr-render", "passed", "curl -> HTTP 200")
+
+    await kmcp.record_check_result(card.id, "browser-verify", "blocked", "no dev server in CI")
+    (check,) = (await kmcp.get_card(card.id)).checks
+    assert check.status is CheckStatus.BLOCKED  # honest, and still gated — not a pass
+
+    await kmcp.record_check_result(card.id, "browser-verify", "passed", "no hydration warning")
+    assert [c.status for c in (await kmcp.get_card(card.id)).checks] == [CheckStatus.PASSED]
+
+
+def test_checks_gate_survives_the_mcp_surface() -> None:
+    asyncio.run(_checks_gate_survives_the_mcp_surface())
 
 
 async def _answer_work_report_question_mirrors_comment() -> None:

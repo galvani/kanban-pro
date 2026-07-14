@@ -8,8 +8,11 @@ from kanban_pro.domain import (
     Attachment,
     Board,
     Card,
+    CardPatch,
+    Check,
     Checklist,
     ChecklistItem,
+    CheckStatus,
     Column,
     ColumnCategory,
     Comment,
@@ -18,6 +21,7 @@ from kanban_pro.domain import (
     Relation,
     RelationKind,
     User,
+    apply_patch,
 )
 
 
@@ -91,3 +95,21 @@ def test_relation_kinds_are_inverse_paired() -> None:
 def test_comment_author_is_user_id() -> None:
     c = Comment(card_id="card-1", author="user-1", body="looks good")
     assert c.author == "user-1"
+
+
+def test_apply_patch_does_not_alias_the_callers_mutable_values() -> None:
+    """`model_copy(update=...)` copies neither values nor types, so the entity would otherwise hold
+    a REFERENCE to the patch's list — mutate the patch afterwards and you mutate the stored card.
+
+    This applies to every list/dict field, not just `checks`. It was shipped unnoticed because the
+    suite was green, which is exactly what an adversarial reviewer said it would prove: nothing.
+    """
+    checks = [Check(key="static", text="tests")]
+    card = apply_patch(Card(title="c"), CardPatch(checks=checks))
+
+    checks.append(Check(key="smuggled", text="added AFTER the patch was applied"))
+    checks[0].status = CheckStatus.PASSED
+
+    assert [c.key for c in card.checks] == ["static"]  # the card did not grow a check
+    assert card.checks[0].status is CheckStatus.PENDING  # nor did its result change
+    assert isinstance(card.checks[0], Check)  # and it is a Check, not a dict (no re-validation)
