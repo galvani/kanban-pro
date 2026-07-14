@@ -47,7 +47,8 @@ def normalise(plan: list[Any]) -> list[dict[str, Any]] | None:
     changed = False
     for i, raw in enumerate(plan):
         if not isinstance(raw, dict):  # a bare string in the list
-            out.append({"id": f"p{i + 1}", "text": _LEADING_NUMBER.sub("", str(raw)), "status": "todo"})
+            text = _LEADING_NUMBER.sub("", str(raw))
+            out.append({"id": f"p{i + 1}", "text": text, "status": "todo"})
             changed = True
             continue
         steps = raw.get("steps")
@@ -109,7 +110,9 @@ async def main(apply: bool) -> None:
             new_ids = {i["id"] for i in fixed}
             for old in old_ids:
                 if old not in new_ids:  # an id we are not reusing
-                    await record_work_report(be, card.id, section="plan", item={"id": old}, op="remove")
+                    await record_work_report(
+                        be, card.id, section="plan", item={"id": old}, op="remove"
+                    )
             for item in fixed:
                 await record_work_report(be, card.id, section="plan", item=item, op="upsert")
 
